@@ -1,0 +1,360 @@
+/* Azure Mind admin — full-width teal shell, two-column cards */
+
+.root {
+  min-height: 100vh;
+  background: #e8f2f1;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #1a1a1a;
+}
+
+.header {
+  background: linear-gradient(135deg, #1f6f6b 0%, #2f8f8b 55%, #25867f 100%);
+  color: #fff;
+  padding: 18px 24px 20px;
+  box-shadow: 0 4px 16px rgba(31, 111, 107, 0.35);
+  border-bottom: 3px solid #165e5a;
+}
+
+.headerInner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.headerSubtitle {
+  margin: 8px 0 0;
+  opacity: 0.94;
+  font-size: 0.95rem;
+  font-weight: 400;
+  max-width: 52ch;
+}
+
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 56px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.leftStack,
+.rightStack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+@media (max-width: 960px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #c5e4e1;
+  box-shadow:
+    0 4px 18px rgba(31, 111, 107, 0.1),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 20px 22px;
+}
+
+.cardTitle {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  color: #1f6f6b;
+  font-weight: 700;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #b8ddd9;
+}
+
+.internalCard {
+  background: #f4faf9;
+  border: 1px dashed #2f8f8b;
+  box-shadow: none;
+}
+
+.input {
+  width: 100%;
+  padding: 11px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px solid #c8d9d7;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: 2px solid #2f8f8b;
+  outline-offset: 1px;
+  border-color: #2f8f8b;
+}
+
+.templateRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 22px;
+  margin-top: 4px;
+}
+
+.radioLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.radioLabel input {
+  accent-color: #1f6f6b;
+  width: 18px;
+  height: 18px;
+}
+
+.validationBanner {
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fdeaea;
+  color: #8b1010;
+  font-size: 14px;
+  border: 1px solid #f0c4c4;
+}
+
+.actionsColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.btnPrimary {
+  width: 100%;
+  padding: 13px 16px;
+  background: #1f6f6b;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(31, 111, 107, 0.25);
+}
+
+.btnPrimary:hover {
+  background: #1a5f5b;
+}
+
+.btnSecondary {
+  width: 100%;
+  padding: 13px 16px;
+  background: #2f8f8b;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(47, 143, 139, 0.28);
+}
+
+.btnSecondary:hover {
+  background: #298783;
+}
+
+.btnOutline {
+  width: 100%;
+  padding: 13px 16px;
+  background: #fff;
+  color: #1f6f6b;
+  border: 1px solid #9cc9c5;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnOutline:hover {
+  background: #f0faf9;
+  border-color: #2f8f8b;
+}
+
+.previewLabel {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f6f6b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.previewTextarea {
+  width: 100%;
+  padding: 11px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px solid #c8d9d7;
+  font-size: 15px;
+  box-sizing: border-box;
+  min-height: 160px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.45;
+}
+
+.previewTextarea:focus {
+  outline: 2px solid #2f8f8b;
+  outline-offset: 1px;
+  border-color: #2f8f8b;
+}
+
+.previewToolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 420px) {
+  .previewToolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.feedback {
+  font-size: 13px;
+  color: #3d5c59;
+  margin: 6px 0 0;
+  min-height: 1.2em;
+}
+
+.sentSection {
+  margin-top: 28px;
+}
+
+.sentToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.btnToolbar {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #9cc9c5;
+  background: #fff;
+  color: #1f6f6b;
+}
+
+.btnToolbar:hover {
+  background: #eef8f7;
+}
+
+.btnToolbarPrimary {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #1f6f6b;
+  background: #1f6f6b;
+  color: #fff;
+}
+
+.btnToolbarPrimary:hover {
+  background: #1a5f5b;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #d4e8e6;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: #fff;
+}
+
+.th {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 2px solid #1f6f6b;
+  color: #1f6f6b;
+  white-space: nowrap;
+  font-weight: 700;
+  background: #f0faf9;
+}
+
+.td {
+  padding: 8px;
+  border-bottom: 1px solid #e8efee;
+  vertical-align: top;
+}
+
+.bottomBar {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.pinRoot {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8f2f1;
+  padding: 24px;
+}
+
+.pinCard {
+  max-width: 440px;
+  width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #c5e4e1;
+  box-shadow: 0 8px 28px rgba(31, 111, 107, 0.15);
+  padding: 28px 24px;
+}
+
+.pinBrand {
+  color: #1f6f6b;
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.pinHint {
+  margin: 0 0 16px;
+  color: #444;
+  font-size: 15px;
+}
+
+.emptySent {
+  font-size: 14px;
+  color: #5a6f6d;
+  padding: 12px 0;
+}
