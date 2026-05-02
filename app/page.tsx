@@ -1,36 +1,924 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import type { CSSProperties, FormEvent } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-const MARKUP_HTML = "<style>\n  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }\n\n  body {\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;\n    background: #F4F7F7;\n    color: #173234;\n    min-height: 100vh;\n  }\n\n  .header {\n    background: #0E5F63;\n    padding: 18px 24px;\n    display: flex; align-items: center; gap: 14px;\n    box-shadow: 0 2px 8px rgba(14,95,99,0.18);\n  }\n  .header-logo {\n    width: 38px; height: 38px;\n    background: rgba(255,255,255,0.18);\n    border-radius: 10px;\n    display: flex; align-items: center; justify-content: center;\n    font-size: 20px; font-weight: 700; color: #fff;\n    letter-spacing: -1px; flex-shrink: 0;\n  }\n  .header-title { color: #fff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }\n  .header-sub   { color: rgba(255,255,255,0.65); font-size: 12px; margin-top: 2px; }\n  .header-badge {\n    margin-left: auto;\n    background: rgba(255,255,255,0.12);\n    border: 1px solid rgba(255,255,255,0.2);\n    color: rgba(255,255,255,0.8);\n    font-size: 11px; padding: 4px 10px;\n    border-radius: 20px; white-space: nowrap;\n  }\n\n  .page-wrap {\n    max-width: 1120px;\n    margin: 0 auto;\n    padding: 28px 20px 60px;\n    display: grid;\n    grid-template-columns: 440px 1fr;\n    gap: 24px;\n    align-items: start;\n  }\n  @media (max-width: 860px) {\n    .page-wrap { grid-template-columns: 1fr; padding: 18px 14px 50px; gap: 18px; }\n  }\n\n  /* CARDS */\n  .card {\n    background: #fff;\n    border-radius: 14px;\n    border: 1px solid #D9E5E5;\n    box-shadow: 0 1px 4px rgba(14,95,99,0.06), 0 4px 16px rgba(14,95,99,0.04);\n    overflow: hidden;\n    margin-bottom: 20px;\n  }\n  .card:last-child { margin-bottom: 0; }\n  .card-header {\n    padding: 16px 20px 14px;\n    border-bottom: 1px solid #E3F0F1;\n    background: #F8FBFB;\n  }\n  .card-header h2 {\n    font-size: 14px; font-weight: 700;\n    color: #0E5F63; text-transform: uppercase; letter-spacing: 0.6px;\n  }\n  .card-header p { font-size: 12px; color: #647477; margin-top: 3px; }\n  .card-body { padding: 20px; }\n\n  .card-internal .card-header { background: #fdf8f0; border-bottom-color: #f0e0b8; }\n  .card-internal .card-header h2 { color: #7a5200; }\n  .card-internal { border-color: #f0e0b8; }\n\n  .internal-banner {\n    display: flex; align-items: center; gap: 8px;\n    background: #fff8e8; border: 1px solid #f0e0b8;\n    border-radius: 8px; padding: 9px 13px; margin-bottom: 16px;\n    font-size: 12px; color: #7a5200; font-weight: 600;\n  }\n  .internal-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: #e09000; flex-shrink: 0; }\n\n  /* VALIDATION ERROR BANNER */\n  .validation-banner {\n    display: none;\n    background: #fff2f2;\n    border: 1.5px solid #f5b8b8;\n    border-radius: 10px;\n    padding: 12px 16px;\n    margin-bottom: 16px;\n    font-size: 13px;\n    font-weight: 600;\n    color: #B42318;\n    align-items: center;\n    gap: 10px;\n  }\n  .validation-banner.show { display: flex; }\n  .validation-banner .val-icon { font-size: 16px; flex-shrink: 0; }\n\n  /* FORM FIELDS */\n  .field { margin-bottom: 14px; }\n  .field:last-child { margin-bottom: 0; }\n  .field label {\n    display: flex; align-items: center; gap: 4px;\n    font-size: 13px; font-weight: 600; color: #173234; margin-bottom: 6px;\n  }\n  .field label .req { color: #B42318; font-size: 14px; line-height: 1; }\n  .field input, .field select, .field textarea {\n    width: 100%; padding: 11px 14px;\n    border: 1.5px solid #D9E5E5; border-radius: 9px;\n    font-size: 14px; color: #173234; background: #fff;\n    transition: border-color 0.15s, box-shadow 0.15s;\n    font-family: inherit; appearance: none; -webkit-appearance: none;\n  }\n  .field input:focus, .field select:focus, .field textarea:focus {\n    outline: none; border-color: #0E5F63;\n    box-shadow: 0 0 0 3px rgba(14,95,99,0.12);\n  }\n  .field input::placeholder, .field textarea::placeholder { color: #a0b0b1; }\n  .field textarea { min-height: 70px; resize: vertical; }\n  .field select {\n    background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%230E5F63' d='M1 1l5 5 5-5'/%3E%3C/svg%3E\");\n    background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px;\n  }\n\n  /* FIELD ERROR STATE */\n  .field.has-error input,\n  .field.has-error select,\n  .field.has-error textarea {\n    border-color: #B42318 !important;\n    background-color: #fff8f8;\n    box-shadow: 0 0 0 3px rgba(180,35,24,0.08);\n  }\n  .field-error-msg {\n    font-size: 11px; color: #B42318; margin-top: 5px;\n    font-weight: 500; display: none;\n  }\n  .field.has-error .field-error-msg { display: block; }\n\n  .card-internal .field input, .card-internal .field select {\n    background-color: #fdfaf4; border-color: #e8d8b0;\n  }\n  .card-internal .field input:focus, .card-internal .field select:focus {\n    border-color: #c08000; box-shadow: 0 0 0 3px rgba(192,128,0,0.12);\n  }\n\n  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }\n  @media (max-width: 480px) { .field-row { grid-template-columns: 1fr; } }\n\n  /* BUTTONS */\n  .btn {\n    display: inline-flex; align-items: center; justify-content: center; gap: 7px;\n    padding: 13px 20px; border-radius: 10px;\n    font-size: 14px; font-weight: 600; cursor: pointer; border: none;\n    transition: background 0.15s, opacity 0.15s;\n    min-height: 48px; font-family: inherit; white-space: nowrap; width: 100%;\n  }\n  .btn:active { opacity: 0.86; }\n  .btn-primary { background: #0E5F63; color: #fff; box-shadow: 0 2px 8px rgba(14,95,99,0.22); }\n  .btn-primary:hover { background: #0A474A; }\n  .btn-primary-alt { background: #2A8F94; color: #fff; box-shadow: 0 2px 8px rgba(42,143,148,0.22); }\n  .btn-primary-alt:hover { background: #22787c; }\n  .btn-secondary { background: #E3F0F1; color: #0E5F63; border: 1.5px solid #b8d8da; }\n  .btn-secondary:hover { background: #cce5e6; }\n  .btn-danger { background: #fff5f5; color: #B42318; border: 1.5px solid #f5c0bc; }\n  .btn-danger:hover { background: #fde8e7; }\n  .btn-sm { padding: 9px 14px; font-size: 13px; min-height: 38px; width: auto; }\n\n  .actions-grid { display: grid; gap: 10px; }\n  .actions-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }\n  @media (max-width: 480px) { .actions-row { grid-template-columns: 1fr; } }\n\n  /* STATUS MESSAGES */\n  .status-msg { font-size: 12px; padding: 10px 14px; border-radius: 8px; display: none; }\n  .status-msg.show { display: block; }\n  .status-warn     { background: #fffbea; color: #7a5c00; border: 1px solid #e5d88a; }\n  .status-success  { background: #edfbf3; color: #1a6b40; border: 1px solid #a3dfc0; }\n  .status-placeholder { background: #f4f0ff; color: #5a3fa0; border: 1px solid #c8b8f0; }\n\n  .internal-note {\n    font-size: 11px; color: #647477;\n    background: #F8FBFB; border-radius: 8px; border: 1px solid #e3ecec;\n    padding: 10px 12px; margin-top: 14px; line-height: 1.5;\n  }\n\n  /* PREVIEWS */\n  .preview-placeholder {\n    text-align: center; padding: 40px 20px;\n    color: #647477; font-size: 13px; line-height: 1.6;\n  }\n  .preview-placeholder .icon { font-size: 32px; margin-bottom: 10px; }\n\n  .email-preview-wrap { border-radius: 10px; overflow: hidden; border: 1px solid #D9E5E5; background: #f1f3f4; }\n  .email-topbar { background: #e8ecec; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }\n  .email-dot { width: 10px; height: 10px; border-radius: 50%; }\n  .email-subject-bar { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 10px 14px; font-size: 12px; color: #555; }\n  .email-subject-bar strong { color: #173234; }\n\n  .sms-bubble-wrap { padding: 16px 14px; background: #e8ecec; border-radius: 10px; border: 1px solid #D9E5E5; }\n  .sms-sender { font-size: 11px; color: #647477; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }\n  .sms-sender span { font-weight: 600; color: #0E5F63; }\n  .sms-bubble {\n    background: #fff; border-radius: 16px 16px 16px 4px;\n    padding: 14px 16px; font-size: 13px; line-height: 1.65;\n    color: #173234; white-space: pre-wrap;\n    box-shadow: 0 1px 4px rgba(0,0,0,0.08); max-width: 90%;\n  }\n  .sms-meta { font-size: 11px; color: #647477; margin-top: 8px; text-align: right; }\n\n  /* ACTIVITY LOG */\n  .log-list { list-style: none; }\n  .log-item {\n    padding: 10px 0; border-bottom: 1px solid #E3F0F1;\n    display: flex; gap: 12px; align-items: flex-start; font-size: 12px;\n  }\n  .log-item:last-child { border-bottom: none; }\n  .log-time { color: #647477; white-space: nowrap; min-width: 72px; padding-top: 1px; }\n  .log-text { color: #173234; line-height: 1.5; }\n  .log-badge {\n    display: inline-block; font-size: 10px; font-weight: 700;\n    padding: 2px 7px; border-radius: 20px; margin-left: 5px; vertical-align: middle;\n  }\n  .badge-adhd { background: #dff0f1; color: #0E5F63; }\n  .badge-asd  { background: #e8e4f8; color: #5340a0; }\n  .badge-sld  { background: #fff4e0; color: #8a5500; }\n  .log-referrer { color: #7a5200; font-size: 11px; margin-top: 3px; }\n  .log-empty { font-size: 13px; color: #647477; padding: 16px 0; text-align: center; }\n\n  .right-col { display: flex; flex-direction: column; gap: 18px; }\n  .copy-status {\n    font-size: 12px; color: #1a6b40; background: #edfbf3;\n    border: 1px solid #a3dfc0; padding: 4px 10px; border-radius: 20px; display: none;\n  }\n  .copy-status.show { display: inline-block; }\n  .preview-header-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }\n\n  /* PIN SCREEN */\n  .pin-screen {\n    position: fixed; inset: 0; z-index: 9999;\n    background: #F4F7F7;\n    display: flex; align-items: center; justify-content: center;\n    padding: 20px;\n  }\n  .pin-card {\n    background: #fff; border-radius: 16px;\n    border: 1px solid #D9E5E5;\n    box-shadow: 0 4px 32px rgba(14,95,99,0.13);\n    padding: 40px 36px 36px;\n    width: 100%; max-width: 360px; text-align: center;\n  }\n  .pin-logo {\n    width: 54px; height: 54px; background: #0E5F63; border-radius: 14px;\n    display: flex; align-items: center; justify-content: center;\n    font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -1px;\n    margin: 0 auto 20px;\n  }\n  .pin-title { font-size: 20px; font-weight: 700; color: #173234; margin-bottom: 6px; }\n  .pin-subtitle { font-size: 13px; color: #647477; margin-bottom: 28px; line-height: 1.5; }\n  .pin-input {\n    width: 100%; padding: 14px 16px;\n    border: 1.5px solid #D9E5E5; border-radius: 10px;\n    font-size: 20px; text-align: center; letter-spacing: 8px;\n    color: #173234; font-family: inherit; margin-bottom: 14px;\n    transition: border-color 0.15s, box-shadow 0.15s;\n  }\n  .pin-input:focus { outline: none; border-color: #0E5F63; box-shadow: 0 0 0 3px rgba(14,95,99,0.12); }\n  .pin-btn {\n    width: 100%; padding: 14px; background: #0E5F63; color: #fff;\n    border: none; border-radius: 10px; font-size: 15px; font-weight: 700;\n    cursor: pointer; font-family: inherit; transition: background 0.15s;\n  }\n  .pin-btn:hover { background: #0A474A; }\n  .pin-error { font-size: 13px; color: #B42318; margin-top: 12px; display: none; font-weight: 500; }\n  .pin-error.show { display: block; }\n\n  /* REGISTER BUTTONS */\n  .register-actions { display: flex; gap: 8px; flex-wrap: wrap; }\n  .btn-next { background: #e8f7f0; color: #1a6b40; border: 1.5px solid #a3dfc0; }\n  .btn-next:hover { background: #d0f0e2; }\n</style><div id=\"pin-screen\" class=\"pin-screen\">\n  <div class=\"pin-card\">\n    <div class=\"pin-logo\">AM</div>\n    <div class=\"pin-title\">Azure Mind Admin Tool</div>\n    <div class=\"pin-subtitle\">Enter admin PIN to continue</div>\n    <input type=\"password\" id=\"pin-input\" class=\"pin-input\" placeholder=\"••••\" maxlength=\"10\" autocomplete=\"off\">\n    <button class=\"pin-btn\" onclick=\"checkPin()\">Unlock Tool</button>\n    <div class=\"pin-error\" id=\"pin-error\">Incorrect PIN. Please try again.</div>\n  </div>\n</div>\n\n<header class=\"header\">\n  <div class=\"header-logo\">AM</div>\n  <div>\n    <div class=\"header-title\">Azure Mind</div>\n    <div class=\"header-sub\">Referral Admin Tool</div>\n  </div>\n  <div class=\"header-badge\">Internal Use Only</div>\n</header>\n\n<div class=\"page-wrap\">\n\n  <!-- LEFT COLUMN -->\n  <div class=\"left-col\">\n\n    <!-- REFERRAL DETAILS -->\n    <div class=\"card\">\n      <div class=\"card-header\">\n        <h2>Referral Details</h2>\n        <p>All fields marked <span style=\"color:#B42318;font-weight:700;\">*</span> are required before generating or sending</p>\n      </div>\n      <div class=\"card-body\">\n\n        <!-- VALIDATION BANNER -->\n        <div class=\"validation-banner\" id=\"validation-banner\">\n          <span class=\"val-icon\">&#9888;</span>\n          <span>Please complete all required fields before continuing.</span>\n        </div>\n\n        <!-- Child -->\n        <div class=\"field-row\">\n          <div class=\"field\" id=\"field-child_first_name\">\n            <label for=\"child_first_name\">Child First Name <span class=\"req\">*</span></label>\n            <input type=\"text\" id=\"child_first_name\" placeholder=\"e.g. Oliver\" autocomplete=\"off\">\n            <div class=\"field-error-msg\">This field is required</div>\n          </div>\n          <div class=\"field\" id=\"field-placeholder\" style=\"visibility:hidden;\">\n            <label>&nbsp;</label>\n            <input type=\"text\" disabled style=\"background:#f4f7f7;border-color:#e8ecec;cursor:not-allowed;opacity:0.4;\">\n          </div>\n        </div>\n\n        <!-- Parent Name -->\n        <div class=\"field-row\">\n          <div class=\"field\" id=\"field-parent_first_name\">\n            <label for=\"parent_first_name\">Parent First Name <span class=\"req\">*</span></label>\n            <input type=\"text\" id=\"parent_first_name\" placeholder=\"e.g. Sarah\" autocomplete=\"off\">\n            <div class=\"field-error-msg\">This field is required</div>\n          </div>\n          <div class=\"field\" id=\"field-parent_last_name\">\n            <label for=\"parent_last_name\">Parent Last Name <span class=\"req\">*</span></label>\n            <input type=\"text\" id=\"parent_last_name\" placeholder=\"e.g. Thompson\" autocomplete=\"off\">\n            <div class=\"field-error-msg\">This field is required</div>\n          </div>\n        </div>\n\n        <!-- Contact -->\n        <div class=\"field-row\">\n          <div class=\"field\" id=\"field-parent_email\">\n            <label for=\"parent_email\">Parent Email <span style=\"font-size:11px;font-weight:400;color:#647477;\">(required to send email)</span></label>\n            <input type=\"email\" id=\"parent_email\" placeholder=\"parent@email.com\" autocomplete=\"off\">\n          </div>\n          <div class=\"field\" id=\"field-parent_mobile\">\n            <label for=\"parent_mobile\">Parent Mobile <span class=\"req\">*</span></label>\n            <input type=\"tel\" id=\"parent_mobile\" placeholder=\"04xx xxx xxx\" autocomplete=\"off\">\n            <div class=\"field-error-msg\">This field is required</div>\n          </div>\n        </div>\n\n        <!-- Assessment Type -->\n        <div class=\"field\" id=\"field-assessment_type\">\n          <label for=\"assessment_type\">Assessment Type <span class=\"req\">*</span></label>\n          <select id=\"assessment_type\">\n            <option value=\"ADHD\">ADHD Assessment</option>\n            <option value=\"ASD\">Autism Assessment</option>\n            <option value=\"SLD\">Specific Learning Disorder Assessment</option>\n          </select>\n          <div class=\"field-error-msg\">Please select an assessment type</div>\n        </div>\n\n        <!-- Booking Link -->\n        <div class=\"field\" id=\"field-booking_link\">\n          <label for=\"booking_link\">Booking Link <span class=\"req\">*</span></label>\n          <input type=\"text\" id=\"booking_link\" value=\"https://azurepsychology-cockburn.au1.cliniko.com/bookings\" autocomplete=\"off\">\n          <div class=\"field-error-msg\">This field is required</div>\n        </div>\n\n        <!-- Clinic Phone + Notes -->\n        <div class=\"field-row\">\n          <div class=\"field\" id=\"field-clinic_phone\">\n            <label for=\"clinic_phone\">Clinic Phone <span class=\"req\">*</span></label>\n            <input type=\"text\" id=\"clinic_phone\" value=\"0422 192 967\" autocomplete=\"off\">\n            <div class=\"field-error-msg\">This field is required</div>\n          </div>\n          <div class=\"field\">\n            <label for=\"notes\">Internal Notes</label>\n            <input type=\"text\" id=\"notes\" placeholder=\"Optional internal note\" autocomplete=\"off\">\n          </div>\n        </div>\n\n      </div>\n    </div>\n\n    <!-- INTERNAL REFERRER -->\n    <div class=\"card card-internal\">\n      <div class=\"card-header\">\n        <h2>&#128274; Internal Referrer Details</h2>\n        <p>Admin use only — never included in parent communications</p>\n      </div>\n      <div class=\"card-body\">\n        <div class=\"internal-banner\">\n          <div class=\"dot\"></div>\n          This information is internal only. It will not appear in the email, SMS, or any parent-facing content.\n        </div>\n        <div class=\"field-row\">\n          <div class=\"field\">\n            <label for=\"referrer_name\">Referrer Name</label>\n            <input type=\"text\" id=\"referrer_name\" placeholder=\"e.g. Dr Smith, School, Parent\" autocomplete=\"off\">\n          </div>\n          <div class=\"field\">\n            <label for=\"referrer_type\">Referrer Type</label>\n            <select id=\"referrer_type\">\n              <option value=\"\">Not specified</option>\n              <option value=\"GP\">GP</option>\n              <option value=\"Paediatrician\">Paediatrician</option>\n              <option value=\"Psychiatrist\">Psychiatrist</option>\n              <option value=\"Psychologist\">Psychologist</option>\n              <option value=\"School\">School</option>\n              <option value=\"Self\">Parent / Self</option>\n              <option value=\"Other\">Other</option>\n            </select>\n          </div>\n        </div>\n        <div class=\"field\">\n          <label for=\"referrer_email\">Referrer Email</label>\n          <input type=\"email\" id=\"referrer_email\" placeholder=\"Optional internal tracking only\" autocomplete=\"off\">\n        </div>\n      </div>\n    </div>\n\n    <!-- ACTIONS -->\n    <div class=\"card\">\n      <div class=\"card-header\">\n        <h2>Actions</h2>\n        <p>Complete all required fields above before generating or sending</p>\n      </div>\n      <div class=\"card-body\">\n        <div class=\"actions-grid\">\n\n          <button class=\"btn btn-primary\" onclick=\"handleGeneratePreview()\" style=\"font-size:15px;padding:15px 20px;\">\n            &#9654; Generate Preview\n          </button>\n\n          <button class=\"btn btn-primary-alt\" onclick=\"handleSendBoth()\">\n            &#9993; Send Email + SMS\n          </button>\n\n          <div class=\"actions-row\">\n            <button class=\"btn btn-secondary\" onclick=\"handleSendEmail()\">&#9993; Send Email Only</button>\n            <button class=\"btn btn-secondary\" onclick=\"handleSendSms()\">&#128241; Send SMS Only</button>\n          </div>\n\n          <div class=\"actions-row\">\n            <button class=\"btn btn-secondary\" onclick=\"handleCopyEmail()\">&#128203; Copy Email HTML</button>\n            <button class=\"btn btn-secondary\" onclick=\"handleCopySms()\">&#128203; Copy SMS</button>\n          </div>\n\n          <div id=\"copy-global-status\" class=\"status-msg status-success\"></div>\n\n          <button class=\"btn btn-next\" onclick=\"sendAnotherReferral()\">&#8635; Send Another Referral</button>\n\n          <button class=\"btn btn-danger\" onclick=\"clearForm()\">&#10006; Clear Form</button>\n        </div>\n\n        <div id=\"send-status\" class=\"status-msg status-placeholder\" style=\"margin-top:12px;display:none;\"></div>\n\n        <div class=\"internal-note\">\n          &#128274; Send buttons are placeholders until connected to <strong>Resend</strong> (email) and <strong>Twilio</strong> (SMS). No messages are sent in this prototype.\n        </div>\n      </div>\n    </div>\n\n  </div><!-- /left-col -->\n\n  <!-- RIGHT COLUMN -->\n  <div class=\"right-col\">\n\n    <!-- EMAIL PREVIEW -->\n    <div class=\"card\" style=\"margin-bottom:0;\">\n      <div class=\"card-header\">\n        <div class=\"preview-header-row\">\n          <div>\n            <h2>Email Preview</h2>\n            <p>Branded parent-facing email — referrer details excluded</p>\n          </div>\n          <div style=\"display:flex;align-items:center;gap:8px;\">\n            <span id=\"email-copy-status\" class=\"copy-status\">&#10003; Copied!</span>\n            <button class=\"btn btn-secondary btn-sm\" onclick=\"handleCopyEmail()\">&#128203; Copy HTML</button>\n          </div>\n        </div>\n      </div>\n      <div class=\"card-body\" style=\"padding:16px;\">\n        <div id=\"email-placeholder\" class=\"preview-placeholder\">\n          <div class=\"icon\">&#9993;</div>\n          Complete all required fields and click <strong>Generate Preview</strong> to see the branded email.\n        </div>\n        <div id=\"email-preview-container\" style=\"display:none;\">\n          <div class=\"email-preview-wrap\">\n            <div class=\"email-topbar\">\n              <div class=\"email-dot\" style=\"background:#ff5f57;\"></div>\n              <div class=\"email-dot\" style=\"background:#ffbd2e;\"></div>\n              <div class=\"email-dot\" style=\"background:#28c840;\"></div>\n              <span style=\"font-size:11px;color:#777;margin-left:6px;\">Email Preview</span>\n            </div>\n            <div class=\"email-subject-bar\">\n              <strong>Subject:</strong> <span id=\"email-subject-display\"></span>\n            </div>\n            <div>\n              <iframe id=\"email-iframe\" style=\"width:100%;border:none;display:block;min-height:400px;\" title=\"Email Preview\"></iframe>\n            </div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <!-- SMS PREVIEW -->\n    <div class=\"card\" style=\"margin-bottom:0;\">\n      <div class=\"card-header\">\n        <div class=\"preview-header-row\">\n          <div>\n            <h2>SMS Preview</h2>\n            <p>Plain text message — referrer details excluded</p>\n          </div>\n          <div style=\"display:flex;align-items:center;gap:8px;\">\n            <span id=\"sms-copy-status\" class=\"copy-status\">&#10003; Copied!</span>\n            <button class=\"btn btn-secondary btn-sm\" onclick=\"handleCopySms()\">&#128203; Copy SMS</button>\n          </div>\n        </div>\n      </div>\n      <div class=\"card-body\" style=\"padding:16px;\">\n        <div id=\"sms-placeholder\" class=\"preview-placeholder\">\n          <div class=\"icon\">&#128241;</div>\n          Generate a preview to see the SMS message here.\n        </div>\n        <div id=\"sms-preview-container\" style=\"display:none;\">\n          <div class=\"sms-bubble-wrap\">\n            <div class=\"sms-sender\">From: <span>Azure Mind</span> &nbsp;&#183;&nbsp; To: <span id=\"sms-to-display\">Parent</span></div>\n            <div class=\"sms-bubble\" id=\"sms-text-display\"></div>\n            <div class=\"sms-meta\" id=\"sms-char-count\"></div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <!-- SENT REGISTER -->\n    <div class=\"card\" style=\"margin-bottom:0;\">\n      <div class=\"card-header\">\n        <div class=\"preview-header-row\">\n          <div>\n            <h2>Sent Register</h2>\n            <p>Session actions — includes referrer details — not stored</p>\n          </div>\n          <div class=\"register-actions\">\n            <button class=\"btn btn-secondary btn-sm\" onclick=\"copyRegister()\">&#128203; Copy Register</button>\n            <button class=\"btn btn-secondary btn-sm\" onclick=\"downloadRegisterCsv()\">&#11015; Download CSV</button>\n          </div>\n        </div>\n      </div>\n      <div class=\"card-body\" style=\"padding:0 20px 4px;\">\n        <div id=\"log-empty\" class=\"log-empty\">No activity yet this session.</div>\n        <ul class=\"log-list\" id=\"log-list\"></ul>\n      </div>\n    </div>\n\n  </div><!-- /right-col -->\n</div>\n\n";
+const PIN = "azuremind";
 
-const INLINE_SCRIPT = "// ============================================================\n// PIN ACCESS\n// ============================================================\nvar ADMIN_PIN = 'azuremind';\nfunction checkPin() {\n  var val = document.getElementById('pin-input').value.trim();\n  if (val === ADMIN_PIN) {\n    document.getElementById('pin-screen').style.display = 'none';\n  } else {\n    document.getElementById('pin-error').classList.add('show');\n    document.getElementById('pin-input').value = '';\n    document.getElementById('pin-input').focus();\n  }\n}\n// ============================================================\n// REQUIRED FIELDS\n// ============================================================\nvar REQUIRED_FIELDS = [\n  'child_first_name',\n  'parent_first_name',\n  'parent_last_name',\n  'parent_mobile',\n  'assessment_type',\n  'booking_link',\n  'clinic_phone'\n];\n\n// ============================================================\n// TEMPLATES\n// ============================================================\nvar TEMPLATES = {\n\n  ADHD: {\n    email_subject: \"ADHD Assessment Pathway \\u2013 Process & Next Steps\",\n    email_title: \"ADHD Assessment Pathway\",\n    email_body_plain: [\n      \"Dear Parent,\",\n      \"\",\n      \"We have received a referral for your child {{child_first_name}} for an ADHD assessment.\",\n      \"\",\n      \"We use a structured ADHD Assessment Pathway designed to provide clear answers early, while ensuring the right level of care is recommended from the outset.\",\n      \"\",\n      \"ASSESSMENT OPTIONS, FEES & AVAILABILITY\",\n      \"\",\n      \"Telehealth Video Assessment \\u2014 $650\",\n      \"In-Clinic Assessment \\u2014 $1,150\",\n      \"\",\n      \"Both formats follow the same assessment framework.\",\n      \"\",\n      \"Current ADHD assessment availability: typically within 2\\u20133 weeks.\",\n      \"\",\n      \"HOW THE ASSESSMENT WORKS\",\n      \"\",\n      \"Each assessment is a structured 60-minute appointment with Vishal Maharaj, Registered Psychologist. Available via telehealth video or in-clinic.\",\n      \"\",\n      \"Your child should be present, along with at least one caregiver.\",\n      \"\",\n      \"The assessment includes:\",\n      \"\\u2022 Screening and clinical assessment\",\n      \"\\u2022 Detailed developmental history\",\n      \"\\u2022 Review of school reports and relevant information\",\n      \"\\u2022 Standardised ADHD measures\",\n      \"\\u2022 Clinical formulation\",\n      \"\",\n      \"You will receive a comprehensive written report outlining findings, clinical impressions, and clear next steps.\",\n      \"\",\n      \"This process is designed to clarify whether ADHD is present, or whether another explanation better accounts for your child\\u2019s presentation.\",\n      \"\",\n      \"WHAT HAPPENS NEXT\",\n      \"\",\n      \"Where findings are consistent with ADHD, your child may be referred to a Paediatrician or Child and Adolescent Psychiatrist for review.\",\n      \"\",\n      \"Not all children require medical review. Where ADHD is not identified, the report will outline clear recommendations and next steps.\",\n      \"\",\n      \"Psychiatrist wait time, if required: typically 3\\u20135 weeks.\",\n      \"\",\n      \"NEXT STEP\",\n      \"\",\n      \"Book your assessment online below \\u2014 this takes less than 60 seconds.\",\n      \"\",\n      \"[CTA_BUTTON]\",\n      \"\",\n      \"If you have any questions or prefer assistance, you can reply to this email or call/text {{clinic_phone}}.\",\n      \"\",\n      \"Warm regards,\",\n      \"Azure Mind\",\n      \"\",\n      \"Vishal Maharaj is a Registered Psychologist and not a medical practitioner and cannot prescribe medication. Where medication or medical management is being considered, assessment findings may require review by a Paediatrician or Psychiatrist.\"\n    ].join(\"\\n\"),\n    sms_body: \"Dear Parent, Azure Mind here:\\n\\nWe have received a referral for your child {{child_first_name}} for an ADHD assessment.\\n\\nAppointments are typically available within 2\\u20133 weeks.\\n\\nBook online here:\\n{{booking_link}}\\n\\nReply or call/text {{clinic_phone}} if you need help.\"\n  },\n\n  ASD: {\n    email_subject: \"Autism Consensus Assessment Pathway \\u2013 Next Steps\",\n    email_title: \"Autism Consensus Assessment Pathway\",\n    email_body_plain: [\n      \"Dear Parent,\",\n      \"\",\n      \"We have received a referral for {{child_first_name}} for an autism assessment.\",\n      \"\",\n      \"Our service provides assessment through a structured Autism Consensus Assessment Pathway, aligned with the Australian National Guideline for the assessment and diagnosis of autism. This pathway is designed to provide a comprehensive and well-supported understanding of your child\\u2019s developmental profile.\",\n      \"\",\n      \"ASSESSMENT STRUCTURE\",\n      \"\",\n      \"The assessment is completed in two stages:\",\n      \"\",\n      \"Stage 1 \\u2014 Psychological Assessment\",\n      \"Stage 2 \\u2014 Medical Assessment for diagnostic confirmation\",\n      \"\",\n      \"STAGE 1 \\u2014 PSYCHOLOGICAL ASSESSMENT\",\n      \"\",\n      \"This is a structured 90-minute assessment conducted by Vishal Maharaj, Registered Psychologist, via telehealth or in-clinic.\",\n      \"\",\n      \"The assessment includes:\",\n      \"\\u2022 Clinical interview and developmental history\",\n      \"\\u2022 Review of school reports and functional presentation\",\n      \"\\u2022 Standardised autism measures\",\n      \"\\u2022 Clinical formulation\",\n      \"\",\n      \"A comprehensive written report is provided following this assessment, outlining findings and recommended next steps.\",\n      \"\",\n      \"Appointments are typically available within 2\\u20134 weeks.\",\n      \"\",\n      \"STAGE 2 \\u2014 MEDICAL ASSESSMENT CONSENSUS PATHWAY\",\n      \"\",\n      \"Following the psychological assessment, families proceed to a medical assessment as part of the consensus pathway.\",\n      \"\",\n      \"This is completed with either:\",\n      \"\",\n      \"Dr Murugesh Nidyananda \\u2014 Child and Adolescent Psychiatrist, telehealth\",\n      \"or\",\n      \"Dr Chaandini Subramaniam \\u2014 Developmental Paediatrician, in-clinic\",\n      \"\",\n      \"Both clinicians undertake the same role within the pathway, which includes:\",\n      \"\\u2022 Independent medical assessment\",\n      \"\\u2022 Diagnostic confirmation\",\n      \"\\u2022 Consideration of developmental and medical factors\",\n      \"\\u2022 Documentation for support services, including NDIS where applicable\",\n      \"\\u2022 Medical oversight, including medication considerations where clinically indicated\",\n      \"\",\n      \"The distinction between the two options relates to clinical specialty and mode of delivery, rather than the function of the assessment.\",\n      \"\",\n      \"Referral and coordination are completed by the Azure Mind team following Stage 1.\",\n      \"\",\n      \"ASSESSMENT OPTIONS, FEES & AVAILABILITY\",\n      \"\",\n      \"Telehealth Video Assessment \\u2014 $1,850\",\n      \"In-Clinic Assessment \\u2014 $2,000\",\n      \"\",\n      \"These fees cover the full two-stage pathway including both the psychological and medical assessments.\",\n      \"\",\n      \"Current availability: typically within 2\\u20134 weeks for Stage 1.\",\n      \"\",\n      \"NEXT STEP\",\n      \"\",\n      \"Book your assessment online below \\u2014 this takes less than 60 seconds.\",\n      \"\",\n      \"[CTA_BUTTON]\",\n      \"\",\n      \"If you have any questions or prefer assistance, you can reply to this email or call/text {{clinic_phone}}.\",\n      \"\",\n      \"Warm regards,\",\n      \"Azure Mind\",\n      \"\",\n      \"Vishal Maharaj is a Registered Psychologist and not a medical practitioner and cannot prescribe medication. Diagnostic confirmation and medical management are undertaken by the medical clinicians within the consensus pathway.\"\n    ].join(\"\\n\"),\n    sms_body: \"Dear Parent, Azure Mind here:\\n\\nWe have received a referral for {{child_first_name}} for an autism assessment.\\n\\nBook online here:\\n{{booking_link}}\\n\\nReply or call/text {{clinic_phone}} if you need help.\"\n  },\n\n  SLD: {\n    email_subject: \"Learning Assessment Pathway \\u2013 Process & Next Steps\",\n    email_title: \"Specific Learning Disorder Assessment Pathway\",\n    email_body_plain: [\n      \"Dear Parent,\",\n      \"\",\n      \"Thank you for your enquiry regarding a psychological and educational assessment for {{child_first_name}}.\",\n      \"\",\n      \"This pathway provides a comprehensive evaluation for Specific Learning Disorder (SLD), with the option to include ADHD assessment in the same process.\",\n      \"\",\n      \"HOW THIS WORKS\",\n      \"\",\n      \"A 2-hour video telehealth assessment with Vishal Maharaj, Registered Psychologist. Both parent and child attend.\",\n      \"\",\n      \"The assessment uses the Digital WIAT (Wechsler Individual Achievement Test) administered via Pearson\\u2019s secure Q-global platform \\u2014 the same standardised testing used in clinic settings, delivered through a secure digital format.\",\n      \"\",\n      \"WHAT IS ASSESSED\",\n      \"\",\n      \"The SLD assessment investigates:\",\n      \"\\u2022 Reading\",\n      \"\\u2022 Writing\",\n      \"\\u2022 Spelling\",\n      \"\\u2022 Mathematics\",\n      \"\",\n      \"The DSM-5-TR uses the term Specific Learning Disorder, which includes commonly recognised terms such as Dyslexia, Dysgraphia, and Dyscalculia.\",\n      \"\",\n      \"Where ADHD assessment is included, additional standardised measures and clinical interview cover attention, hyperactivity, and executive function.\",\n      \"\",\n      \"FOR STUDENTS IN YEARS 9\\u201312\",\n      \"\",\n      \"Where SCSA documentation is required, an additional CTOPP (Comprehensive Test of Phonological Processing) assessment may be needed. If indicated during testing, this is added at a $200 fee.\",\n      \"\",\n      \"FEES\",\n      \"\",\n      \"SLD Assessment \\u2014 $2,200\",\n      \"SLD + ADHD Combined \\u2014 $2,500\",\n      \"CTOPP add-on (Years 9\\u201312, where required) \\u2014 $200\",\n      \"\",\n      \"Appointments are generally available within 2\\u20134 weeks.\",\n      \"\",\n      \"WHAT YOU RECEIVE\",\n      \"\",\n      \"\\u2022 A comprehensive written report within 2\\u20133 weeks of the assessment\",\n      \"\\u2022 Findings and recommendations suitable for school, SCSA, GP, and other clinicians\",\n      \"\\u2022 Practical guidance for supporting your child\\u2019s learning at home and at school\",\n      \"\",\n      \"AFTER BOOKING\",\n      \"\",\n      \"Once your booking is confirmed, we will send through:\",\n      \"\\u2022 Intake and developmental history forms\",\n      \"\\u2022 School report request template\",\n      \"\\u2022 Any additional documents required before the assessment\",\n      \"\",\n      \"NEXT STEP\",\n      \"\",\n      \"Book your assessment online below \\u2014 this takes less than 60 seconds.\",\n      \"\",\n      \"[CTA_BUTTON]\",\n      \"\",\n      \"If you have any questions or prefer assistance, you can reply to this email or call/text {{clinic_phone}}.\",\n      \"\",\n      \"Warm regards,\",\n      \"Azure Mind\",\n      \"\",\n      \"Vishal Maharaj is a Registered Psychologist registered with AHPRA. This pathway is a psychological and educational assessment. It does not constitute a medical assessment or diagnosis.\"\n    ].join(\"\\n\"),\n    sms_body: \"Dear Parent, Azure Mind here:\\n\\nWe have received your enquiry about a learning assessment for {{child_first_name}}.\\n\\nAppointments are generally available within 2\\u20134 weeks.\\n\\nInfo and booking:\\n{{booking_link}}\\n\\nReply or call/text {{clinic_phone}} if you would like help.\"\n  }\n\n};\n\n// ============================================================\n// STATE\n// ============================================================\nvar currentEmailHtml = '';\nvar currentSmsText = '';\nvar logItems = [];\n\n// ============================================================\n// VALIDATION\n// ============================================================\nfunction validateForm() {\n  var valid = true;\n  // Clear all error states first\n  REQUIRED_FIELDS.forEach(function(id) {\n    var wrap = document.getElementById('field-' + id);\n    if (wrap) wrap.classList.remove('has-error');\n  });\n  document.getElementById('validation-banner').classList.remove('show');\n\n  REQUIRED_FIELDS.forEach(function(id) {\n    var el = document.getElementById(id);\n    var wrap = document.getElementById('field-' + id);\n    if (!el) return;\n    var val = el.value.trim();\n    if (!val) {\n      valid = false;\n      if (wrap) wrap.classList.add('has-error');\n    }\n  });\n\n  if (!valid) {\n    document.getElementById('validation-banner').classList.add('show');\n    // Scroll to top of form\n    document.getElementById('validation-banner').scrollIntoView({ behavior: 'smooth', block: 'center' });\n  }\n\n  return valid;\n}\n\n});\n\n// ============================================================\n// HANDLERS (validate then act)\n// ============================================================\nfunction handleGeneratePreview() {\n  if (!validateForm()) return;\n  generatePreview();\n}\nfunction handleCopyEmail() {\n  if (!validateForm()) return;\n  if (!currentEmailHtml) { generatePreview(); }\n  copyEmailHtml();\n}\nfunction handleCopySms() {\n  if (!validateForm()) return;\n  if (!currentSmsText) { generatePreview(); }\n  copySms();\n}\nfunction handleSendEmail() {\n  if (!validateForm()) return;\n  var email = document.getElementById('parent_email').value.trim();\n  if (!email) {\n    showSendStatus('\\u26a0\\ufe0f Parent email is required to send email. You can still proceed with SMS.');\n    return;\n  }\n  sendEmailPlaceholder();\n}\nfunction handleSendSms() {\n  if (!validateForm()) return;\n  sendSmsPlaceholder();\n}\nfunction handleSendBoth() {\n  if (!validateForm()) return;\n  var email = document.getElementById('parent_email').value.trim();\n  if (!email) {\n    showSendStatus('\\u26a0\\ufe0f Parent email is required to send email. You can still proceed with SMS.');\n    return;\n  }\n  sendBothPlaceholder();\n}\n\n// ============================================================\n// HELPERS\n// ============================================================\nfunction esc(str) {\n  return String(str)\n    .replace(/&/g,'&amp;').replace(/</g,'&lt;')\n    .replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\nfunction getFormData() {\n  return {\n    child_first_name:  document.getElementById('child_first_name').value.trim() || 'your child',\n    parent_first_name: document.getElementById('parent_first_name').value.trim(),\n    parent_last_name:  document.getElementById('parent_last_name').value.trim(),\n    parent_name:       (document.getElementById('parent_first_name').value.trim() + ' ' + document.getElementById('parent_last_name').value.trim()).trim(),\n    parent_email:      document.getElementById('parent_email').value.trim(),\n    parent_mobile:     document.getElementById('parent_mobile').value.trim(),\n    assessment_type:   document.getElementById('assessment_type').value,\n    booking_link:      document.getElementById('booking_link').value.trim(),\n    clinic_phone:      document.getElementById('clinic_phone').value.trim() || '0422 192 967',\n    notes:             document.getElementById('notes').value.trim(),\n    referrer_name:     document.getElementById('referrer_name').value.trim(),\n    referrer_type:     document.getElementById('referrer_type').value,\n    referrer_email:    document.getElementById('referrer_email').value.trim()\n  };\n}\n\nfunction renderTemplate(str, data) {\n  return str\n    .replace(/\\{\\{child_first_name\\}\\}/g, data.child_first_name)\n    .replace(/\\{\\{parent_name\\}\\}/g, data.parent_name || '')\n    .replace(/\\{\\{booking_link\\}\\}/g, data.booking_link || '[BOOKING LINK NOT SET]')\n    .replace(/\\{\\{clinic_phone\\}\\}/g, data.clinic_phone);\n}\n\nfunction parsePlainToHtml(plain, bookingLink) {\n  var lines = plain.split('\\n');\n  var html = '';\n  var inList = false;\n\n  for (var i = 0; i < lines.length; i++) {\n    var line = lines[i];\n\n    if (line.trim() === '[CTA_BUTTON]') {\n      if (inList) { html += '</ul>'; inList = false; }\n      var href = bookingLink || '#';\n      html += '<div style=\"text-align:center;margin:26px 0 8px;\">' +\n        '<a href=\"' + esc(href) + '\" target=\"_blank\" rel=\"noopener noreferrer\" ' +\n        'style=\"display:inline-block;background:#0E5F63;color:#fff;text-decoration:none;' +\n        'font-size:15px;font-weight:700;padding:15px 38px;border-radius:10px;letter-spacing:-0.2px;\">' +\n        'Book Online</a></div>';\n      continue;\n    }\n\n    // Section headings\n    if (line.trim().length > 3 && !line.startsWith('\\u2022') &&\n        /^[A-Z0-9\\s\\u2013\\u2014&\\/\\-\\(\\)\\.\\+]+$/.test(line.trim())) {\n      if (inList) { html += '</ul>'; inList = false; }\n      html += '<h3 style=\"font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;' +\n        'color:#0E5F63;margin:24px 0 8px;padding-bottom:6px;border-bottom:1px solid #E3F0F1;\">' + esc(line) + '</h3>';\n    }\n    // Bullets\n    else if (line.startsWith('\\u2022')) {\n      if (!inList) { html += '<ul style=\"margin:6px 0 6px 0;padding-left:0;list-style:none;\">'; inList = true; }\n      html += '<li style=\"padding:3px 0 3px 18px;position:relative;font-size:14px;color:#2c4a4c;line-height:1.65;\">' +\n        '<span style=\"position:absolute;left:2px;color:#2A8F94;\">\\u2022</span>' + esc(line.slice(1).trim()) + '</li>';\n    }\n    // Empty\n    else if (line.trim() === '') {\n      if (inList) { html += '</ul>'; inList = false; }\n      html += '<div style=\"height:8px;\"></div>';\n    }\n    // Normal\n    else {\n      if (inList) { html += '</ul>'; inList = false; }\n      html += '<p style=\"margin:0 0 4px;font-size:14px;color:#2c4a4c;line-height:1.7;\">' + esc(line) + '</p>';\n    }\n  }\n  if (inList) html += '</ul>';\n  return html;\n}\n\nfunction buildEmailHtml(data, template) {\n  var rendered = renderTemplate(template.email_body_plain, data);\n  var bodyHtml = parsePlainToHtml(rendered, data.booking_link);\n  var subject  = renderTemplate(template.email_subject, data);\n\n  return '<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>' +\n    '<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">' +\n    '<title>' + esc(subject) + '</title></head>\\n' +\n    '<body style=\"margin:0;padding:0;background:#F4F7F7;' +\n    'font-family:-apple-system,BlinkMacSystemFont,\\'Segoe UI\\',Helvetica,Arial,sans-serif;\">' +\n    '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#F4F7F7;padding:28px 12px 40px;\">' +\n    '<tr><td align=\"center\">' +\n    '<table width=\"100%\" style=\"max-width:580px;\" cellpadding=\"0\" cellspacing=\"0\">' +\n    '<tr><td style=\"background:#0E5F63;border-radius:12px 12px 0 0;padding:26px 32px;\">' +\n    '<div style=\"display:inline-block;background:rgba(255,255,255,0.15);border-radius:8px;padding:6px 16px;' +\n    'font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px;\">Azure Mind</div>' +\n    '<div style=\"color:rgba(255,255,255,0.68);font-size:12px;margin-top:6px;\">Psychology &amp; Assessment</div>' +\n    '</td></tr>' +\n    '<tr><td style=\"background:#0A474A;padding:14px 32px;\">' +\n    '<div style=\"font-size:16px;font-weight:700;color:#fff;\">' + esc(template.email_title) + '</div>' +\n    '</td></tr>' +\n    '<tr><td style=\"background:#fff;padding:32px 32px 28px;border-left:1px solid #D9E5E5;border-right:1px solid #D9E5E5;\">' +\n    bodyHtml + '</td></tr>' +\n    '<tr><td style=\"background:#F8FBFB;border:1px solid #D9E5E5;border-top:none;' +\n    'border-radius:0 0 12px 12px;padding:18px 32px;\">' +\n    '<p style=\"font-size:11px;color:#647477;line-height:1.65;margin:0;\">' +\n    'Azure Mind Psychology | Perth, Western Australia<br>' +\n    'Vishal Maharaj is a Registered Psychologist registered with AHPRA.<br>' +\n    'This communication contains general information about our assessment services and is not clinical advice.<br>' +\n    'For assistance, contact us at <strong style=\"color:#0E5F63;\">' + esc(data.clinic_phone) + '</strong>.' +\n    '</p></td></tr>' +\n    '</table></td></tr></table></body></html>';\n}\n\n// ============================================================\n// CORE FUNCTIONS\n// ============================================================\nfunction generatePreview() {\n  var data = getFormData();\n  var type = data.assessment_type;\n  var template = TEMPLATES[type];\n\n  currentEmailHtml = buildEmailHtml(data, template);\n\n  var iframe = document.getElementById('email-iframe');\n  iframe.srcdoc = currentEmailHtml;\n  document.getElementById('email-subject-display').textContent = renderTemplate(template.email_subject, data);\n  document.getElementById('email-placeholder').style.display = 'none';\n  document.getElementById('email-preview-container').style.display = 'block';\n\n  iframe.onload = function() {\n    try { iframe.style.height = (iframe.contentDocument.body.scrollHeight + 20) + 'px'; } catch(e) {}\n  };\n\n  currentSmsText = renderTemplate(template.sms_body, data);\n  document.getElementById('sms-text-display').textContent = currentSmsText;\n  document.getElementById('sms-to-display').textContent = data.parent_mobile || 'Parent Mobile';\n  document.getElementById('sms-char-count').textContent = currentSmsText.length + ' characters';\n  document.getElementById('sms-placeholder').style.display = 'none';\n  document.getElementById('sms-preview-container').style.display = 'block';\n\n  addLog('Generated Preview', data);\n}\n\nfunction copyEmailHtml() {\n  if (!currentEmailHtml) return;\n  var d = getFormData();\n  var done = function() {\n    showCopyStatus('email-copy-status');\n    showCopyGlobal('Email HTML copied to clipboard.');\n    addLog('Copied Email HTML', d);\n  };\n  navigator.clipboard.writeText(currentEmailHtml).then(done).catch(function() { fallbackCopy(currentEmailHtml); done(); });\n}\n\nfunction copySms() {\n  if (!currentSmsText) return;\n  var d = getFormData();\n  var done = function() {\n    showCopyStatus('sms-copy-status');\n    showCopyGlobal('SMS text copied to clipboard.');\n    addLog('Copied SMS', d);\n  };\n  navigator.clipboard.writeText(currentSmsText).then(done).catch(function() { fallbackCopy(currentSmsText); done(); });\n}\n\nfunction fallbackCopy(text) {\n  var ta = document.createElement('textarea');\n  ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;';\n  document.body.appendChild(ta); ta.select();\n  try { document.execCommand('copy'); } catch(e) {}\n  document.body.removeChild(ta);\n}\n\nfunction sendEmailPlaceholder() {\n  showSendStatus('\\u26a0\\ufe0f Send Email Only \\u2014 email backend not yet connected. Future integration: Resend. No email has been sent.');\n  var d = getFormData();\n  addLog('Send Email Only', d);\n}\nfunction sendSmsPlaceholder() {\n  showSendStatus('\\u26a0\\ufe0f Send SMS Only \\u2014 SMS backend not yet connected. Future integration: Twilio. No SMS has been sent.');\n  var d = getFormData();\n  addLog('Send SMS Only', d);\n}\nfunction sendBothPlaceholder() {\n  showSendStatus('\\u26a0\\ufe0f Send Email + SMS \\u2014 backend not yet connected. Future: Resend + Twilio. No messages sent.');\n  var d = getFormData();\n  addLog('Send Email + SMS', d);\n}\n\nfunction clearForm() {\n  ['child_first_name','parent_first_name','parent_last_name','parent_email',\n   'parent_mobile','notes','referrer_name','referrer_email'].forEach(function(id) {\n    var el = document.getElementById(id);\n    if (el) el.value = '';\n  });\n  document.getElementById('assessment_type').value = 'ADHD';\n  document.getElementById('referrer_type').value = '';\n  document.getElementById('booking_link').value = 'https://azurepsychology-cockburn.au1.cliniko.com/bookings';\n  document.getElementById('clinic_phone').value = '0422 192 967';\n\n  REQUIRED_FIELDS.forEach(function(id) {\n    var wrap = document.getElementById('field-' + id);\n    if (wrap) wrap.classList.remove('has-error');\n  });\n  document.getElementById('validation-banner').classList.remove('show');\n\n  document.getElementById('email-placeholder').style.display = '';\n  document.getElementById('email-preview-container').style.display = 'none';\n  document.getElementById('sms-placeholder').style.display = '';\n  document.getElementById('sms-preview-container').style.display = 'none';\n  currentEmailHtml = ''; currentSmsText = '';\n  document.getElementById('send-status').style.display = 'none';\n  showCopyGlobal('', false);\n  addLog('Form Cleared', null);\n}\n\nfunction addLog(action, d) {\n  var now = new Date();\n  var time = now.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });\n  var date = now.toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });\n  logItems.unshift({\n    time: time, date: date, action: action,\n    type:         d ? d.assessment_type  : '\\u2014',\n    childName:    d ? d.child_first_name : '\\u2014',\n    parentName:   d ? d.parent_name      : '',\n    parentEmail:  d ? d.parent_email     : '',\n    parentMobile: d ? d.parent_mobile    : '',\n    referrerName: d ? (d.referrer_name || '') : '',\n    referrerType: d ? (d.referrer_type || '') : ''\n  });\n  renderLog();\n}\n\nfunction renderLog() {\n  document.getElementById('log-empty').style.display = logItems.length ? 'none' : '';\n  document.getElementById('log-list').innerHTML = logItems.map(function(item) {\n    var badge = '';\n    if (item.type && item.type !== '\\u2014') {\n      var cls = item.type==='ADHD'?'badge-adhd':item.type==='ASD'?'badge-asd':'badge-sld';\n      var lbl = item.type==='ASD'?'Autism':item.type;\n      badge = '<span class=\"log-badge '+cls+'\">'+lbl+'</span>';\n    }\n    var child = (item.childName && item.childName!=='\\u2014') ? ' &mdash; <em>'+esc(item.childName)+'</em>' : '';\n    var parentLine = '';\n    if (item.parentName) {\n      var pDetail = esc(item.parentName);\n      if (item.parentEmail) pDetail += ' &lt;' + esc(item.parentEmail) + '&gt;';\n      if (item.parentMobile) pDetail += ' | ' + esc(item.parentMobile);\n      parentLine = '<div class=\"log-referrer\" style=\"color:#2c4a4c;\">Parent: ' + pDetail + '</div>';\n    }\n    var ref = '';\n    if (item.referrerName || item.referrerType) {\n      var parts = [];\n      if (item.referrerType) parts.push(item.referrerType);\n      if (item.referrerName) parts.push(item.referrerName);\n      ref = '<div class=\"log-referrer\">&#128274; Referrer: '+esc(parts.join(' \\u2014 '))+'</div>';\n    }\n    return '<li class=\"log-item\"><span class=\"log-time\">'+item.time+'</span>' +\n      '<span class=\"log-text\">'+esc(item.action)+badge+child+parentLine+ref+'</span></li>';\n  }).join('');\n}\n\n// UI helpers\nfunction showSendStatus(msg) {\n  var el = document.getElementById('send-status');\n  el.textContent = msg; el.style.display = msg ? 'block' : 'none';\n}\nfunction showCopyGlobal(msg, show) {\n  var el = document.getElementById('copy-global-status');\n  if (show === false) { el.className = 'status-msg'; el.textContent = ''; return; }\n  el.textContent = msg;\n  el.className = 'status-msg status-success' + (msg ? ' show' : '');\n}\nfunction showCopyStatus(id) {\n  var el = document.getElementById(id);\n  el.classList.add('show');\n  setTimeout(function() { el.classList.remove('show'); }, 2500);\n}\n\n// ============================================================\n// SEND ANOTHER REFERRAL\n// ============================================================\nfunction sendAnotherReferral() {\n  ['child_first_name','parent_first_name','parent_last_name','parent_email',\n   'parent_mobile','notes','referrer_name','referrer_email'].forEach(function(id) {\n    var el = document.getElementById(id);\n    if (el) el.value = '';\n  });\n  REQUIRED_FIELDS.forEach(function(id) {\n    var wrap = document.getElementById('field-' + id);\n    if (wrap) wrap.classList.remove('has-error');\n  });\n  document.getElementById('validation-banner').classList.remove('show');\n  document.getElementById('email-placeholder').style.display = '';\n  document.getElementById('email-preview-container').style.display = 'none';\n  document.getElementById('sms-placeholder').style.display = '';\n  document.getElementById('sms-preview-container').style.display = 'none';\n  currentEmailHtml = ''; currentSmsText = '';\n  var ss = document.getElementById('send-status');\n  ss.textContent = 'Ready for next referral.';\n  ss.className = 'status-msg status-success show';\n  setTimeout(function() { ss.style.display = 'none'; ss.className = 'status-msg status-success'; }, 4000);\n  showCopyGlobal('', false);\n}\n\n// ============================================================\n// REGISTER COPY & DOWNLOAD\n// ============================================================\nfunction copyRegister() {\n  if (!logItems.length) { showCopyGlobal('No register entries yet.'); return; }\n  var text = logItems.map(function(item) {\n    var line = '[' + item.date + ' ' + item.time + '] ' + item.action;\n    if (item.childName && item.childName !== '\\u2014') line += ' | Child: ' + item.childName;\n    if (item.type && item.type !== '\\u2014') line += ' | Type: ' + item.type;\n    if (item.parentName) line += ' | Parent: ' + item.parentName;\n    if (item.parentEmail) line += ' | Email: ' + item.parentEmail;\n    if (item.parentMobile) line += ' | Mobile: ' + item.parentMobile;\n    if (item.referrerType) line += ' | Referrer Type: ' + item.referrerType;\n    if (item.referrerName) line += ' | Referrer: ' + item.referrerName;\n    return line;\n  }).join('\\n');\n  navigator.clipboard.writeText(text).then(function() {\n    showCopyGlobal('Register copied to clipboard.');\n  }).catch(function() { fallbackCopy(text); showCopyGlobal('Register copied to clipboard.'); });\n}\n\nfunction downloadRegisterCsv() {\n  if (!logItems.length) { showCopyGlobal('No register entries yet.'); return; }\n  var headers = ['Date','Time','Action','Child First Name','Assessment Type',\n                 'Parent Name','Parent Email','Parent Mobile','Referrer Type','Referrer Name'];\n  function q(v) { return '\"' + String(v || '').replace(/\"/g,'\"\"') + '\"'; }\n  var rows = logItems.map(function(item) {\n    return [item.date, item.time, item.action, item.childName === '\\u2014' ? '' : item.childName,\n            item.type === '\\u2014' ? '' : item.type,\n            item.parentName, item.parentEmail, item.parentMobile,\n            item.referrerType, item.referrerName].map(q).join(',');\n  });\n  var csv = [headers.map(q).join(',')].concat(rows).join('\\n');\n  var blob = new Blob([csv], { type: 'text/csv' });\n  var url = URL.createObjectURL(blob);\n  var a = document.createElement('a');\n  a.href = url;\n  a.download = 'azure-mind-register-' + new Date().toISOString().slice(0,10) + '.csv';\n  document.body.appendChild(a); a.click(); document.body.removeChild(a);\n  URL.revokeObjectURL(url);\n}\n(function __azureMindLateInit(){\n  function pinInit(){\n    var pinInput = document.getElementById('pin-input');\n    if (pinInput) {\n      pinInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') checkPin(); });\n      pinInput.focus();\n    }\n  }\n  function requiredWire(){\n    REQUIRED_FIELDS.forEach(function(id) {\n      var el = document.getElementById(id);\n      if (!el) return;\n      el.addEventListener('input', function() {\n        if (el.value.trim()) {\n          var wrap = document.getElementById('field-' + id);\n          if (wrap) wrap.classList.remove('has-error');\n          var anyError = REQUIRED_FIELDS.some(function(fid) {\n            var fw = document.getElementById('field-' + fid);\n            return fw && fw.classList.contains('has-error');\n          });\n          if (!anyError) document.getElementById('validation-banner').classList.remove('show');\n        }\n      });\n      el.addEventListener('change', function() {\n        if (el.value.trim()) {\n          var wrap = document.getElementById('field-' + id);\n          if (wrap) wrap.classList.remove('has-error');\n        }\n      });\n    });\n  }\n  pinInit();\n  requiredWire();\n})();";
+const DEFAULT_BOOKING_LINK = "https://azuremind.com.au/book";
+const DEFAULT_CLINIC_PHONE = "07 3123 4567";
 
-const REPLIT_PILL_SNIPPET = "<script src=\"https://replit-cdn.com/replit-pill/replit-pill.global.js\" data-referral-code=\"p2o3ch1fpunz\" data-repl-id=\"644f225a-0b86-4b8e-ab7b-dcf042dc6007\"></script>";
+type AssessmentType = "ADHD" | "ASD" | "SLD";
+
+type SentChannel = "email+sms" | "email" | "sms";
+
+type SentEntry = {
+  id: string;
+  at: string;
+  childFirst: string;
+  parentFirst: string;
+  parentLast: string;
+  parentEmail: string;
+  parentMobile: string;
+  assessmentType: AssessmentType;
+  bookingLink: string;
+  clinicPhone: string;
+  internalNotes: string;
+  referrerName: string;
+  referrerType: string;
+  referrerEmail: string;
+  channel: SentChannel;
+};
+
+function uid(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildParentEmailHtml(fields: {
+  childFirst: string;
+  parentFirst: string;
+  parentLast: string;
+  parentEmail: string;
+  parentMobile: string;
+  assessmentType: AssessmentType;
+  bookingLink: string;
+  clinicPhone: string;
+}): string {
+  const { childFirst, parentFirst, assessmentType, bookingLink, clinicPhone } =
+    fields;
+  const greeting = parentFirst.trim()
+    ? `Dear ${escapeHtml(parentFirst.trim())},`
+    : "Dear Parent/Carer,";
+  return [
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /></head><body>",
+    `<p>${greeting}</p>`,
+    `<p>Thank you for your referral regarding <strong>${escapeHtml(childFirst.trim() || "your child")}</strong>.</p>`,
+    `<p>Assessment focus: <strong>${escapeHtml(assessmentType)}</strong>.</p>`,
+    `<p>Please book using this link: <a href="${escapeHtml(bookingLink)}">${escapeHtml(bookingLink)}</a></p>`,
+    `<p>If you need help, call us on <strong>${escapeHtml(clinicPhone)}</strong>.</p>`,
+    "<p>Warm regards,<br/>Azure Mind</p>",
+    "</body></html>",
+  ].join("");
+}
+
+function buildSmsText(fields: {
+  childFirst: string;
+  parentFirst: string;
+  assessmentType: AssessmentType;
+  bookingLink: string;
+  clinicPhone: string;
+}): string {
+  const name = fields.childFirst.trim() || "your child";
+  return [
+    `Azure Mind: Hi${fields.parentFirst.trim() ? ` ${fields.parentFirst.trim()}` : ""},`,
+    `referral for ${name} (${fields.assessmentType}).`,
+    `Book: ${fields.bookingLink}`,
+    `Questions: ${fields.clinicPhone}`,
+  ].join(" ");
+}
 
 export default function Home() {
-  const injected = useRef(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
 
-  useEffect(() => {
-    if (injected.current) return;
-    injected.current = true;
-    const run = () => {
-      const s = document.createElement("script");
-      s.text = INLINE_SCRIPT;
-      document.body.appendChild(s);
-      if (REPLIT_PILL_SNIPPET) {
-        const tmp = document.createElement("div");
-        tmp.innerHTML = REPLIT_PILL_SNIPPET;
-        const ext = tmp.firstElementChild;
-        if (ext) document.body.appendChild(ext);
-      }
-    };
-    if (document.readyState === "complete" || document.readyState === "interactive") {
-      run();
+  const [childFirst, setChildFirst] = useState("");
+  const [parentFirst, setParentFirst] = useState("");
+  const [parentLast, setParentLast] = useState("");
+  const [parentEmail, setParentEmail] = useState("");
+  const [parentMobile, setParentMobile] = useState("");
+  const [assessmentType, setAssessmentType] = useState<AssessmentType>("ADHD");
+  const [bookingLink, setBookingLink] = useState(DEFAULT_BOOKING_LINK);
+  const [clinicPhone, setClinicPhone] = useState(DEFAULT_CLINIC_PHONE);
+  const [internalNotes, setInternalNotes] = useState("");
+
+  const [referrerName, setReferrerName] = useState("");
+  const [referrerType, setReferrerType] = useState("");
+  const [referrerEmail, setReferrerEmail] = useState("");
+
+  const [previewEmailHtml, setPreviewEmailHtml] = useState("");
+  const [previewSms, setPreviewSms] = useState("");
+  const [previewReady, setPreviewReady] = useState(false);
+
+  const [sentRegister, setSentRegister] = useState<SentEntry[]>([]);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const handleUnlock = (e: FormEvent) => {
+    e.preventDefault();
+    if (pinInput.trim().toLowerCase() === PIN.toLowerCase()) {
+      setUnlocked(true);
+      setPinError(null);
     } else {
-      document.addEventListener("DOMContentLoaded", run);
+      setPinError("Incorrect PIN.");
     }
-  }, []);
+  };
 
-  return <div dangerouslySetInnerHTML={{ __html: MARKUP_HTML }} />;
+  const generatePreview = useCallback((): boolean => {
+    if (!parentMobile.trim()) {
+      setActionMsg("Parent mobile is required.");
+      setTimeout(() => setActionMsg(null), 2500);
+      return false;
+    }
+    const html = buildParentEmailHtml({
+      childFirst,
+      parentFirst,
+      parentLast,
+      parentEmail,
+      parentMobile,
+      assessmentType,
+      bookingLink,
+      clinicPhone,
+    });
+    const sms = buildSmsText({
+      childFirst,
+      parentFirst,
+      assessmentType,
+      bookingLink,
+      clinicPhone,
+    });
+    setPreviewEmailHtml(html);
+    setPreviewSms(sms);
+    setPreviewReady(true);
+    setActionMsg("Preview updated from current form.");
+    setTimeout(() => setActionMsg(null), 2500);
+    return true;
+  }, [
+    childFirst,
+    parentFirst,
+    parentLast,
+    parentEmail,
+    parentMobile,
+    assessmentType,
+    bookingLink,
+    clinicPhone,
+  ]);
+
+  const pushSent = useCallback(
+    (channel: SentChannel) => {
+      const entry: SentEntry = {
+        id: uid(),
+        at: new Date().toISOString(),
+        childFirst,
+        parentFirst,
+        parentLast,
+        parentEmail,
+        parentMobile,
+        assessmentType,
+        bookingLink,
+        clinicPhone,
+        internalNotes,
+        referrerName,
+        referrerType,
+        referrerEmail,
+        channel,
+      };
+      setSentRegister((prev) => [entry, ...prev]);
+    },
+    [
+      childFirst,
+      parentFirst,
+      parentLast,
+      parentEmail,
+      parentMobile,
+      assessmentType,
+      bookingLink,
+      clinicPhone,
+      internalNotes,
+      referrerName,
+      referrerType,
+      referrerEmail,
+    ]
+  );
+
+  const copyText = async (label: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setActionMsg(`${label} copied.`);
+    } catch {
+      setActionMsg("Clipboard unavailable.");
+    }
+    setTimeout(() => setActionMsg(null), 2500);
+  };
+
+  const registerCsv = useMemo(() => {
+    const headers = [
+      "timestamp_iso",
+      "channel",
+      "child_first",
+      "parent_first",
+      "parent_last",
+      "parent_email",
+      "parent_mobile",
+      "assessment_type",
+      "booking_link",
+      "clinic_phone",
+      "internal_notes",
+      "referrer_name",
+      "referrer_type",
+      "referrer_email",
+    ];
+    const rows = sentRegister.map((r) =>
+      [
+        r.at,
+        r.channel,
+        r.childFirst,
+        r.parentFirst,
+        r.parentLast,
+        r.parentEmail,
+        r.parentMobile,
+        r.assessmentType,
+        r.bookingLink,
+        r.clinicPhone,
+        r.internalNotes,
+        r.referrerName,
+        r.referrerType,
+        r.referrerEmail,
+      ]
+        .map((cell) => {
+          const s = String(cell ?? "");
+          if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+          return s;
+        })
+        .join(",")
+    );
+    return [headers.join(","), ...rows].join("\n");
+  }, [sentRegister]);
+
+  const copyRegister = () => copyText("Register", registerCsv);
+
+  const downloadCsv = () => {
+    const blob = new Blob([registerCsv], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `azure-mind-sent-register-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setActionMsg("CSV download started.");
+    setTimeout(() => setActionMsg(null), 2500);
+  };
+
+  const clearForm = () => {
+    setChildFirst("");
+    setParentFirst("");
+    setParentLast("");
+    setParentEmail("");
+    setParentMobile("");
+    setAssessmentType("ADHD");
+    setBookingLink(DEFAULT_BOOKING_LINK);
+    setClinicPhone(DEFAULT_CLINIC_PHONE);
+    setInternalNotes("");
+    setReferrerName("");
+    setReferrerType("");
+    setReferrerEmail("");
+    setPreviewEmailHtml("");
+    setPreviewSms("");
+    setPreviewReady(false);
+    setActionMsg("Form cleared.");
+    setTimeout(() => setActionMsg(null), 2500);
+  };
+
+  const sendAnotherReferral = () => {
+    clearForm();
+    setActionMsg("Ready for another referral.");
+    setTimeout(() => setActionMsg(null), 2500);
+  };
+
+  const card: CSSProperties = {
+    background: "rgba(13, 148, 136, 0.06)",
+    border: "1px solid rgba(13, 148, 136, 0.28)",
+    borderRadius: 12,
+    padding: "1rem 1.15rem",
+  };
+
+  const labelStyle: CSSProperties = {
+    display: "block",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#0f766e",
+    marginBottom: 6,
+  };
+
+  const inputStyle: CSSProperties = {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid rgba(13, 148, 136, 0.35)",
+    background: "#fff",
+    fontSize: 14,
+  };
+
+  const btn: CSSProperties = {
+    padding: "10px 14px",
+    borderRadius: 8,
+    border: "1px solid rgba(13, 148, 136, 0.45)",
+    background: "rgba(13, 148, 136, 0.12)",
+    color: "#0f766e",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontSize: 13,
+  };
+
+  if (!unlocked) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "linear-gradient(180deg, #ecfeff 0%, #f0fdfa 50%, #fafafa 100%)",
+          padding: 24,
+        }}
+      >
+        <header
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            background: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
+            color: "#fff",
+            padding: "20px 24px",
+            borderRadius: "12px 12px 0 0",
+            textAlign: "center",
+            boxShadow: "0 4px 20px rgba(13, 148, 136, 0.25)",
+          }}
+        >
+          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
+            Azure Mind
+          </h1>
+          <p style={{ fontSize: 13, opacity: 0.92, marginTop: 6 }}>
+            Referral Admin — sign in
+          </p>
+        </header>
+        <form
+          onSubmit={handleUnlock}
+          style={{
+            ...card,
+            maxWidth: 420,
+            width: "100%",
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+            marginTop: 0,
+            borderTop: "none",
+          }}
+        >
+          <label style={labelStyle} htmlFor="pin">
+            PIN
+          </label>
+          <input
+            id="pin"
+            type="password"
+            autoComplete="current-password"
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value)}
+            placeholder="Enter PIN"
+            style={inputStyle}
+          />
+          {pinError ? (
+            <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 10 }}>
+              {pinError}
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            style={{
+              ...btn,
+              width: "100%",
+              marginTop: 16,
+              background: "#0d9488",
+              color: "#fff",
+              border: "none",
+            }}
+          >
+            Unlock
+          </button>
+        </form>
+      </main>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f7faf9" }}>
+      <header
+        style={{
+          background: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
+          color: "#fff",
+          padding: "18px 28px",
+          boxShadow: "0 2px 12px rgba(13, 148, 136, 0.2)",
+        }}
+      >
+        <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em" }}>
+          Azure Mind
+        </h1>
+        <p style={{ fontSize: 14, opacity: 0.92, marginTop: 4 }}>
+          Referral Admin Tool
+        </p>
+      </header>
+
+      <main
+        style={{
+          maxWidth: 1200,
+          margin: "0 auto",
+          padding: "24px 20px 48px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
+          gap: 20,
+          alignItems: "start",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <section style={card}>
+            <h2
+              style={{
+                fontSize: 15,
+                color: "#115e59",
+                marginBottom: 14,
+                fontWeight: 700,
+              }}
+            >
+              Referral details
+            </h2>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={labelStyle} htmlFor="childFirst">
+                  Child first name
+                </label>
+                <input
+                  id="childFirst"
+                  value={childFirst}
+                  onChange={(e) => setChildFirst(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="parentFirst">
+                  Parent first name
+                </label>
+                <input
+                  id="parentFirst"
+                  value={parentFirst}
+                  onChange={(e) => setParentFirst(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="parentLast">
+                  Parent last name
+                </label>
+                <input
+                  id="parentLast"
+                  value={parentLast}
+                  onChange={(e) => setParentLast(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="parentEmail">
+                  Parent email <span style={{ fontWeight: 400 }}>(optional)</span>
+                </label>
+                <input
+                  id="parentEmail"
+                  type="email"
+                  value={parentEmail}
+                  onChange={(e) => setParentEmail(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="parentMobile">
+                  Parent mobile <span style={{ color: "#b91c1c" }}>*</span>{" "}
+                  required
+                </label>
+                <input
+                  id="parentMobile"
+                  type="tel"
+                  value={parentMobile}
+                  onChange={(e) => setParentMobile(e.target.value)}
+                  style={inputStyle}
+                  required
+                />
+              </div>
+              <div>
+                <span style={labelStyle}>Assessment type</span>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 10,
+                  }}
+                >
+                  {(["ADHD", "ASD", "SLD"] as const).map((t) => (
+                    <label
+                      key={t}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 14,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="assessment"
+                        checked={assessmentType === t}
+                        onChange={() => setAssessmentType(t)}
+                      />
+                      {t}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="bookingLink">
+                  Booking link <span style={{ fontWeight: 400 }}>(default)</span>
+                </label>
+                <input
+                  id="bookingLink"
+                  type="url"
+                  value={bookingLink}
+                  onChange={(e) => setBookingLink(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="clinicPhone">
+                  Clinic phone <span style={{ fontWeight: 400 }}>(default)</span>
+                </label>
+                <input
+                  id="clinicPhone"
+                  type="tel"
+                  value={clinicPhone}
+                  onChange={(e) => setClinicPhone(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="internalNotes">
+                  Internal notes
+                </label>
+                <textarea
+                  id="internalNotes"
+                  value={internalNotes}
+                  onChange={(e) => setInternalNotes(e.target.value)}
+                  rows={4}
+                  style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section style={{ ...card, borderStyle: "dashed" }}>
+            <h2
+              style={{
+                fontSize: 15,
+                color: "#115e59",
+                marginBottom: 8,
+                fontWeight: 700,
+              }}
+            >
+              Internal referrer
+            </h2>
+            <p style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
+              Must never appear in parent-facing email or SMS.
+            </p>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={labelStyle} htmlFor="referrerName">
+                  Referrer name
+                </label>
+                <input
+                  id="referrerName"
+                  value={referrerName}
+                  onChange={(e) => setReferrerName(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="referrerType">
+                  Referrer type
+                </label>
+                <input
+                  id="referrerType"
+                  value={referrerType}
+                  onChange={(e) => setReferrerType(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="referrerEmail">
+                  Referrer email
+                </label>
+                <input
+                  id="referrerEmail"
+                  type="email"
+                  value={referrerEmail}
+                  onChange={(e) => setReferrerEmail(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section style={card}>
+            <h2
+              style={{
+                fontSize: 15,
+                color: "#115e59",
+                marginBottom: 12,
+                fontWeight: 700,
+              }}
+            >
+              Actions
+            </h2>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              <button type="button" style={btn} onClick={generatePreview}>
+                Generate Preview
+              </button>
+              <button
+                type="button"
+                style={btn}
+                onClick={() => {
+                  if (!generatePreview()) return;
+                  pushSent("email+sms");
+                  setActionMsg(
+                    "Send Email + SMS — placeholder recorded in register."
+                  );
+                  setTimeout(() => setActionMsg(null), 2500);
+                }}
+              >
+                Send Email + SMS (placeholder)
+              </button>
+              <button
+                type="button"
+                style={btn}
+                onClick={() => {
+                  if (!generatePreview()) return;
+                  pushSent("email");
+                  setActionMsg("Send Email Only — placeholder recorded.");
+                  setTimeout(() => setActionMsg(null), 2500);
+                }}
+              >
+                Send Email Only (placeholder)
+              </button>
+              <button
+                type="button"
+                style={btn}
+                onClick={() => {
+                  if (!generatePreview()) return;
+                  pushSent("sms");
+                  setActionMsg("Send SMS Only — placeholder recorded.");
+                  setTimeout(() => setActionMsg(null), 2500);
+                }}
+              >
+                Send SMS Only (placeholder)
+              </button>
+              <button
+                type="button"
+                style={btn}
+                onClick={() =>
+                  previewReady
+                    ? copyText("Email HTML", previewEmailHtml)
+                    : setActionMsg("Generate preview first.")
+                }
+              >
+                Copy Email HTML
+              </button>
+              <button
+                type="button"
+                style={btn}
+                onClick={() =>
+                  previewReady
+                    ? copyText("SMS", previewSms)
+                    : setActionMsg("Generate preview first.")
+                }
+              >
+                Copy SMS
+              </button>
+              <button type="button" style={btn} onClick={sendAnotherReferral}>
+                Send Another Referral
+              </button>
+              <button type="button" style={btn} onClick={clearForm}>
+                Clear Form
+              </button>
+            </div>
+            {actionMsg ? (
+              <p style={{ marginTop: 12, fontSize: 13, color: "#0f766e" }}>
+                {actionMsg}
+              </p>
+            ) : null}
+          </section>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <section style={card}>
+            <h2
+              style={{
+                fontSize: 15,
+                color: "#115e59",
+                marginBottom: 10,
+                fontWeight: 700,
+              }}
+            >
+              Email preview (parent-facing)
+            </h2>
+            {!previewReady ? (
+              <p style={{ fontSize: 13, color: "#64748b" }}>
+                Click &quot;Generate Preview&quot; to build parent-facing content.
+                Internal referrer fields are excluded.
+              </p>
+            ) : (
+              <EmailPreviewPlain
+                childFirst={childFirst}
+                parentFirst={parentFirst}
+                assessmentType={assessmentType}
+                bookingLink={bookingLink}
+                clinicPhone={clinicPhone}
+              />
+            )}
+          </section>
+
+          <section style={card}>
+            <h2
+              style={{
+                fontSize: 15,
+                color: "#115e59",
+                marginBottom: 10,
+                fontWeight: 700,
+              }}
+            >
+              SMS preview (parent-facing)
+            </h2>
+            {!previewReady ? (
+              <p style={{ fontSize: 13, color: "#64748b" }}>
+                Generate preview to see SMS text.
+              </p>
+            ) : (
+              <pre
+                style={{
+                  margin: 0,
+                  padding: 12,
+                  background: "#fff",
+                  borderRadius: 8,
+                  border: "1px solid rgba(13, 148, 136, 0.25)",
+                  fontSize: 13,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontFamily: "inherit",
+                }}
+              >
+                {previewSms}
+              </pre>
+            )}
+          </section>
+
+          <section style={card}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                marginBottom: 12,
+              }}
+            >
+              <h2
+                style={{
+                  fontSize: 15,
+                  color: "#115e59",
+                  fontWeight: 700,
+                }}
+              >
+                Sent register ({sentRegister.length})
+              </h2>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                  type="button"
+                  style={btn}
+                  onClick={copyRegister}
+                  disabled={sentRegister.length === 0}
+                >
+                  Copy Register
+                </button>
+                <button
+                  type="button"
+                  style={btn}
+                  onClick={downloadCsv}
+                  disabled={sentRegister.length === 0}
+                >
+                  Download CSV
+                </button>
+              </div>
+            </div>
+            {sentRegister.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#64748b" }}>
+                No entries yet. Use send placeholders or actions that record to the
+                register.
+              </p>
+            ) : (
+              <ul
+                style={{
+                  listStyle: "none",
+                  maxHeight: 280,
+                  overflow: "auto",
+                  padding: 0,
+                  margin: 0,
+                }}
+              >
+                {sentRegister.map((r) => (
+                  <li
+                    key={r.id}
+                    style={{
+                      padding: "10px 0",
+                      borderBottom: "1px solid rgba(13, 148, 136, 0.15)",
+                      fontSize: 13,
+                    }}
+                  >
+                    <strong>{r.childFirst || "(child)"}</strong> —{" "}
+                    {r.parentFirst} {r.parentLast} · {r.assessmentType} ·{" "}
+                    <span style={{ color: "#0d9488" }}>{r.channel}</span>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                      {new Date(r.at).toLocaleString()}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function EmailPreviewPlain({
+  childFirst,
+  parentFirst,
+  assessmentType,
+  bookingLink,
+  clinicPhone,
+}: {
+  childFirst: string;
+  parentFirst: string;
+  assessmentType: AssessmentType;
+  bookingLink: string;
+  clinicPhone: string;
+}) {
+  const greeting = parentFirst.trim()
+    ? `Dear ${parentFirst.trim()},`
+    : "Dear Parent/Carer,";
+  return (
+    <div
+      style={{
+        padding: 14,
+        background: "#fff",
+        borderRadius: 8,
+        border: "1px solid rgba(13, 148, 136, 0.25)",
+        fontSize: 14,
+        lineHeight: 1.55,
+        color: "#1e293b",
+      }}
+    >
+      <p style={{ margin: "0 0 12px" }}>{greeting}</p>
+      <p style={{ margin: "0 0 12px" }}>
+        Thank you for your referral regarding{" "}
+        <strong>{childFirst.trim() || "your child"}</strong>.
+      </p>
+      <p style={{ margin: "0 0 12px" }}>
+        Assessment focus: <strong>{assessmentType}</strong>.
+      </p>
+      <p style={{ margin: "0 0 12px" }}>
+        Please book using this link:{" "}
+        <a href={bookingLink} style={{ color: "#0d9488", wordBreak: "break-all" }}>
+          {bookingLink}
+        </a>
+      </p>
+      <p style={{ margin: "0 0 12px" }}>
+        If you need help, call us on <strong>{clinicPhone}</strong>.
+      </p>
+      <p style={{ margin: 0 }}>
+        Warm regards,
+        <br />
+        Azure Mind
+      </p>
+    </div>
+  );
 }
