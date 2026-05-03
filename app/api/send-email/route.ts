@@ -11,14 +11,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const { subject, html } = await req.json();
+    const { to, subject, html } = await req.json();
 
-    const result = await resend.emails.send({
-        from: "Azure Mind <onboarding@resend.dev>",
-        to: "vishal@greymind.ai",
-        subject: subject || "Azure Mind Referral",
-        html: html || "<p>Azure Mind referral email</p>",
-      });
+const result = await resend.emails.send({
+  from: "Azure Mind <referrals@azuremind.com.au>",
+  to,
+  subject: subject || "Azure Mind Referral",
+  html: html || "<p>Azure Mind referral email</p>",
+});
 
     console.log("RESEND RESULT:", JSON.stringify(result, null, 2));
 
