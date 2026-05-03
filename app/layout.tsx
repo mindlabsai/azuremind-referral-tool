@@ -14,10 +14,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Azure Mind Admin",
+    default: "Azure Mind — Referral Engine",
     template: "%s | Azure Mind",
   },
-  description: "Referral Engine — Internal",
+  description: "Internal referral system for clinical intake and patient onboarding.",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
