@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PIN = "azuremind";
 
+const AUTH_STORAGE_KEY = "azuremind_referral_engine_auth";
+
 const DEFAULT_BOOKING_LINK =
   "https://azurepsychology-cockburn.au1.cliniko.com/bookings";
 const DEFAULT_CLINIC_PHONE = "0422 182 967";
@@ -638,6 +640,7 @@ function buildSmsText(fields: {
 export default function Home() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
 
   const [childFirst, setChildFirst] = useState("");
@@ -671,14 +674,45 @@ export default function Home() {
     setTimeout(() => childFirstNameRef.current?.focus(), 250);
   }
 
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && localStorage.getItem(AUTH_STORAGE_KEY)) {
+        setUnlocked(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const handleUnlock = (e: FormEvent) => {
     e.preventDefault();
-    if (pinInput.trim().toLowerCase() === PIN.toLowerCase()) {
-      setUnlocked(true);
-      setPinError(null);
-    } else {
-      setPinError("Incorrect PIN.");
+    if (signingIn) return;
+    setSigningIn(true);
+    window.setTimeout(() => {
+      if (pinInput.trim().toLowerCase() === PIN.toLowerCase()) {
+        try {
+          localStorage.setItem(AUTH_STORAGE_KEY, "1");
+        } catch {
+          /* ignore */
+        }
+        setUnlocked(true);
+        setPinError(null);
+      } else {
+        setPinError("Incorrect password");
+      }
+      setSigningIn(false);
+    }, 120);
+  };
+
+  const signOut = () => {
+    try {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {
+      /* ignore */
     }
+    setUnlocked(false);
+    setPinInput("");
+    setPinError(null);
   };
 
   const validateCoreFields = useCallback((): boolean => {
@@ -1084,6 +1118,45 @@ export default function Home() {
     color: "#374151",
   };
 
+  const sendStatusBannerSuccess: CSSProperties = {
+    padding: "12px 14px",
+    borderRadius: 10,
+    fontWeight: 700,
+    marginBottom: 16,
+    fontSize: 14,
+    lineHeight: 1.45,
+    background: "#E6F7F4",
+    border: "1px solid #57C7B8",
+    color: "#075E63",
+  };
+
+  const sendStatusBannerError: CSSProperties = {
+    padding: "12px 14px",
+    borderRadius: 10,
+    fontWeight: 700,
+    marginBottom: 16,
+    fontSize: 14,
+    lineHeight: 1.45,
+    background: "#FEF2F2",
+    border: "1px solid #FCA5A5",
+    color: "#991B1B",
+  };
+
+  const headerSignOutBtn: CSSProperties = {
+    flexShrink: 0,
+    alignSelf: "flex-start",
+    marginTop: 2,
+    padding: "8px 14px",
+    borderRadius: 10,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    border: "1px solid rgba(255,255,255,0.45)",
+    background: "rgba(255,255,255,0.12)",
+    color: "#fff",
+    boxSizing: "border-box",
+  };
+
   if (!unlocked) {
     return (
       <main
@@ -1104,42 +1177,100 @@ export default function Home() {
               ...headerBar,
               textAlign: "center",
               marginBottom: 24,
+              boxShadow: "0 8px 28px rgba(14, 95, 99, 0.18)",
             }}
           >
-            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>
+            <h1
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                letterSpacing: "-0.03em",
+                lineHeight: 1.2,
+              }}
+            >
               Azure Mind
             </h1>
-            <p style={{ fontSize: 13, opacity: 0.92, marginTop: 6 }}>
-              Referral Admin — sign in
+            <p
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                opacity: 0.94,
+                marginTop: 8,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              Referral Engine
+            </p>
+            <p
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                opacity: 0.72,
+                marginTop: 10,
+                letterSpacing: "0.02em",
+              }}
+            >
+              Internal Use Only
             </p>
           </header>
-          <form onSubmit={handleUnlock} style={{ ...card, marginBottom: 0 }}>
-            <label style={labelFirst} htmlFor="pin">
-              PIN
+          <form
+            onSubmit={handleUnlock}
+            style={{
+              ...card,
+              marginBottom: 0,
+              boxShadow: "0 4px 24px rgba(15, 23, 42, 0.08)",
+              border: "1px solid rgba(14, 95, 99, 0.08)",
+            }}
+          >
+            <label style={labelFirst} htmlFor="sign-in-password">
+              Password
             </label>
             <input
-              id="pin"
+              id="sign-in-password"
               type="password"
               autoComplete="current-password"
+              autoFocus
               value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-              placeholder="Enter PIN"
-              style={inputStyle}
+              onChange={(e) => {
+                setPinInput(e.target.value);
+                if (pinError) setPinError(null);
+              }}
+              placeholder="Enter password"
+              aria-invalid={pinError ? true : undefined}
+              style={{
+                ...inputStyle,
+                ...(pinError
+                  ? {
+                      border: "2px solid #DC2626",
+                    }
+                  : {}),
+              }}
             />
             {pinError ? (
-              <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 10 }}>
+              <p
+                style={{
+                  color: "#991B1B",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  marginTop: 10,
+                }}
+              >
                 {pinError}
               </p>
             ) : null}
             <button
               type="submit"
+              disabled={signingIn}
               style={{
                 ...btnPrimary,
                 width: "100%",
                 marginTop: 16,
+                opacity: signingIn ? 0.85 : 1,
+                cursor: signingIn ? "wait" : "pointer",
               }}
             >
-              Unlock
+              {signingIn ? "Signing in..." : "Sign in"}
             </button>
           </form>
         </div>
@@ -1153,13 +1284,29 @@ export default function Home() {
       style={{ minHeight: "100vh", background: pageBg }}
     >
       <div style={shell}>
-        <header style={headerBar}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em" }}>
-            Azure Mind
-          </h1>
-          <p style={{ fontSize: 14, opacity: 0.92, marginTop: 4 }}>
-            Referral Admin Tool
-          </p>
+        <header
+          style={{
+            ...headerBar,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 16,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em" }}>
+              Azure Mind
+            </h1>
+            <p style={{ fontSize: 14, opacity: 0.92, marginTop: 4 }}>
+              Referral Engine
+            </p>
+            <p style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>
+              Internal Use Only
+            </p>
+          </div>
+          <button type="button" style={headerSignOutBtn} onClick={signOut}>
+            Sign out
+          </button>
         </header>
 
         <main className="referral-main-grid">
@@ -1356,8 +1503,12 @@ export default function Home() {
             </h2>
             {sendStatus ? (
               <div
-                className={`send-status-banner send-status-banner--${sendStatus.type}`}
                 role="status"
+                style={
+                  sendStatus.type === "success"
+                    ? sendStatusBannerSuccess
+                    : sendStatusBannerError
+                }
               >
                 {sendStatus.message}
               </div>
