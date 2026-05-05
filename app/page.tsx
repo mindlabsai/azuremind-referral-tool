@@ -35,6 +35,143 @@ type SentEntry = {
   channel: SentChannel;
 };
 
+type ReferralIntelFilter = "today" | "week" | "month" | "30d" | "custom";
+
+type ReferralApiRow = {
+  id?: string | number;
+  created_at?: string;
+  child_first_name?: string | null;
+  child_last_name?: string | null;
+  child_dob?: string | null;
+  parent_first_name?: string | null;
+  parent_last_name?: string | null;
+  parent_email?: string | null;
+  parent_mobile?: string | null;
+  assessment_type?: string | null;
+  booking_link?: string | null;
+  clinic_phone?: string | null;
+  sent_email?: boolean | null;
+  sent_sms?: boolean | null;
+  send_status?: string | null;
+  notes?: string | null;
+};
+
+function mapReferralApiRowToSentEntry(row: ReferralApiRow): SentEntry | null {
+  const idRaw = row.id;
+  if (idRaw === undefined || idRaw === null) return null;
+  const id = String(idRaw).trim();
+  if (!id) return null;
+  const created = row.created_at;
+  if (!created || typeof created !== "string") return null;
+
+  const rawType = (row.assessment_type ?? "").trim().toUpperCase();
+  let assessmentTypeNorm: AssessmentType = "ADHD";
+  if (rawType === "ASD" || rawType === "SLD" || rawType === "ADHD") {
+    assessmentTypeNorm = rawType as AssessmentType;
+  }
+
+  const se = !!row.sent_email;
+  const ss = !!row.sent_sms;
+  let channel: SentChannel;
+  if (se && ss) channel = "email+sms";
+  else if (se && !ss) channel = "email";
+  else if (!se && ss) channel = "sms";
+  else {
+    const st = (row.send_status ?? "").toLowerCase();
+    if (st.includes("email") && st.includes("sms")) channel = "email+sms";
+    else if (st.includes("sms")) channel = "sms";
+    else if (st.includes("email")) channel = "email";
+    else channel = "email";
+  }
+
+  return {
+    id,
+    at: created,
+    childFirst: String(row.child_first_name ?? ""),
+    childLast: String(row.child_last_name ?? ""),
+    childDob: String(row.child_dob ?? ""),
+    parentFirst: String(row.parent_first_name ?? ""),
+    parentLast: String(row.parent_last_name ?? ""),
+    parentEmail: String(row.parent_email ?? ""),
+    parentMobile: String(row.parent_mobile ?? ""),
+    assessmentType: assessmentTypeNorm,
+    bookingLink: String(row.booking_link ?? ""),
+    clinicPhone: String(row.clinic_phone ?? ""),
+    internalNotes: String(row.notes ?? ""),
+    referrerName: "",
+    referrerType: "",
+    referrerEmail: "",
+    channel,
+  };
+}
+
+function startOfLocalMonday(now: Date): Date {
+  const d = new Date(now);
+  const day = d.getDay();
+  const daysFromMonday = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - daysFromMonday);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function formatReferralLastActivity(created: Date, now: Date): string {
+  const diffMinutes = Math.floor(
+    (now.getTime() - created.getTime()) / 60000
+  );
+
+  if (diffMinutes >= 0 && diffMinutes < 1) return "Just now";
+  if (diffMinutes >= 1 && diffMinutes < 60) {
+    return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+  }
+
+  const dayStart = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const todayStart = dayStart(now);
+  const createdDayStart = dayStart(created);
+  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hhmm = `${pad(created.getHours())}:${pad(created.getMinutes())}`;
+
+  if (createdDayStart === todayStart) {
+    return `Today at ${hhmm}`;
+  }
+  if (createdDayStart === yesterdayStart) {
+    return `Yesterday at ${hhmm}`;
+  }
+
+  return `${pad(created.getDate())}/${pad(created.getMonth() + 1)}/${created.getFullYear()}, ${hhmm}`;
+}
+
+type RegisterPeriodFilter = "today" | "week" | "month" | "all";
+
+function sentRegisterEntryInPeriod(
+  atIso: string,
+  period: RegisterPeriodFilter,
+  now: Date
+): boolean {
+  if (period === "all") return true;
+  const t = new Date(atIso).getTime();
+  if (Number.isNaN(t)) return false;
+  let start: Date;
+  if (period === "today") {
+    start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+      0
+    );
+  } else if (period === "week") {
+    start = startOfLocalMonday(now);
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  }
+  return t >= start.getTime() && t <= now.getTime();
+}
+
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -681,6 +818,18 @@ export default function Home() {
     message: string;
   } | null>(null);
 
+  const [referralsRows, setReferralsRows] = useState<ReferralApiRow[]>([]);
+  const [dateIntelFilter, setDateIntelFilter] =
+    useState<ReferralIntelFilter>("today");
+  const [intelCustomFrom, setIntelCustomFrom] = useState("");
+  const [intelCustomTo, setIntelCustomTo] = useState("");
+  const [intelCustomAppliedFrom, setIntelCustomAppliedFrom] = useState("");
+  const [intelCustomAppliedTo, setIntelCustomAppliedTo] = useState("");
+
+  const [registerPeriodFilter, setRegisterPeriodFilter] =
+    useState<RegisterPeriodFilter>("all");
+  const [registerShowAllHistory, setRegisterShowAllHistory] = useState(false);
+
   const childFirstNameRef = useRef<HTMLInputElement>(null);
 
   function scrollToTopAndFocus() {
@@ -788,47 +937,6 @@ export default function Home() {
     bookingLink,
     clinicPhone,
   ]);
-
-  const pushSent = useCallback(
-    (channel: SentChannel) => {
-      const entry: SentEntry = {
-        id: uid(),
-        at: new Date().toISOString(),
-        childFirst,
-        childLast,
-        childDob,
-        parentFirst,
-        parentLast,
-        parentEmail,
-        parentMobile,
-        assessmentType,
-        bookingLink,
-        clinicPhone,
-        internalNotes,
-        referrerName,
-        referrerType,
-        referrerEmail,
-        channel,
-      };
-      setSentRegister((prev) => [entry, ...prev]);
-    },
-    [
-      childFirst,
-      childLast,
-      childDob,
-      parentFirst,
-      parentLast,
-      parentEmail,
-      parentMobile,
-      assessmentType,
-      bookingLink,
-      clinicPhone,
-      internalNotes,
-      referrerName,
-      referrerType,
-      referrerEmail,
-    ]
-  );
 
   const sendEmailWithCurrentForm = useCallback(async (): Promise<boolean> => {
     const fields = {
@@ -943,6 +1051,157 @@ export default function Home() {
     clinicPhone,
   ]);
 
+  const loadReferrals = useCallback(async () => {
+    try {
+      const res = await fetch("/api/referrals");
+      const json = (await res.json()) as {
+        success?: boolean;
+        data?: unknown;
+        error?: string;
+      };
+      if (!res.ok || json.success !== true || !Array.isArray(json.data)) {
+        console.error(
+          "Referrals fetch failed:",
+          res.status,
+          json.error ?? json
+        );
+        setReferralsRows([]);
+        setSentRegister([]);
+        return;
+      }
+      const rows = json.data as ReferralApiRow[];
+      setReferralsRows(rows);
+      const sorted = [...rows].sort((a, b) => {
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return tb - ta;
+      });
+      setSentRegister(
+        sorted
+          .map(mapReferralApiRowToSentEntry)
+          .filter((e): e is SentEntry => e !== null)
+      );
+    } catch (e) {
+      console.error("Referrals fetch error:", e);
+      setReferralsRows([]);
+      setSentRegister([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!unlocked) return;
+    void loadReferrals();
+  }, [unlocked, loadReferrals]);
+
+  const intelRangeBounds = useMemo(() => {
+    const now = new Date();
+    let start: Date;
+    let end: Date = now;
+    switch (dateIntelFilter) {
+      case "today":
+        start = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          0,
+          0,
+          0
+        );
+        break;
+      case "week":
+        start = startOfLocalMonday(now);
+        break;
+      case "month":
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        break;
+      case "30d":
+        start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case "custom": {
+        const fromStr = intelCustomAppliedFrom.trim();
+        const toStr = intelCustomAppliedTo.trim();
+        if (!fromStr || !toStr) {
+          start = new Date(8640000000000000);
+          end = new Date(0);
+        } else {
+          const [fy, fm, fd] = fromStr.split("-").map(Number);
+          const [ty, tm, td] = toStr.split("-").map(Number);
+          start = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
+          end = new Date(ty, tm - 1, td, 23, 59, 59, 999);
+        }
+        break;
+      }
+      default:
+        start = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          0,
+          0,
+          0
+        );
+    }
+    return { start, end };
+  }, [dateIntelFilter, intelCustomAppliedFrom, intelCustomAppliedTo]);
+
+  const intelligenceStats = useMemo(() => {
+    const startMs = intelRangeBounds.start.getTime();
+    const endMs = intelRangeBounds.end.getTime();
+    let total = 0;
+    let adhd = 0;
+    let asd = 0;
+    let sld = 0;
+    let emailSms = 0;
+    let emailOnly = 0;
+    let smsOnly = 0;
+    for (const r of referralsRows) {
+      const ca = r.created_at;
+      if (!ca || typeof ca !== "string") continue;
+      const t = new Date(ca).getTime();
+      if (Number.isNaN(t) || t < startMs || t > endMs) continue;
+      total++;
+      const at = (r.assessment_type ?? "").toLowerCase().trim();
+      if (at === "adhd") adhd++;
+      else if (at === "asd") asd++;
+      else if (at === "sld") sld++;
+      const se = !!r.sent_email;
+      const ss = !!r.sent_sms;
+      if (se && ss) emailSms++;
+      else if (se && !ss) emailOnly++;
+      else if (ss && !se) smsOnly++;
+    }
+    return { total, adhd, asd, sld, emailSms, emailOnly, smsOnly };
+  }, [referralsRows, intelRangeBounds]);
+
+  const referralIntelLastActivityLabel = useMemo(() => {
+    const now = new Date();
+    if (referralsRows.length === 0) return "No activity yet";
+    let latest: Date | null = null;
+    for (const row of referralsRows) {
+      const ca = row.created_at;
+      if (!ca || typeof ca !== "string") continue;
+      const created = new Date(ca);
+      if (Number.isNaN(created.getTime())) continue;
+      if (!latest || created.getTime() > latest.getTime()) latest = created;
+    }
+    if (!latest) return "No activity yet";
+    return formatReferralLastActivity(latest, now);
+  }, [referralsRows]);
+
+  const registerFilteredFull = useMemo(() => {
+    const now = new Date();
+    return sentRegister.filter((r) =>
+      sentRegisterEntryInPeriod(r.at, registerPeriodFilter, now)
+    );
+  }, [sentRegister, registerPeriodFilter]);
+
+  const registerDisplayed = useMemo(() => {
+    if (registerShowAllHistory) return registerFilteredFull;
+    return registerFilteredFull.slice(0, 10);
+  }, [registerFilteredFull, registerShowAllHistory]);
+
   const copyText = async (label: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -1003,8 +1262,6 @@ export default function Home() {
     );
     return [headers.join(","), ...rows].join("\n");
   }, [sentRegister]);
-
-  const copyRegister = () => copyText("Register", registerCsv);
 
   const downloadCsv = () => {
     const blob = new Blob([registerCsv], {
@@ -1197,6 +1454,69 @@ export default function Home() {
     boxSizing: "border-box",
   };
 
+  const referralIntelPanel: CSSProperties = {
+    background: "#FFFFFF",
+    border: "1px solid #B7E1DE",
+    borderRadius: 16,
+    padding: "14px 16px",
+    marginBottom: 24,
+    boxShadow: "0 4px 14px rgba(14, 95, 99, 0.06)",
+  };
+
+  const referralIntelPill: CSSProperties = {
+    padding: "6px 12px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    border: "1px solid #7CCBC6",
+    background: "#E8F6F5",
+    color: "#075E63",
+    boxSizing: "border-box",
+  };
+
+  const referralIntelPillActive: CSSProperties = {
+    ...referralIntelPill,
+    background: "#0E9F98",
+    color: "#fff",
+    border: "1px solid #0E9F98",
+  };
+
+  const registerFilterPill: CSSProperties = {
+    ...referralIntelPill,
+    padding: "5px 10px",
+    fontSize: 11,
+  };
+
+  const registerFilterPillActive: CSSProperties = {
+    ...referralIntelPillActive,
+    padding: "5px 10px",
+    fontSize: 11,
+  };
+
+  const registerExportBtn: CSSProperties = {
+    ...btnSecondary,
+    height: 32,
+    fontSize: 12,
+    padding: "0 12px",
+    fontWeight: 700,
+  };
+
+  const referralIntelStatLabel: CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#64748b",
+    letterSpacing: "0.02em",
+  };
+
+  const referralIntelStatValue: CSSProperties = {
+    fontSize: 18,
+    fontWeight: 700,
+    color: "#0E9F98",
+    lineHeight: 1.2,
+    marginTop: 2,
+  };
+
   if (!unlocked) {
     return (
       <main
@@ -1348,6 +1668,246 @@ export default function Home() {
             Sign out
           </button>
         </header>
+
+        <section style={referralIntelPanel}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <h2
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "#075E63",
+                  margin: 0,
+                }}
+              >
+                Referral Intelligence
+              </h2>
+              <p
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: "#94a3b8",
+                  marginTop: 4,
+                  marginBottom: 0,
+                  lineHeight: 1.35,
+                }}
+              >
+                Last activity: {referralIntelLastActivityLabel}
+              </p>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <button
+                type="button"
+                style={
+                  dateIntelFilter === "today"
+                    ? referralIntelPillActive
+                    : referralIntelPill
+                }
+                onClick={() => setDateIntelFilter("today")}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                style={
+                  dateIntelFilter === "week"
+                    ? referralIntelPillActive
+                    : referralIntelPill
+                }
+                onClick={() => setDateIntelFilter("week")}
+              >
+                This Week
+              </button>
+              <button
+                type="button"
+                style={
+                  dateIntelFilter === "month"
+                    ? referralIntelPillActive
+                    : referralIntelPill
+                }
+                onClick={() => setDateIntelFilter("month")}
+              >
+                This Month
+              </button>
+              <button
+                type="button"
+                style={
+                  dateIntelFilter === "30d"
+                    ? referralIntelPillActive
+                    : referralIntelPill
+                }
+                onClick={() => setDateIntelFilter("30d")}
+              >
+                Last 30 Days
+              </button>
+              <button
+                type="button"
+                style={
+                  dateIntelFilter === "custom"
+                    ? referralIntelPillActive
+                    : referralIntelPill
+                }
+                onClick={() => setDateIntelFilter("custom")}
+              >
+                Custom date range
+              </button>
+            </div>
+          </div>
+          {dateIntelFilter === "custom" ? (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: 10,
+                marginTop: 10,
+                width: "100%",
+              }}
+            >
+              <label
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#075E63",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                From
+                <input
+                  type="date"
+                  value={intelCustomFrom}
+                  onChange={(e) => setIntelCustomFrom(e.target.value)}
+                  style={{ ...inputStyle, width: "auto", minWidth: 132, height: 36 }}
+                />
+              </label>
+              <label
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#075E63",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                To
+                <input
+                  type="date"
+                  value={intelCustomTo}
+                  onChange={(e) => setIntelCustomTo(e.target.value)}
+                  style={{ ...inputStyle, width: "auto", minWidth: 132, height: 36 }}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  const f = intelCustomFrom.trim();
+                  const t = intelCustomTo.trim();
+                  if (!f || !t) return;
+                  setIntelCustomAppliedFrom(f);
+                  setIntelCustomAppliedTo(t);
+                }}
+                style={{
+                  ...btnPrimary,
+                  height: 36,
+                  fontSize: 12,
+                  padding: "0 14px",
+                }}
+              >
+                Apply Range
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIntelCustomFrom("");
+                  setIntelCustomTo("");
+                  setIntelCustomAppliedFrom("");
+                  setIntelCustomAppliedTo("");
+                  setDateIntelFilter("today");
+                }}
+                style={{
+                  ...btnSecondary,
+                  height: 36,
+                  fontSize: 12,
+                  padding: "0 14px",
+                }}
+              >
+                Clear Range
+              </button>
+            </div>
+          ) : null}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+              gap: "10px 14px",
+              marginTop: 12,
+            }}
+          >
+            <div>
+              <div style={referralIntelStatLabel}>Total referrals</div>
+              <div style={referralIntelStatValue}>
+                {intelligenceStats.total}
+              </div>
+            </div>
+            <div>
+              <div style={referralIntelStatLabel}>ADHD</div>
+              <div style={referralIntelStatValue}>{intelligenceStats.adhd}</div>
+            </div>
+            <div>
+              <div style={referralIntelStatLabel}>ASD</div>
+              <div style={referralIntelStatValue}>{intelligenceStats.asd}</div>
+            </div>
+            <div>
+              <div style={referralIntelStatLabel}>SLD</div>
+              <div style={referralIntelStatValue}>{intelligenceStats.sld}</div>
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: "10px 14px",
+              marginTop: 10,
+            }}
+          >
+            <div>
+              <div style={referralIntelStatLabel}>Email + SMS</div>
+              <div style={referralIntelStatValue}>
+                {intelligenceStats.emailSms}
+              </div>
+            </div>
+            <div>
+              <div style={referralIntelStatLabel}>Email only</div>
+              <div style={referralIntelStatValue}>
+                {intelligenceStats.emailOnly}
+              </div>
+            </div>
+            <div>
+              <div style={referralIntelStatLabel}>SMS only</div>
+              <div style={referralIntelStatValue}>
+                {intelligenceStats.smsOnly}
+              </div>
+            </div>
+          </div>
+        </section>
 
         <main className="referral-main-grid">
         <div
@@ -1615,7 +2175,6 @@ export default function Home() {
                     }
                     const smsResult = await sendSmsWithCurrentForm();
                     if (smsResult.ok) {
-                      pushSent("email+sms");
                       setSendStatus({
                         type: "success",
                         message: "Email and SMS sent successfully.",
@@ -1638,11 +2197,21 @@ export default function Home() {
                           sent_sms: true,
                           send_status: "email_sms_sent",
                         }),
-                      }).catch((error) => {
-                        console.error("Failed to save referral:", error);
-                      });
+                      })
+                        .then(async (res) => {
+                          let json: { success?: boolean } = {};
+                          try {
+                            json = (await res.json()) as { success?: boolean };
+                          } catch {
+                            /* ignore */
+                          }
+                          if (res.ok && json.success === true)
+                            void loadReferrals();
+                        })
+                        .catch((error) => {
+                          console.error("Failed to save referral:", error);
+                        });
                     } else {
-                      pushSent("email");
                       setSendStatus({
                         type: "error",
                         message: `Send failed: ${smsResult.error ?? "SMS could not be sent."}`,
@@ -1676,7 +2245,6 @@ export default function Home() {
                     }
                     const ok = await sendEmailWithCurrentForm();
                     if (ok) {
-                      pushSent("email");
                       setSendStatus({
                         type: "success",
                         message: "Email sent successfully.",
@@ -1699,9 +2267,20 @@ export default function Home() {
                           sent_sms: false,
                           send_status: "email_sent",
                         }),
-                      }).catch((error) => {
-                        console.error("Failed to save referral:", error);
-                      });
+                      })
+                        .then(async (res) => {
+                          let json: { success?: boolean } = {};
+                          try {
+                            json = (await res.json()) as { success?: boolean };
+                          } catch {
+                            /* ignore */
+                          }
+                          if (res.ok && json.success === true)
+                            void loadReferrals();
+                        })
+                        .catch((error) => {
+                          console.error("Failed to save referral:", error);
+                        });
                     } else {
                       setSendStatus({
                         type: "error",
@@ -1719,7 +2298,6 @@ export default function Home() {
                     if (!validateCoreFields()) return;
                     const smsResult = await sendSmsWithCurrentForm();
                     if (smsResult.ok) {
-                      pushSent("sms");
                       setSendStatus({
                         type: "success",
                         message: "SMS sent successfully.",
@@ -1742,9 +2320,20 @@ export default function Home() {
                           sent_sms: true,
                           send_status: "sms_sent",
                         }),
-                      }).catch((error) => {
-                        console.error("Failed to save referral:", error);
-                      });
+                      })
+                        .then(async (res) => {
+                          let json: { success?: boolean } = {};
+                          try {
+                            json = (await res.json()) as { success?: boolean };
+                          } catch {
+                            /* ignore */
+                          }
+                          if (res.ok && json.success === true)
+                            void loadReferrals();
+                        })
+                        .catch((error) => {
+                          console.error("Failed to save referral:", error);
+                        });
                     } else {
                       setSendStatus({
                         type: "error",
@@ -1894,70 +2483,166 @@ export default function Home() {
                 flexWrap: "wrap",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 10,
-                marginBottom: 14,
+                gap: 12,
+                marginBottom: 16,
               }}
             >
               <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
                 Sent register ({sentRegister.length})
               </h2>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <button
+                type="button"
+                style={{
+                  ...registerExportBtn,
+                  opacity: sentRegister.length === 0 ? 0.45 : 1,
+                }}
+                onClick={downloadCsv}
+                disabled={sentRegister.length === 0}
+              >
+                Download CSV
+              </button>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                marginBottom: 18,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  alignItems: "center",
+                }}
+              >
                 <button
                   type="button"
-                  style={{
-                    ...btnSecondary,
-                    opacity: sentRegister.length === 0 ? 0.45 : 1,
-                  }}
-                  onClick={copyRegister}
-                  disabled={sentRegister.length === 0}
+                  style={
+                    registerPeriodFilter === "today"
+                      ? registerFilterPillActive
+                      : registerFilterPill
+                  }
+                  onClick={() => setRegisterPeriodFilter("today")}
                 >
-                  Copy Register
+                  Today
                 </button>
                 <button
                   type="button"
-                  style={{
-                    ...btnSecondary,
-                    opacity: sentRegister.length === 0 ? 0.45 : 1,
-                  }}
-                  onClick={downloadCsv}
-                  disabled={sentRegister.length === 0}
+                  style={
+                    registerPeriodFilter === "week"
+                      ? registerFilterPillActive
+                      : registerFilterPill
+                  }
+                  onClick={() => setRegisterPeriodFilter("week")}
                 >
-                  Download CSV
+                  This Week
+                </button>
+                <button
+                  type="button"
+                  style={
+                    registerPeriodFilter === "month"
+                      ? registerFilterPillActive
+                      : registerFilterPill
+                  }
+                  onClick={() => setRegisterPeriodFilter("month")}
+                >
+                  This Month
+                </button>
+                <button
+                  type="button"
+                  style={
+                    registerPeriodFilter === "all"
+                      ? registerFilterPillActive
+                      : registerFilterPill
+                  }
+                  onClick={() => setRegisterPeriodFilter("all")}
+                >
+                  All
                 </button>
               </div>
+              <button
+                type="button"
+                style={
+                  registerShowAllHistory
+                    ? registerFilterPillActive
+                    : registerFilterPill
+                }
+                onClick={() => setRegisterShowAllHistory((v) => !v)}
+                disabled={sentRegister.length === 0}
+              >
+                {registerShowAllHistory
+                  ? "Show recent only"
+                  : "Show all history"}
+              </button>
             </div>
             {sentRegister.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#64748b" }}>
+              <p style={{ fontSize: 13, color: "#64748b", marginTop: 0 }}>
                 No entries yet. Use send placeholders or actions that record to the
                 register.
+              </p>
+            ) : registerFilteredFull.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#64748b", marginTop: 0 }}>
+                No referrals found for this period.
               </p>
             ) : (
               <ul
                 style={{
                   listStyle: "none",
-                  maxHeight: 280,
+                  maxHeight: registerShowAllHistory ? 320 : 220,
                   overflow: "auto",
                   padding: 0,
                   margin: 0,
+                  marginTop: 2,
                 }}
               >
-                {sentRegister.map((r) => (
-                  <li
-                    key={r.id}
-                    style={{
-                      padding: "10px 0",
-                      borderBottom: "1px solid #B7E1DE",
-                      fontSize: 13,
-                    }}
-                  >
-                    <strong>{r.childFirst || "(child)"}</strong> —{" "}
-                    {r.parentFirst} {r.parentLast} · {r.assessmentType} ·{" "}
-                    <span style={{ color: "#0E9F98" }}>{r.channel}</span>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-                      {new Date(r.at).toLocaleString()}
-                    </div>
-                  </li>
-                ))}
+                {registerDisplayed.map((r) => {
+                  const childDisplay =
+                    [r.childFirst, r.childLast]
+                      .map((s) => (s || "").trim())
+                      .filter(Boolean)
+                      .join(" ") || "(child)";
+                  const parentDisplay = [r.parentFirst, r.parentLast]
+                    .map((s) => (s || "").trim())
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <li
+                      key={r.id}
+                      style={{
+                        padding: "8px 0",
+                        borderBottom: "1px solid #B7E1DE",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "#075E63",
+                        }}
+                      >
+                        {childDisplay} — {r.assessmentType} —{" "}
+                        <span style={{ color: "#0E9F98" }}>{r.channel}</span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#94a3b8",
+                          marginTop: 3,
+                          fontWeight: 500,
+                        }}
+                      >
+                        {parentDisplay || "—"} ·{" "}
+                        {new Date(r.at).toLocaleString()}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
