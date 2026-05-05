@@ -37,4 +37,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+}// force vercel route rebuild
