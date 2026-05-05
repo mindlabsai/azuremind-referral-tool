@@ -19,6 +19,8 @@ type SentEntry = {
   id: string;
   at: string;
   childFirst: string;
+  childLast: string;
+  childDob: string;
   parentFirst: string;
   parentLast: string;
   parentEmail: string;
@@ -160,6 +162,8 @@ function asdStyledFaqHtml(clinicPhone: string): string {
 
 type TemplateData = {
   child_first_name: string;
+  child_last_name: string;
+  child_dob: string;
   parent_first_name: string;
   parent_last_name: string;
   parent_name: string;
@@ -460,6 +464,8 @@ const TEMPLATES: Record<AssessmentType, PathwayTemplate> = {
 
 function toTemplateData(fields: {
   childFirst: string;
+  childLast: string;
+  childDob: string;
   parentFirst: string;
   parentLast: string;
   parentEmail: string;
@@ -470,6 +476,8 @@ function toTemplateData(fields: {
 }): TemplateData {
   return {
     child_first_name: fields.childFirst.trim() || "your child",
+    child_last_name: fields.childLast.trim(),
+    child_dob: fields.childDob.trim(),
     parent_first_name: fields.parentFirst.trim(),
     parent_last_name: fields.parentLast.trim(),
     parent_name: `${fields.parentFirst.trim()} ${fields.parentLast.trim()}`.trim(),
@@ -608,6 +616,8 @@ function buildFullEmailHtmlString(data: TemplateData, template: PathwayTemplate)
 
 function buildParentEmailHtml(fields: {
   childFirst: string;
+  childLast: string;
+  childDob: string;
   parentFirst: string;
   parentLast: string;
   parentEmail: string;
@@ -623,6 +633,8 @@ function buildParentEmailHtml(fields: {
 
 function buildSmsText(fields: {
   childFirst: string;
+  childLast: string;
+  childDob: string;
   parentFirst: string;
   parentLast: string;
   parentEmail: string;
@@ -644,6 +656,8 @@ export default function Home() {
   const [unlocked, setUnlocked] = useState(false);
 
   const [childFirst, setChildFirst] = useState("");
+  const [childLast, setChildLast] = useState("");
+  const [childDob, setChildDob] = useState("");
   const [parentFirst, setParentFirst] = useState("");
   const [parentLast, setParentLast] = useState("");
   const [parentEmail, setParentEmail] = useState("");
@@ -718,6 +732,8 @@ export default function Home() {
   const validateCoreFields = useCallback((): boolean => {
     if (
       !childFirst.trim() ||
+      !childLast.trim() ||
+      !childDob.trim() ||
       !parentFirst.trim() ||
       !parentLast.trim() ||
       !parentMobile.trim() ||
@@ -735,6 +751,8 @@ export default function Home() {
     return true;
   }, [
     childFirst,
+    childLast,
+    childDob,
     parentFirst,
     parentLast,
     parentMobile,
@@ -745,6 +763,8 @@ export default function Home() {
   useEffect(() => {
     const fields = {
       childFirst,
+      childLast,
+      childDob,
       parentFirst,
       parentLast,
       parentEmail,
@@ -758,6 +778,8 @@ export default function Home() {
     setPreviewReady(true);
   }, [
     childFirst,
+    childLast,
+    childDob,
     parentFirst,
     parentLast,
     parentEmail,
@@ -773,6 +795,8 @@ export default function Home() {
         id: uid(),
         at: new Date().toISOString(),
         childFirst,
+        childLast,
+        childDob,
         parentFirst,
         parentLast,
         parentEmail,
@@ -790,6 +814,8 @@ export default function Home() {
     },
     [
       childFirst,
+      childLast,
+      childDob,
       parentFirst,
       parentLast,
       parentEmail,
@@ -807,6 +833,8 @@ export default function Home() {
   const sendEmailWithCurrentForm = useCallback(async (): Promise<boolean> => {
     const fields = {
       childFirst,
+      childLast,
+      childDob,
       parentFirst,
       parentLast,
       parentEmail,
@@ -844,6 +872,8 @@ export default function Home() {
     }
   }, [
     childFirst,
+    childLast,
+    childDob,
     parentFirst,
     parentLast,
     parentEmail,
@@ -861,6 +891,8 @@ export default function Home() {
   }> => {
     const fields = {
       childFirst,
+      childLast,
+      childDob,
       parentFirst,
       parentLast,
       parentEmail,
@@ -900,6 +932,8 @@ export default function Home() {
     }
   }, [
     childFirst,
+    childLast,
+    childDob,
     parentFirst,
     parentLast,
     parentEmail,
@@ -927,6 +961,8 @@ export default function Home() {
       "timestamp_iso",
       "channel",
       "child_first",
+      "child_last",
+      "child_dob",
       "parent_first",
       "parent_last",
       "parent_email",
@@ -944,6 +980,8 @@ export default function Home() {
         r.at,
         r.channel,
         r.childFirst,
+        r.childLast,
+        r.childDob,
         r.parentFirst,
         r.parentLast,
         r.parentEmail,
@@ -984,6 +1022,8 @@ export default function Home() {
 
   const clearForm = () => {
     setChildFirst("");
+    setChildLast("");
+    setChildDob("");
     setParentFirst("");
     setParentLast("");
     setParentEmail("");
@@ -1332,6 +1372,30 @@ export default function Home() {
                 />
               </div>
               <div>
+  <label style={labelFirst} htmlFor="childLast">
+    Child last name *
+  </label>
+  <input
+    id="childLast"
+    value={childLast}
+    onChange={(e) => setChildLast(e.target.value)}
+    style={inputStyle}
+  />
+</div>
+
+<div>
+  <label style={labelFirst} htmlFor="childDob">
+    Child DOB *
+  </label>
+  <input
+    type="date"
+    id="childDob"
+    value={childDob}
+    onChange={(e) => setChildDob(e.target.value)}
+    style={inputStyle}
+  />
+</div>
+              <div>
                 <label style={labelStyle} htmlFor="parentFirst">
                   Parent first name *
                 </label>
@@ -1556,6 +1620,27 @@ export default function Home() {
                         type: "success",
                         message: "Email and SMS sent successfully.",
                       });
+                      void fetch("/api/referrals", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          child_first_name: childFirst,
+                          child_last_name: childLast,
+                          child_dob: childDob,
+                          parent_first_name: parentFirst,
+                          parent_last_name: parentLast,
+                          parent_email: parentEmail,
+                          parent_mobile: parentMobile,
+                          assessment_type: assessmentType,
+                          booking_link: bookingLink,
+                          clinic_phone: clinicPhone,
+                          sent_email: true,
+                          sent_sms: true,
+                          send_status: "email_sms_sent",
+                        }),
+                      }).catch((error) => {
+                        console.error("Failed to save referral:", error);
+                      });
                     } else {
                       pushSent("email");
                       setSendStatus({
@@ -1596,6 +1681,27 @@ export default function Home() {
                         type: "success",
                         message: "Email sent successfully.",
                       });
+                      void fetch("/api/referrals", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          child_first_name: childFirst,
+                          child_last_name: childLast,
+                          child_dob: childDob,
+                          parent_first_name: parentFirst,
+                          parent_last_name: parentLast,
+                          parent_email: parentEmail,
+                          parent_mobile: parentMobile,
+                          assessment_type: assessmentType,
+                          booking_link: bookingLink,
+                          clinic_phone: clinicPhone,
+                          sent_email: true,
+                          sent_sms: false,
+                          send_status: "email_sent",
+                        }),
+                      }).catch((error) => {
+                        console.error("Failed to save referral:", error);
+                      });
                     } else {
                       setSendStatus({
                         type: "error",
@@ -1617,6 +1723,27 @@ export default function Home() {
                       setSendStatus({
                         type: "success",
                         message: "SMS sent successfully.",
+                      });
+                      void fetch("/api/referrals", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          child_first_name: childFirst,
+                          child_last_name: childLast,
+                          child_dob: childDob,
+                          parent_first_name: parentFirst,
+                          parent_last_name: parentLast,
+                          parent_email: parentEmail,
+                          parent_mobile: parentMobile,
+                          assessment_type: assessmentType,
+                          booking_link: bookingLink,
+                          clinic_phone: clinicPhone,
+                          sent_email: false,
+                          sent_sms: true,
+                          send_status: "sms_sent",
+                        }),
+                      }).catch((error) => {
+                        console.error("Failed to save referral:", error);
                       });
                     } else {
                       setSendStatus({
@@ -1717,6 +1844,8 @@ export default function Home() {
               <div className="email-preview-scroll">
               <EmailPreviewPlain
                 childFirst={childFirst}
+                childLast={childLast}
+                childDob={childDob}
                 parentFirst={parentFirst}
                 parentLast={parentLast}
                 parentEmail={parentEmail}
@@ -2158,6 +2287,8 @@ function parsePlainEmailBodyToReact(
 
 function EmailPreviewPlain({
   childFirst,
+  childLast,
+  childDob,
   parentFirst,
   parentLast,
   parentEmail,
@@ -2167,6 +2298,8 @@ function EmailPreviewPlain({
   clinicPhone,
 }: {
   childFirst: string;
+  childLast: string;
+  childDob: string;
   parentFirst: string;
   parentLast: string;
   parentEmail: string;
@@ -2178,6 +2311,8 @@ function EmailPreviewPlain({
   const template = TEMPLATES[assessmentType];
   const data = toTemplateData({
     childFirst,
+    childLast,
+    childDob,
     parentFirst,
     parentLast,
     parentEmail,
