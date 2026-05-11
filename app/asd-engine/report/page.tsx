@@ -11,6 +11,7 @@ import {
   type ComponentProps,
   type Dispatch,
   type DragEvent,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
@@ -35,6 +36,8 @@ import {
   TEXLEX_SECTION_MODELS,
   TEXLEX_SIGNATURE,
 } from "./constants/texlexBoilerplate";
+import { resolveTexlexPublicAsset, resolveTexlexSignatureSrc, TEXLEX_LOGO_PATH } from "./pdf/assets";
+import { isInsufficientEvidenceNarrative, safeFilenamePart } from "./pdf/utils";
 
 const STORAGE_KEY = "texlex-report-draft-v1";
 const AUTO_SAVE_DEBOUNCE_MS = 2000;
@@ -216,13 +219,13 @@ function migratePatientDetails(raw: unknown): PatientDetails {
   };
 }
 
-function buildA1MarkersPayload(markers: unknown): string {
+function buildCriterionMarkersPayload(markers: unknown, code: CriterionCode): string {
   if (!Array.isArray(markers)) return "(no markers detected)";
   const lines: string[] = [];
   for (const raw of markers) {
     if (!raw || typeof raw !== "object") continue;
     const m = raw as Record<string, unknown>;
-    if (m.code !== "A1") continue;
+    if (m.code !== code) continue;
     const label = typeof m.label === "string" ? m.label : "Marker";
     let src = "";
     if (typeof m.verbatim === "string" && m.verbatim.trim()) src = m.verbatim.trim();
@@ -237,24 +240,50 @@ function buildA1MarkersPayload(markers: unknown): string {
   return lines.length ? lines.join("\n") : "(no markers detected)";
 }
 
-async function generateA1Stream(
-  patientDetails: PatientDetails,
-  rawNotes: string,
-  a1Markers: string,
+function criterionSectionId(code: CriterionCode): string {
+  return `criterion-${code}`;
+}
+
+function buildCollateralContentForApi(docs: CollateralDoc[]): string {
+  if (!docs.length) return "";
+  return docs
+    .map((d) => {
+      const title = d.filename.trim() || "Collateral document";
+      const body = d.content?.trim() ?? "";
+      return body ? `${title}: ${body}` : `${title}:`;
+    })
+    .join("\n");
+}
+
+const GENERATION_MIN_NOTES_CHARS = 20;
+const GENERATION_MIN_NOTES_ERROR =
+  "Provide notes in master Raw Clinical Notes OR this section's input field (minimum 20 characters).";
+
+function resolveGenerationRawNotes(sectionInput: string, masterInput: string): string {
+  const section = sectionInput.trim();
+  const master = masterInput.trim();
+  return section.length >= GENERATION_MIN_NOTES_CHARS ? section : master;
+}
+
+function buildCriteriaStateBlock(criteriaState: Record<CriterionCode, CriterionState>): string {
+  const parts: string[] = [];
+  for (const code of CRITERION_CODES) {
+    const t = criteriaState[code]?.indicators?.trim();
+    if (t) parts.push(`## ${code}\n${t}`);
+  }
+  return parts.join("\n\n");
+}
+
+async function streamTexlexSse(
+  url: string,
+  body: unknown,
   onDelta: (text: string) => void,
   abortSignal: AbortSignal
 ): Promise<void> {
-  const response = await fetch("/api/generate/a1", {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      clientName: patientDetails.clientName,
-      pronouns: patientDetails.pronouns,
-      chronologicalAge: computeChronologicalAge(patientDetails.dob),
-      yearLevel: patientDetails.yearLevel,
-      rawNotes,
-      a1Markers,
-    }),
+    body: JSON.stringify(body),
     signal: abortSignal,
   });
 
@@ -267,7 +296,7 @@ async function generateA1Stream(
     } catch {
       /* keep raw body */
     }
-    throw new Error(`A1 generation failed: ${detail}`);
+    throw new Error(`Generation failed: ${detail}`);
   }
 
   const reader = response.body.getReader();
@@ -294,6 +323,41 @@ async function generateA1Stream(
         if (e instanceof SyntaxError) continue;
         throw e;
       }
+    }
+  }
+}
+
+function buildCriterionApiBody(
+  code: CriterionCode,
+  patientDetails: PatientDetails,
+  rawNotesForModel: string,
+  markersText: string
+): Record<string, unknown> {
+  const base = {
+    clientName: patientDetails.clientName,
+    pronouns: patientDetails.pronouns,
+    chronologicalAge: computeChronologicalAge(patientDetails.dob),
+    yearLevel: patientDetails.yearLevel,
+    rawNotes: rawNotesForModel,
+  };
+  switch (code) {
+    case "A1":
+      return { ...base, a1Markers: markersText };
+    case "A2":
+      return { ...base, a2Markers: markersText };
+    case "A3":
+      return { ...base, a3Markers: markersText };
+    case "B1":
+      return { ...base, b1Markers: markersText };
+    case "B2":
+      return { ...base, b2Markers: markersText };
+    case "B3":
+      return { ...base, b3Markers: markersText };
+    case "B4":
+      return { ...base, b4Markers: markersText };
+    default: {
+      const _exhaustive: never = code;
+      return _exhaustive;
     }
   }
 }
@@ -357,6 +421,7 @@ type CollateralDoc = {
   mimeType: string;
   category: string;
   uploadedAt: string;
+  content?: string;
 };
 
 function newCollateralDocId(): string {
@@ -388,6 +453,12 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
     }
     if ("title" in o || "summary" in o) {
       const title = typeof o.title === "string" ? o.title.trim() : "";
+      const content =
+        typeof o.content === "string"
+          ? o.content
+          : typeof o.summary === "string"
+            ? o.summary
+            : undefined;
       out.push({
         id,
         filename: title || "Collateral document",
@@ -395,6 +466,7 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
         mimeType: "application/pdf",
         category: DEFAULT_DOC_CATEGORY,
         uploadedAt: new Date().toISOString(),
+        content,
       });
     }
   }
@@ -647,18 +719,52 @@ function CollateralDocumentsUpload({
   );
 }
 
+type BackgroundSectionKey =
+  | "pregnancyBirth"
+  | "earlyDevelopment"
+  | "educationalHistory"
+  | "emotionalBehaviouralSensory";
+
 type BackgroundState = {
+  pregnancyBirthRaw: string;
   pregnancyBirth: string;
+  earlyDevelopmentRaw: string;
   earlyDevelopment: string;
+  educationalHistoryRaw: string;
   educationalHistory: string;
+  emotionalBehaviouralSensoryRaw: string;
   emotionalBehaviouralSensory: string;
 };
+
+function emptyBackgroundState(): BackgroundState {
+  return {
+    pregnancyBirthRaw: "",
+    pregnancyBirth: "",
+    earlyDevelopmentRaw: "",
+    earlyDevelopment: "",
+    educationalHistoryRaw: "",
+    educationalHistory: "",
+    emotionalBehaviouralSensoryRaw: "",
+    emotionalBehaviouralSensory: "",
+  };
+}
+
+function migrateBackgroundFromStorage(raw: unknown): BackgroundState {
+  const next = emptyBackgroundState();
+  if (!raw || typeof raw !== "object") return next;
+  const o = raw as Record<string, unknown>;
+  for (const key of Object.keys(next) as (keyof BackgroundState)[]) {
+    if (typeof o[key] === "string") next[key] = o[key];
+  }
+  return next;
+}
 
 export type TexlexReportDraftV1 = {
   patientDetails: PatientDetails;
   rawNotes: string;
   collateralDocs: CollateralDoc[];
   criteria: Record<CriterionCode, CriterionState>;
+  presentingConcernsRaw: string;
   presentingConcerns: string;
   background: BackgroundState;
   collateralSummary: string;
@@ -701,13 +807,9 @@ function defaultDraft(): Omit<TexlexReportDraftV1, "lastSaved"> {
     rawNotes: "",
     collateralDocs: [],
     criteria: initialCriteria(),
+    presentingConcernsRaw: "",
     presentingConcerns: "",
-    background: {
-      pregnancyBirth: "",
-      earlyDevelopment: "",
-      educationalHistory: "",
-      emotionalBehaviouralSensory: "",
-    },
+    background: emptyBackgroundState(),
     collateralSummary: "",
     functionalImpactSummary: "",
     clinicalFormulation: "",
@@ -813,26 +915,56 @@ function SectionModelHint({ modelName }: { modelName: string }) {
   return <p className="mt-1 text-xs text-muted-foreground">Draft assistant model: {modelName}</p>;
 }
 
-function GenerateRegenerateRow({ sectionId, modelName }: { sectionId: string; modelName: string }) {
+function GenerateRegenerateRow({
+  sectionId,
+  modelName,
+  onGenerate,
+  onRegenerate,
+  generateDisabled,
+  regenerateDisabled,
+  generateLabel,
+  topSlot,
+  bottomSlot,
+}: {
+  sectionId: string;
+  modelName: string;
+  onGenerate?: () => void;
+  onRegenerate?: () => void;
+  generateDisabled?: boolean;
+  regenerateDisabled?: boolean;
+  generateLabel?: string;
+  topSlot?: ReactNode;
+  bottomSlot?: ReactNode;
+}) {
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+      {topSlot}
       <Button
         type="button"
         size="sm"
         className="bg-black text-white hover:bg-neutral-900 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
-        onClick={() => console.log(`Generate: ${sectionId}`)}
+        disabled={generateDisabled}
+        onClick={() => {
+          console.log(`Generate: ${sectionId}`);
+          onGenerate?.();
+        }}
       >
-        Generate
+        {generateLabel ?? "Generate"}
       </Button>
       <Button
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => console.log(`Regenerate: ${sectionId}`)}
+        disabled={regenerateDisabled}
+        onClick={() => {
+          console.log(`Regenerate: ${sectionId}`);
+          onRegenerate?.();
+        }}
       >
         Regenerate
       </Button>
       <span className="text-xs text-muted-foreground">Generation model: {modelName}</span>
+      {bottomSlot}
     </div>
   );
 }
@@ -841,32 +973,56 @@ function GenerateRegenerateRowDual({
   sectionId,
   generationModel,
   refinementModel,
+  onGenerate,
+  onRegenerate,
+  generateDisabled,
+  regenerateDisabled,
+  generateLabel,
+  topSlot,
+  bottomSlot,
 }: {
   sectionId: string;
   generationModel: string;
   refinementModel: string;
+  onGenerate?: () => void;
+  onRegenerate?: () => void;
+  generateDisabled?: boolean;
+  regenerateDisabled?: boolean;
+  generateLabel?: string;
+  topSlot?: ReactNode;
+  bottomSlot?: ReactNode;
 }) {
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+      {topSlot}
       <Button
         type="button"
         size="sm"
         className="bg-black text-white hover:bg-neutral-900 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
-        onClick={() => console.log(`Generate: ${sectionId}`)}
+        disabled={generateDisabled}
+        onClick={() => {
+          console.log(`Generate: ${sectionId}`);
+          onGenerate?.();
+        }}
       >
-        Generate
+        {generateLabel ?? "Generate"}
       </Button>
       <Button
         type="button"
         size="sm"
         variant="outline"
-        onClick={() => console.log(`Regenerate: ${sectionId}`)}
+        disabled={regenerateDisabled}
+        onClick={() => {
+          console.log(`Regenerate: ${sectionId}`);
+          onRegenerate?.();
+        }}
       >
         Regenerate
       </Button>
       <span className="text-xs text-muted-foreground">
         Generation model: {generationModel} · Refinement: {refinementModel}
       </span>
+      {bottomSlot}
     </div>
   );
 }
@@ -878,7 +1034,7 @@ function CriterionCard({
   inputClass,
   touch,
   setCriteria,
-  a1Streaming,
+  criterionGenerate,
 }: {
   code: CriterionCode;
   criterion: (typeof TEXLEX_CRITERIA)[CriterionCode];
@@ -886,13 +1042,14 @@ function CriterionCard({
   inputClass: string;
   touch: () => void;
   setCriteria: Dispatch<SetStateAction<Record<CriterionCode, CriterionState>>>;
-  a1Streaming?: {
-    generating: boolean;
-    notesReady: boolean;
-    onPrimary: () => void;
+  criterionGenerate?: {
+    onGenerate: () => void;
     onRegenerate: () => void;
-    engineRow: { markerCount: number; status: string; confidence: string } | null;
-    error: string | null;
+    generateDisabled?: boolean;
+    regenerateDisabled?: boolean;
+    generateLabel?: string;
+    topSlot?: ReactNode;
+    bottomSlot?: ReactNode;
   };
 }) {
   return (
@@ -959,51 +1116,17 @@ function CriterionCard({
           />
           <SectionCharWordCount text={c.indicators} />
         </label>
-        {a1Streaming ? (
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
-            {a1Streaming.generating ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                </span>
-                Generating…
-              </span>
-            ) : null}
-            <Button
-              type="button"
-              size="sm"
-              className="bg-black text-white hover:bg-neutral-900 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
-              disabled={!a1Streaming.generating && !a1Streaming.notesReady}
-              onClick={a1Streaming.onPrimary}
-            >
-              {a1Streaming.generating ? "Stop" : "Generate"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={a1Streaming.generating || !a1Streaming.notesReady}
-              onClick={a1Streaming.onRegenerate}
-            >
-              Regenerate
-            </Button>
-            <span className="text-xs text-muted-foreground">Generation model: {TEXLEX_SECTION_MODELS.dsmCriterion}</span>
-            {a1Streaming.error ? (
-              <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
-                {a1Streaming.error}
-              </p>
-            ) : null}
-            {a1Streaming.engineRow ? (
-              <p className="mt-2 w-full basis-full text-xs text-muted-foreground">
-                Engine advisory: {a1Streaming.engineRow.markerCount} A1 markers · {a1Streaming.engineRow.status}{" "}
-                pattern · {a1Streaming.engineRow.confidence} detector confidence
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <GenerateRegenerateRow sectionId={`criterion-${code}`} modelName={TEXLEX_SECTION_MODELS.dsmCriterion} />
-        )}
+        <GenerateRegenerateRow
+          sectionId={`criterion-${code}`}
+          modelName={TEXLEX_SECTION_MODELS.dsmCriterion}
+          onGenerate={criterionGenerate?.onGenerate}
+          onRegenerate={criterionGenerate?.onRegenerate}
+          generateDisabled={criterionGenerate?.generateDisabled}
+          regenerateDisabled={criterionGenerate?.regenerateDisabled}
+          generateLabel={criterionGenerate?.generateLabel}
+          topSlot={criterionGenerate?.topSlot}
+          bottomSlot={criterionGenerate?.bottomSlot}
+        />
       </CardContent>
     </Card>
   );
@@ -1015,6 +1138,7 @@ export default function TexlexReportPage() {
   const [rawNotes, setRawNotes] = useState(base.rawNotes);
   const [collateralDocs, setCollateralDocs] = useState<CollateralDoc[]>(base.collateralDocs);
   const [criteria, setCriteria] = useState<Record<CriterionCode, CriterionState>>(base.criteria);
+  const [presentingConcernsRaw, setPresentingConcernsRaw] = useState(base.presentingConcernsRaw);
   const [presentingConcerns, setPresentingConcerns] = useState(base.presentingConcerns);
   const [background, setBackground] = useState<BackgroundState>(base.background);
   const [collateralSummary, setCollateralSummary] = useState(base.collateralSummary);
@@ -1030,16 +1154,17 @@ export default function TexlexReportPage() {
   const [lastEditAt, setLastEditAt] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [saveToast, setSaveToast] = useState(false);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const saveToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const debouncedRawNotes = useDebouncedValue(rawNotes, 400);
   const pipeline = useAsdEnginePipeline(debouncedRawNotes);
 
-  const [a1Generating, setA1Generating] = useState(false);
-  const [a1Error, setA1Error] = useState<string | null>(null);
-  const a1AbortRef = useRef<AbortController | null>(null);
-  const a1NotesReady = rawNotes.trim().length >= 20;
+  const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
+  const [sectionGenErrors, setSectionGenErrors] = useState<Partial<Record<string, string>>>({});
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const genSessionRef = useRef(0);
 
   const a1MatrixRow = useMemo(() => {
     const m = pipeline.dsmMatrix as unknown;
@@ -1050,55 +1175,585 @@ export default function TexlexReportPage() {
     );
   }, [pipeline.dsmMatrix]);
 
-  const startA1Generation = useCallback(async () => {
-    if (!rawNotes.trim() || rawNotes.trim().length < 20) return;
-    const controller = new AbortController();
-    a1AbortRef.current = controller;
-    setA1Generating(true);
-    setA1Error(null);
-    setCriteria((prev) => ({ ...prev, A1: { ...prev.A1, indicators: "" } }));
-    const markersText = buildA1MarkersPayload(pipeline.markers);
-    try {
-      await generateA1Stream(
-        patientDetails,
-        rawNotes,
-        markersText,
-        (delta) => {
-          setCriteria((prev) => ({
-            ...prev,
-            A1: { ...prev.A1, indicators: prev.A1.indicators + delta },
+  const startCriterionGeneration = useCallback(
+    async (code: CriterionCode) => {
+      const sectionId = criterionSectionId(code);
+      const sectionInput = criteria[code].indicators.trim();
+      const masterInput = rawNotes.trim();
+      const effectiveRaw = resolveGenerationRawNotes(sectionInput, masterInput);
+      if (effectiveRaw.length < GENERATION_MIN_NOTES_CHARS) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: GENERATION_MIN_NOTES_ERROR,
+        }));
+        return;
+      }
+
+      streamAbortRef.current?.abort();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const session = ++genSessionRef.current;
+      setGeneratingSectionId(sectionId);
+      setSectionGenErrors((p) => {
+        const next = { ...p };
+        delete next[sectionId];
+        return next;
+      });
+
+      const markersText = buildCriterionMarkersPayload(pipeline.markers, code);
+      const body = buildCriterionApiBody(code, patientDetails, effectiveRaw, markersText);
+
+      setCriteria((prev) => ({ ...prev, [code]: { ...prev[code], indicators: "" } }));
+
+      try {
+        await streamTexlexSse(
+          `/api/generate/${code.toLowerCase()}`,
+          body,
+          (delta) => {
+            setCriteria((prev) => ({
+              ...prev,
+              [code]: { ...prev[code], indicators: prev[code].indicators + delta },
+            }));
+          },
+          controller.signal
+        );
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error(`${code} generation error:`, err);
+        if (genSessionRef.current === session) {
+          setSectionGenErrors((p) => ({
+            ...p,
+            [sectionId]: err instanceof Error ? err.message : `${code} generation failed.`,
           }));
+        }
+      } finally {
+        if (genSessionRef.current === session) {
+          if (code === "A2") {
+            setCriteria((prev) => {
+              if (!isInsufficientEvidenceNarrative(prev.A2.indicators)) return prev;
+              return { ...prev, A2: { ...prev.A2, rating: null } };
+            });
+          }
+          setGeneratingSectionId(null);
+          streamAbortRef.current = null;
+        }
+      }
+    },
+    [criteria, patientDetails, pipeline.markers, rawNotes]
+  );
+
+  const handleGenerateCriterion = useCallback(
+    (code: CriterionCode) => {
+      const sid = criterionSectionId(code);
+      if (generatingSectionId === sid) {
+        streamAbortRef.current?.abort();
+        return;
+      }
+      void startCriterionGeneration(code);
+    },
+    [generatingSectionId, startCriterionGeneration]
+  );
+
+  const handleRegenerateCriterion = useCallback(
+    (code: CriterionCode) => {
+      const sid = criterionSectionId(code);
+      if (generatingSectionId === sid) return;
+      void startCriterionGeneration(code);
+    },
+    [generatingSectionId, startCriterionGeneration]
+  );
+
+  const runPresentingConcernsStream = useCallback(async () => {
+    const sectionId = "presenting-concerns";
+    const sectionInput = presentingConcernsRaw.trim();
+    const masterInput = rawNotes.trim();
+    const effectiveRaw = resolveGenerationRawNotes(sectionInput, masterInput);
+    if (effectiveRaw.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const session = ++genSessionRef.current;
+    setGeneratingSectionId(sectionId);
+    setSectionGenErrors((p) => {
+      const n = { ...p };
+      delete n[sectionId];
+      return n;
+    });
+    setPresentingConcerns("");
+    try {
+      await streamTexlexSse(
+        "/api/generate/presenting-concerns",
+        {
+          clientName: patientDetails.clientName,
+          pronouns: patientDetails.pronouns,
+          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          yearLevel: patientDetails.yearLevel,
+          rawNotes: effectiveRaw,
         },
+        (delta) => setPresentingConcerns((prev) => prev + delta),
         controller.signal
       );
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       if (err instanceof Error && err.name === "AbortError") return;
-      console.error("A1 generation error:", err);
-      setA1Error(err instanceof Error ? err.message : "A1 generation failed.");
+      console.error("Presenting concerns generation error:", err);
+      if (genSessionRef.current === session) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: err instanceof Error ? err.message : "Presenting concerns generation failed.",
+        }));
+      }
     } finally {
-      setA1Generating(false);
-      a1AbortRef.current = null;
+      if (genSessionRef.current === session) {
+        setGeneratingSectionId(null);
+        streamAbortRef.current = null;
+      }
     }
-  }, [patientDetails, rawNotes, pipeline.markers]);
+  }, [patientDetails, presentingConcernsRaw, rawNotes]);
 
-  const handleA1Primary = useCallback(() => {
-    if (a1Generating) {
-      a1AbortRef.current?.abort();
-      setA1Generating(false);
+  const handleGeneratePresentingConcerns = useCallback(() => {
+    const sectionId = "presenting-concerns";
+    if (generatingSectionId === sectionId) {
+      streamAbortRef.current?.abort();
       return;
     }
-    void startA1Generation();
-  }, [a1Generating, startA1Generation]);
+    void runPresentingConcernsStream();
+  }, [generatingSectionId, runPresentingConcernsStream]);
 
-  const handleA1Regenerate = useCallback(() => {
-    if (a1Generating || !rawNotes.trim() || rawNotes.trim().length < 20) return;
-    void startA1Generation();
-  }, [a1Generating, rawNotes, startA1Generation]);
+  const handleRegeneratePresentingConcerns = useCallback(() => {
+    if (generatingSectionId === "presenting-concerns") return;
+    void runPresentingConcernsStream();
+  }, [generatingSectionId, runPresentingConcernsStream]);
+
+  const BACKGROUND_STREAM_SLUG: Record<BackgroundSectionKey, string> = {
+    pregnancyBirth: "background-pregnancy-birth",
+    earlyDevelopment: "background-early-development",
+    educationalHistory: "background-educational-history",
+    emotionalBehaviouralSensory: "background-emotional-behavioural-sensory",
+  };
+
+  const backgroundRawKey = (key: BackgroundSectionKey): keyof BackgroundState => {
+    return `${key}Raw` as keyof BackgroundState;
+  };
+
+  const runBackgroundStream = useCallback(
+    async (key: BackgroundSectionKey) => {
+      const sectionId = BACKGROUND_STREAM_SLUG[key];
+      const sectionInput = background[backgroundRawKey(key)].trim();
+      const masterInput = rawNotes.trim();
+      const effectiveRaw = resolveGenerationRawNotes(sectionInput, masterInput);
+      if (effectiveRaw.length < GENERATION_MIN_NOTES_CHARS) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: GENERATION_MIN_NOTES_ERROR,
+        }));
+        return;
+      }
+      streamAbortRef.current?.abort();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const session = ++genSessionRef.current;
+      setGeneratingSectionId(sectionId);
+      setSectionGenErrors((p) => {
+        const n = { ...p };
+        delete n[sectionId];
+        return n;
+      });
+      setBackground((b) => ({ ...b, [key]: "" }));
+      try {
+        await streamTexlexSse(
+          `/api/generate/${sectionId}`,
+          {
+            clientName: patientDetails.clientName,
+            pronouns: patientDetails.pronouns,
+            chronologicalAge: computeChronologicalAge(patientDetails.dob),
+            yearLevel: patientDetails.yearLevel,
+            rawNotes: effectiveRaw,
+          },
+          (delta) => setBackground((b) => ({ ...b, [key]: b[key] + delta })),
+          controller.signal
+        );
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error("Background generation error:", err);
+        if (genSessionRef.current === session) {
+          setSectionGenErrors((p) => ({
+            ...p,
+            [sectionId]: err instanceof Error ? err.message : "Background generation failed.",
+          }));
+        }
+      } finally {
+        if (genSessionRef.current === session) {
+          setGeneratingSectionId(null);
+          streamAbortRef.current = null;
+        }
+      }
+    },
+    [background, patientDetails, rawNotes]
+  );
+
+  const handleGenerateBackground = useCallback(
+    (key: BackgroundSectionKey) => {
+      const sectionId = BACKGROUND_STREAM_SLUG[key];
+      if (generatingSectionId === sectionId) {
+        streamAbortRef.current?.abort();
+        return;
+      }
+      void runBackgroundStream(key);
+    },
+    [generatingSectionId, runBackgroundStream]
+  );
+
+  const handleRegenerateBackground = useCallback(
+    (key: BackgroundSectionKey) => {
+      const sectionId = BACKGROUND_STREAM_SLUG[key];
+      if (generatingSectionId === sectionId) return;
+      void runBackgroundStream(key);
+    },
+    [generatingSectionId, runBackgroundStream]
+  );
+
+  const runCollateralSummaryStream = useCallback(async () => {
+    const sectionId = "collateral-summary";
+    const collateralContent = collateralDocs.length ? buildCollateralContentForApi(collateralDocs) : "";
+    const masterInput = rawNotes.trim();
+    if (!collateralContent.trim() && masterInput.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    const contextNotes =
+      masterInput.length >= GENERATION_MIN_NOTES_CHARS
+        ? masterInput
+        : collateralContent.trim().length >= GENERATION_MIN_NOTES_CHARS
+          ? collateralContent
+          : "";
+    if (contextNotes.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const session = ++genSessionRef.current;
+    setGeneratingSectionId(sectionId);
+    setSectionGenErrors((p) => {
+      const n = { ...p };
+      delete n[sectionId];
+      return n;
+    });
+    setCollateralSummary("");
+    try {
+      await streamTexlexSse(
+        "/api/generate/collateral-summary",
+        {
+          clientName: patientDetails.clientName,
+          pronouns: patientDetails.pronouns,
+          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          yearLevel: patientDetails.yearLevel,
+          rawNotes: contextNotes,
+          collateralContent,
+        },
+        (delta) => setCollateralSummary((prev) => prev + delta),
+        controller.signal
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      console.error("Collateral summary generation error:", err);
+      if (genSessionRef.current === session) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: err instanceof Error ? err.message : "Collateral summary generation failed.",
+        }));
+      }
+    } finally {
+      if (genSessionRef.current === session) {
+        setGeneratingSectionId(null);
+        streamAbortRef.current = null;
+      }
+    }
+  }, [collateralDocs, patientDetails, rawNotes]);
+
+  const handleGenerateCollateralSummary = useCallback(() => {
+    const sectionId = "collateral-summary";
+    if (generatingSectionId === sectionId) {
+      streamAbortRef.current?.abort();
+      return;
+    }
+    void runCollateralSummaryStream();
+  }, [generatingSectionId, runCollateralSummaryStream]);
+
+  const handleRegenerateCollateralSummary = useCallback(() => {
+    if (generatingSectionId === "collateral-summary") return;
+    void runCollateralSummaryStream();
+  }, [generatingSectionId, runCollateralSummaryStream]);
+
+  const runFunctionalImpactStream = useCallback(async () => {
+    const sectionId = "functional-impact-summary";
+    const masterInput = rawNotes.trim();
+    if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const session = ++genSessionRef.current;
+    setGeneratingSectionId(sectionId);
+    setSectionGenErrors((p) => {
+      const n = { ...p };
+      delete n[sectionId];
+      return n;
+    });
+    setFunctionalImpactSummary("");
+    const criteriaState = buildCriteriaStateBlock(criteria);
+    try {
+      await streamTexlexSse(
+        "/api/generate/functional-impact",
+        {
+          clientName: patientDetails.clientName,
+          pronouns: patientDetails.pronouns,
+          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          yearLevel: patientDetails.yearLevel,
+          rawNotes: masterInput,
+          criteriaState,
+          collateralSummary: collateralSummary.trim(),
+        },
+        (delta) => setFunctionalImpactSummary((prev) => prev + delta),
+        controller.signal
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      console.error("Functional impact generation error:", err);
+      if (genSessionRef.current === session) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: err instanceof Error ? err.message : "Functional impact generation failed.",
+        }));
+      }
+    } finally {
+      if (genSessionRef.current === session) {
+        setGeneratingSectionId(null);
+        streamAbortRef.current = null;
+      }
+    }
+  }, [collateralSummary, criteria, patientDetails, rawNotes]);
+
+  const handleGenerateFunctionalImpact = useCallback(() => {
+    const sectionId = "functional-impact-summary";
+    if (generatingSectionId === sectionId) {
+      streamAbortRef.current?.abort();
+      return;
+    }
+    void runFunctionalImpactStream();
+  }, [generatingSectionId, runFunctionalImpactStream]);
+
+  const handleRegenerateFunctionalImpact = useCallback(() => {
+    if (generatingSectionId === "functional-impact-summary") return;
+    void runFunctionalImpactStream();
+  }, [generatingSectionId, runFunctionalImpactStream]);
+
+  const runFormulationStream = useCallback(async () => {
+    const sectionId = "clinical-formulation";
+    const masterInput = rawNotes.trim();
+    if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const session = ++genSessionRef.current;
+    setGeneratingSectionId(sectionId);
+    setSectionGenErrors((p) => {
+      const n = { ...p };
+      delete n[sectionId];
+      return n;
+    });
+    setClinicalFormulation("");
+    const criteriaState = buildCriteriaStateBlock(criteria);
+    try {
+      await streamTexlexSse(
+        "/api/generate/formulation",
+        {
+          clientName: patientDetails.clientName,
+          pronouns: patientDetails.pronouns,
+          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          yearLevel: patientDetails.yearLevel,
+          referringPractitioner: patientDetails.referringPractitioner,
+          rawNotes: masterInput,
+          criteriaState,
+          collateralSummary: collateralSummary.trim(),
+          functionalImpactSummary: functionalImpactSummary.trim(),
+        },
+        (delta) => setClinicalFormulation((prev) => prev + delta),
+        controller.signal
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      console.error("Formulation generation error:", err);
+      if (genSessionRef.current === session) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: err instanceof Error ? err.message : "Formulation generation failed.",
+        }));
+      }
+    } finally {
+      if (genSessionRef.current === session) {
+        setGeneratingSectionId(null);
+        streamAbortRef.current = null;
+      }
+    }
+  }, [collateralSummary, criteria, functionalImpactSummary, patientDetails, rawNotes]);
+
+  const handleGenerateFormulation = useCallback(() => {
+    const sectionId = "clinical-formulation";
+    if (generatingSectionId === sectionId) {
+      streamAbortRef.current?.abort();
+      return;
+    }
+    void runFormulationStream();
+  }, [generatingSectionId, runFormulationStream]);
+
+  const handleRegenerateFormulation = useCallback(() => {
+    if (generatingSectionId === "clinical-formulation") return;
+    void runFormulationStream();
+  }, [generatingSectionId, runFormulationStream]);
+
+  const runRecommendationsStream = useCallback(async () => {
+    const sectionId = "recommendations";
+    const masterInput = rawNotes.trim();
+    if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const session = ++genSessionRef.current;
+    setGeneratingSectionId(sectionId);
+    setSectionGenErrors((p) => {
+      const n = { ...p };
+      delete n[sectionId];
+      return n;
+    });
+    setRecommendations("");
+    const criteriaState = buildCriteriaStateBlock(criteria);
+    try {
+      await streamTexlexSse(
+        "/api/generate/recommendations",
+        {
+          clientName: patientDetails.clientName,
+          pronouns: patientDetails.pronouns,
+          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          yearLevel: patientDetails.yearLevel,
+          referringPractitioner: patientDetails.referringPractitioner,
+          rawNotes: masterInput,
+          criteriaState,
+          formulation: clinicalFormulation.trim(),
+          functionalImpactSummary: functionalImpactSummary.trim(),
+        },
+        (delta) => setRecommendations((prev) => prev + delta),
+        controller.signal
+      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      console.error("Recommendations generation error:", err);
+      if (genSessionRef.current === session) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          [sectionId]: err instanceof Error ? err.message : "Recommendations generation failed.",
+        }));
+      }
+    } finally {
+      if (genSessionRef.current === session) {
+        setGeneratingSectionId(null);
+        streamAbortRef.current = null;
+      }
+    }
+  }, [clinicalFormulation, criteria, functionalImpactSummary, patientDetails, rawNotes]);
+
+  const handleGenerateRecommendations = useCallback(() => {
+    const sectionId = "recommendations";
+    if (generatingSectionId === sectionId) {
+      streamAbortRef.current?.abort();
+      return;
+    }
+    void runRecommendationsStream();
+  }, [generatingSectionId, runRecommendationsStream]);
+
+  const handleRegenerateRecommendations = useCallback(() => {
+    if (generatingSectionId === "recommendations") return;
+    void runRecommendationsStream();
+  }, [generatingSectionId, runRecommendationsStream]);
+
+  const getCriterionGenerateProps = useCallback(
+    (code: CriterionCode) => {
+      const sid = criterionSectionId(code);
+      const active = generatingSectionId === sid;
+      return {
+        onGenerate: () => handleGenerateCriterion(code),
+        onRegenerate: () => handleRegenerateCriterion(code),
+        regenerateDisabled: active,
+        generateLabel: active ? ("Stop" as const) : ("Generate" as const),
+        topSlot: active ? (
+          <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+            </span>
+            Generating…
+          </span>
+        ) : undefined,
+        bottomSlot: (
+          <>
+            {sectionGenErrors[sid] ? (
+              <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                {sectionGenErrors[sid]}
+              </p>
+            ) : null}
+            {code === "A1" && a1MatrixRow ? (
+              <p className="mt-2 w-full basis-full text-xs text-muted-foreground">
+                Engine advisory: {a1MatrixRow.count ?? 0} A1 markers · {String(a1MatrixRow.status ?? "—")} pattern ·{" "}
+                {String(a1MatrixRow.confidence ?? "—")} detector confidence
+              </p>
+            ) : null}
+          </>
+        ),
+      };
+    },
+    [a1MatrixRow, generatingSectionId, handleGenerateCriterion, handleRegenerateCriterion, sectionGenErrors]
+  );
 
   useEffect(() => {
     return () => {
-      a1AbortRef.current?.abort();
+      streamAbortRef.current?.abort();
     };
   }, []);
 
@@ -1138,8 +1793,9 @@ export default function TexlexReportPage() {
           return next;
         });
       }
+      if (typeof data.presentingConcernsRaw === "string") setPresentingConcernsRaw(data.presentingConcernsRaw);
       if (typeof data.presentingConcerns === "string") setPresentingConcerns(data.presentingConcerns);
-      if (data.background) setBackground((b) => ({ ...b, ...data.background }));
+      if (data.background) setBackground(() => migrateBackgroundFromStorage(data.background));
       if (typeof data.collateralSummary === "string") setCollateralSummary(data.collateralSummary);
       if (typeof data.functionalImpactSummary === "string") setFunctionalImpactSummary(data.functionalImpactSummary);
       if (typeof data.clinicalFormulation === "string") setClinicalFormulation(data.clinicalFormulation);
@@ -1178,6 +1834,7 @@ export default function TexlexReportPage() {
       rawNotes,
       collateralDocs,
       criteria,
+      presentingConcernsRaw,
       presentingConcerns,
       background,
       collateralSummary,
@@ -1192,6 +1849,7 @@ export default function TexlexReportPage() {
     rawNotes,
     collateralDocs,
     criteria,
+    presentingConcernsRaw,
     presentingConcerns,
     background,
     collateralSummary,
@@ -1219,6 +1877,35 @@ export default function TexlexReportPage() {
       }, 2000);
     } catch {
       setSaveFailed(true);
+    }
+  }, [persistPayload]);
+
+  const handleDownloadPdf = useCallback(async () => {
+    setPdfDownloading(true);
+    try {
+      const [{ pdf }, { TexlexPdfDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("./pdf/TexlexPdfDocument"),
+      ]);
+      const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
+        persistPayload;
+      const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
+      const signatureSrc = await resolveTexlexSignatureSrc();
+      const blob = await pdf(
+        <TexlexPdfDocument draft={draft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+      ).toBlob();
+      const stem = safeFilenamePart(draft.patientDetails.clientName);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${stem}-Texlex-Report.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Texlex PDF export failed:", error);
+      window.alert("Could not prepare the PDF. Please try again.");
+    } finally {
+      setPdfDownloading(false);
     }
   }, [persistPayload]);
 
@@ -1302,17 +1989,15 @@ export default function TexlexReportPage() {
               <Button type="button" variant="default" size="sm" onClick={() => saveDraftNow()}>
                 Save Draft
               </Button>
-              <span className="inline-flex" title="Available after report sections are generated">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled
-                  className="cursor-not-allowed bg-muted/60 text-muted-foreground opacity-80"
-                >
-                  Download PDF
-                </Button>
-              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleDownloadPdf()}
+                disabled={pdfDownloading}
+              >
+                {pdfDownloading ? "Preparing PDF…" : "Download PDF"}
+              </Button>
               <span className="inline-flex" title="Available after report sections are generated">
                 <Button
                   type="button"
@@ -1745,20 +2430,59 @@ export default function TexlexReportPage() {
               <h2 className="mb-1 text-lg font-semibold leading-tight">Presenting concerns</h2>
               <Card className="mt-2 rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                 <CardContent className="p-6">
-                  <ReportTextarea
-                    rows={8}
-                    value={presentingConcerns}
-                    onChange={(e) => {
-                      touch();
-                      setPresentingConcerns(e.target.value);
-                    }}
-                    className="rounded-lg"
-                  />
-                  <SectionCharWordCount text={presentingConcerns} />
+                  <label className="block space-y-1.5 text-sm font-medium">
+                    Raw notes for this section (optional)
+                    <ReportTextarea
+                      rows={4}
+                      value={presentingConcernsRaw}
+                      onChange={(e) => {
+                        touch();
+                        setPresentingConcernsRaw(e.target.value);
+                      }}
+                      placeholder="Type or paste focused notes for this section. If empty, the master Raw Clinical Notes will be used."
+                      className="rounded-lg"
+                    />
+                    <SectionCharWordCount text={presentingConcernsRaw} />
+                  </label>
                   <GenerateRegenerateRow
                     sectionId="presenting-concerns"
                     modelName={TEXLEX_SECTION_MODELS.presentingConcerns}
+                    onGenerate={handleGeneratePresentingConcerns}
+                    onRegenerate={handleRegeneratePresentingConcerns}
+                    regenerateDisabled={generatingSectionId === "presenting-concerns"}
+                    generateLabel={generatingSectionId === "presenting-concerns" ? "Stop" : "Generate"}
+                    topSlot={
+                      generatingSectionId === "presenting-concerns" ? (
+                        <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                          Generating…
+                        </span>
+                      ) : undefined
+                    }
+                    bottomSlot={
+                      sectionGenErrors["presenting-concerns"] ? (
+                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                          {sectionGenErrors["presenting-concerns"]}
+                        </p>
+                      ) : null
+                    }
                   />
+                  <label className="mt-4 block space-y-1.5 text-sm font-medium">
+                    Generated section
+                    <ReportTextarea
+                      rows={8}
+                      value={presentingConcerns}
+                      onChange={(e) => {
+                        touch();
+                        setPresentingConcerns(e.target.value);
+                      }}
+                      className="rounded-lg"
+                    />
+                    <SectionCharWordCount text={presentingConcerns} />
+                  </label>
                 </CardContent>
               </Card>
             </section>
@@ -1776,25 +2500,72 @@ export default function TexlexReportPage() {
                     "background-emotional-behavioural-sensory",
                     TEXLEX_SECTION_MODELS.emotionalBehaviouralSensory,
                   ],
-                ] as const
-              ).map(([key, label, sectionId, modelName]) => (
+                ] as const satisfies ReadonlyArray<
+                  readonly [BackgroundSectionKey, string, string, string]
+                >
+              ).map(([key, label, sectionId, modelName]) => {
+                const rawKey = backgroundRawKey(key);
+                return (
                 <Card key={key} className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                   <CardContent className="p-6">
                     <h3 className="text-base font-semibold">{label}</h3>
-                    <ReportTextarea
-                      rows={6}
-                      value={background[key]}
-                      onChange={(e) => {
-                        touch();
-                        setBackground((b) => ({ ...b, [key]: e.target.value }));
-                      }}
-                      className="mt-2 rounded-lg"
+                    <label className="mt-2 block space-y-1.5 text-sm font-medium">
+                      Raw notes for this section (optional)
+                      <ReportTextarea
+                        rows={4}
+                        value={background[rawKey]}
+                        onChange={(e) => {
+                          touch();
+                          setBackground((b) => ({ ...b, [rawKey]: e.target.value }));
+                        }}
+                        placeholder="Type or paste focused notes for this section. If empty, the master Raw Clinical Notes will be used."
+                        className="rounded-lg"
+                      />
+                      <SectionCharWordCount text={background[rawKey]} />
+                    </label>
+                    <GenerateRegenerateRow
+                      sectionId={sectionId}
+                      modelName={modelName}
+                      onGenerate={() => handleGenerateBackground(key)}
+                      onRegenerate={() => handleRegenerateBackground(key)}
+                      regenerateDisabled={generatingSectionId === sectionId}
+                      generateLabel={generatingSectionId === sectionId ? "Stop" : "Generate"}
+                      topSlot={
+                        generatingSectionId === sectionId ? (
+                          <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                            </span>
+                            Generating…
+                          </span>
+                        ) : undefined
+                      }
+                      bottomSlot={
+                        sectionGenErrors[sectionId] ? (
+                          <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                            {sectionGenErrors[sectionId]}
+                          </p>
+                        ) : null
+                      }
                     />
-                    <SectionCharWordCount text={background[key]} />
-                    <GenerateRegenerateRow sectionId={sectionId} modelName={modelName} />
+                    <label className="mt-4 block space-y-1.5 text-sm font-medium">
+                      Generated subsection
+                      <ReportTextarea
+                        rows={6}
+                        value={background[key]}
+                        onChange={(e) => {
+                          touch();
+                          setBackground((b) => ({ ...b, [key]: e.target.value }));
+                        }}
+                        className="rounded-lg"
+                      />
+                      <SectionCharWordCount text={background[key]} />
+                    </label>
                   </CardContent>
                 </Card>
-              ))}
+              );
+              })}
             </section>
 
             <section id="collateral" className="space-y-4">
@@ -1825,6 +2596,28 @@ export default function TexlexReportPage() {
                   <GenerateRegenerateRow
                     sectionId="collateral-summary"
                     modelName={TEXLEX_SECTION_MODELS.collateralSummary}
+                    onGenerate={handleGenerateCollateralSummary}
+                    onRegenerate={handleRegenerateCollateralSummary}
+                    regenerateDisabled={generatingSectionId === "collateral-summary"}
+                    generateLabel={generatingSectionId === "collateral-summary" ? "Stop" : "Generate"}
+                    topSlot={
+                      generatingSectionId === "collateral-summary" ? (
+                        <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                          Generating…
+                        </span>
+                      ) : undefined
+                    }
+                    bottomSlot={
+                      sectionGenErrors["collateral-summary"] ? (
+                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                          {sectionGenErrors["collateral-summary"]}
+                        </p>
+                      ) : null
+                    }
                   />
                 </CardContent>
               </Card>
@@ -1863,24 +2656,7 @@ export default function TexlexReportPage() {
                   inputClass={inputClass}
                   touch={touch}
                   setCriteria={setCriteria}
-                  a1Streaming={
-                    code === "A1"
-                      ? {
-                          generating: a1Generating,
-                          notesReady: a1NotesReady,
-                          onPrimary: handleA1Primary,
-                          onRegenerate: handleA1Regenerate,
-                          engineRow: a1MatrixRow
-                            ? {
-                                markerCount: a1MatrixRow.count ?? 0,
-                                status: String(a1MatrixRow.status ?? "—"),
-                                confidence: String(a1MatrixRow.confidence ?? "—"),
-                              }
-                            : null,
-                          error: a1Error,
-                        }
-                      : undefined
-                  }
+                  criterionGenerate={getCriterionGenerateProps(code)}
                 />
               ))}
 
@@ -1897,6 +2673,7 @@ export default function TexlexReportPage() {
                   inputClass={inputClass}
                   touch={touch}
                   setCriteria={setCriteria}
+                  criterionGenerate={getCriterionGenerateProps(code)}
                 />
               ))}
             </section>
@@ -1920,6 +2697,28 @@ export default function TexlexReportPage() {
                     sectionId="functional-impact-summary"
                     generationModel={TEXLEX_SECTION_MODELS.functionalImpactSummary.generation}
                     refinementModel={TEXLEX_SECTION_MODELS.functionalImpactSummary.refinement}
+                    onGenerate={handleGenerateFunctionalImpact}
+                    onRegenerate={handleRegenerateFunctionalImpact}
+                    regenerateDisabled={generatingSectionId === "functional-impact-summary"}
+                    generateLabel={generatingSectionId === "functional-impact-summary" ? "Stop" : "Generate"}
+                    topSlot={
+                      generatingSectionId === "functional-impact-summary" ? (
+                        <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                          Generating…
+                        </span>
+                      ) : undefined
+                    }
+                    bottomSlot={
+                      sectionGenErrors["functional-impact-summary"] ? (
+                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                          {sectionGenErrors["functional-impact-summary"]}
+                        </p>
+                      ) : null
+                    }
                   />
                 </CardContent>
               </Card>
@@ -1944,6 +2743,28 @@ export default function TexlexReportPage() {
                     sectionId="clinical-formulation"
                     generationModel={TEXLEX_SECTION_MODELS.clinicalFormulation.generation}
                     refinementModel={TEXLEX_SECTION_MODELS.clinicalFormulation.refinement}
+                    onGenerate={handleGenerateFormulation}
+                    onRegenerate={handleRegenerateFormulation}
+                    regenerateDisabled={generatingSectionId === "clinical-formulation"}
+                    generateLabel={generatingSectionId === "clinical-formulation" ? "Stop" : "Generate"}
+                    topSlot={
+                      generatingSectionId === "clinical-formulation" ? (
+                        <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                          Generating…
+                        </span>
+                      ) : undefined
+                    }
+                    bottomSlot={
+                      sectionGenErrors["clinical-formulation"] ? (
+                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                          {sectionGenErrors["clinical-formulation"]}
+                        </p>
+                      ) : null
+                    }
                   />
                 </CardContent>
               </Card>
@@ -1968,6 +2789,28 @@ export default function TexlexReportPage() {
                     sectionId="recommendations"
                     generationModel={TEXLEX_SECTION_MODELS.recommendations.generation}
                     refinementModel={TEXLEX_SECTION_MODELS.recommendations.refinement}
+                    onGenerate={handleGenerateRecommendations}
+                    onRegenerate={handleRegenerateRecommendations}
+                    regenerateDisabled={generatingSectionId === "recommendations"}
+                    generateLabel={generatingSectionId === "recommendations" ? "Stop" : "Generate"}
+                    topSlot={
+                      generatingSectionId === "recommendations" ? (
+                        <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="relative flex h-2 w-2">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                          </span>
+                          Generating…
+                        </span>
+                      ) : undefined
+                    }
+                    bottomSlot={
+                      sectionGenErrors["recommendations"] ? (
+                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                          {sectionGenErrors["recommendations"]}
+                        </p>
+                      ) : null
+                    }
                   />
                 </CardContent>
               </Card>
