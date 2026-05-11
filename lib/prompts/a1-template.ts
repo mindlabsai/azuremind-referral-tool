@@ -2,23 +2,41 @@ import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const A1_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
 
-# CRITERION A1 DEFINITION
+# THIS SECTION — CRITERION A1 (SOCIAL-EMOTIONAL RECIPROCITY)
 
-A1. Social-Emotional Reciprocity considers differences relating to reciprocal social interaction, conversational reciprocity, shared emotional engagement, initiation and response within social interaction, and the capacity to sustain socially reciprocal communication across settings.
+A1 considers reciprocal social interaction, conversational reciprocity, shared emotional engagement, initiation and response within social interaction, and the capacity to sustain socially reciprocal communication across settings.
 
-Relevant indicators to consider IF supported by raw notes:
+A1-relevant content includes:
 - Initiation of social interaction (does the client approach others, or wait to be approached)
-- Response to others' initiations
+- Response to others' initiations and bids for engagement
 - Conversational turn-taking and topic maintenance
-- One-sided interaction patterns (monologues, perseveration on preferred topics)
+- One-sided interaction patterns (monologues, perseveration on preferred topics during conversation)
 - Shared emotional engagement (sharing achievements, distress-seeking comfort, joint enjoyment)
 - Reciprocal asking of questions about others
 - Capacity to sustain back-and-forth exchange beyond brief interactions
-- Cross-setting consistency (home / school / peers / community)
-- Reduced spontaneous sharing of thoughts or emotions
-- Literal communication style with reduced flexibility
+- Reduced spontaneous sharing of thoughts, emotions, or daily experiences
+- Difficulty with social greeting routines
+- Going off-topic to discuss preferred interests during what should be reciprocal conversation
+- Solitary engagement pattern when reciprocal opportunities exist
 
-Include only indicators supported by raw notes. Do not include indicators without supporting evidence.`;
+# CRITERION ISOLATION — STRICT
+
+The A1 section must contain ONLY A1-relevant evidence. The following content categories belong to OTHER criteria and MUST NOT appear in the A1 section even if mentioned in raw notes:
+
+- Eye contact, facial expression, gestures, prosody → A2
+- Friendship maintenance, peer relationship structure → A3
+- Repetitive motor movements, lining up, echolalia → B1
+- Rigidity, sameness, transition difficulty → B2
+- Specific topic interests (Minecraft, dinosaurs, etc.) → B3 (you may reference that a preferred topic interferes with reciprocal exchange — an A1 phenomenon — without naming the specific topic)
+- Sensory sensitivities → B4
+
+A1 is about the QUALITY of reciprocal social exchange itself.
+
+# STRUCTURE
+
+Follow the three-paragraph defensibility architecture (clinical observation → parent/collateral report → functional impact) unless raw notes contain only sparse evidence or indicate the criterion is not met.
+
+For ruled-out / not-met cases (raw notes indicate adequate reciprocity), produce a single concise paragraph describing what WAS observed and stating that findings do not support clinically significant impairment in this domain.`;
 
 export interface A1PromptVariables {
   clientName: string;
@@ -32,28 +50,24 @@ export interface A1PromptVariables {
 export function buildA1UserPrompt(vars: A1PromptVariables): string {
   return `# TASK
 
-Draft the "Observed / Reported Indicators" section for Criterion A1 (Social-Emotional Reciprocity) of a Texlex consensus-based ASD assessment report.
+Draft the Criterion A1 (Social-Emotional Reciprocity) Indicators section.
 
 # CLIENT CONTEXT
 
-Client name: ${vars.clientName || "[not provided]"}
-Pronouns: ${vars.pronouns || "[not provided]"}
-Chronological age: ${vars.chronologicalAge || "[not provided]"}
-Year level / educational setting: ${vars.yearLevel || "[not provided]"}
+Client name: ${vars.clientName || "[client name not provided — if a name appears in raw notes, use it]"}
+Pronouns: ${vars.pronouns || "[not specified]"}
+Chronological age: ${vars.chronologicalAge || "[not specified]"}
+Year level / educational setting: ${vars.yearLevel || "[not specified]"}
 
-# RAW CLINICAL NOTES
-
-The following are unstructured clinical notes from the assessment session. Extract A1-relevant observations only. Ignore content relevant to other criteria — those are drafted separately.
+# RAW CLINICAL NOTES (PRIMARY SOURCE)
 
 ${vars.rawNotes || "[no raw notes provided]"}
 
-# ENGINE-DETECTED A1 MARKERS (advisory)
+# ENGINE-DETECTED A1 MARKERS (ADVISORY ONLY — IGNORE IF EMPTY)
 
-The detection engine identified the following A1-relevant markers in the raw notes. Use these as a checklist of evidence to consider. Do NOT reproduce marker labels verbatim — translate into prose. Do not include markers that lack actual supporting content (the engine sometimes over-detects).
+${vars.a1Markers || "(no markers detected — generate from raw notes alone)"}
 
-${vars.a1Markers || "(no markers detected)"}
+# WRITE THE A1 SECTION NOW
 
-# WRITE THE SECTION NOW
-
-Output the A1 Indicators section in plain prose, following the three-paragraph defensibility structure (clinical observation → parent/collateral report → functional impact). Do not include any preamble — output the paragraphs directly.`;
+Output plain prose only. Start with the first paragraph. No preamble. No "Here is the A1 section..." opener.`;
 }
