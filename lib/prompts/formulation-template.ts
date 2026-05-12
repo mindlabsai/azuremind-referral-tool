@@ -16,13 +16,13 @@ CONCLUSIVE register throughout. This section MAKES claims, not describes evidenc
 
 Required components in order:
 
-1. Opening statement — what the assessment was and what was integrated
-- "[Client] was assessed via a multidisciplinary consensus pathway incorporating clinical interview, parent-report, direct observation, and structured assessment."
-- "[Client] was assessed via the consensus-based neurodevelopmental assessment pathway, integrating developmental history, clinical observation, and cross-informant data."
-
-2. Diagnostic finding — direct statement of the consensus impression
-- "Findings indicate that [Client] meets DSM-5-TR criteria for Autism Spectrum Disorder, with a presentation best characterised within the Level [1/2/3] range, reflecting a need for [support / substantial support / very substantial support]."
+1. Opening diagnostic conclusion — the very first sentence of the section
+- State directly whether the client meets DSM-5-TR criteria for Autism Spectrum Disorder, the level of support classification (1, 2, or 3) when applicable, and the core support need this reflects in one clause.
 - For ruled-out: "Findings do not support a diagnosis of Autism Spectrum Disorder. [Client]'s presentation is better characterised by [alternative formulation]."
+
+2. Assessment context — one sentence only, demoted after the diagnostic conclusion
+- Briefly note the consensus-based neurodevelopmental assessment pathway and what was integrated (clinical interview, parent-report, direct observation, collateral, structured assessment).
+- Do NOT open the section with methodology or process language.
 
 3. Summary of the criterion evidence — one paragraph synthesising A1-A3, then one synthesising B1-B4
 - "[Client] presents with persistent differences in social communication and interaction. This includes reduced social reciprocity, [specific A1 element]..."
@@ -68,7 +68,15 @@ export interface FormulationVariables {
 }
 
 export function buildFormulationUserPrompt(vars: FormulationVariables): string {
-  return `# TASK
+  return `STRUCTURE INSTRUCTION: The very first sentence of your output must state the diagnostic conclusion clearly. State whether the client meets DSM-5-TR criteria for Autism Spectrum Disorder, the level of support classification (1, 2, or 3), and the core support need this reflects.
+
+Example opening sentence: "Allan meets DSM-5-TR criteria for Autism Spectrum Disorder, with a presentation best characterised within the Level 2 range, reflecting a need for substantial support across social communication and restricted, repetitive behaviour domains."
+
+Do NOT begin with methodology or process language. Do NOT begin with "X was assessed via the consensus-based neurodevelopmental assessment pathway..." Methodology can appear in sentence 2 or later, demoted to context.
+
+The reader must know the diagnosis from the first sentence of this section.
+
+# TASK
 
 Draft the Clinical Formulation and Consensus Opinion section.
 

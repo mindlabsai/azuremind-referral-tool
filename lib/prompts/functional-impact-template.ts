@@ -4,35 +4,21 @@ export const FUNCTIONAL_IMPACT_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
 
 # THIS SECTION — FUNCTIONAL IMPACT SUMMARY
 
-This section is CONCLUSIVE in register — direct statements of how the pattern impacts function across domains. It synthesises across all seven criteria plus collateral and raw notes.
+This section synthesises functional consequences of the client's presentation across domains of daily life. It does NOT introduce new clinical evidence — it consolidates the functional implications already established in the preceding sections.
 
 This section is read closely by NDIS planners, school psychologists, paediatricians, and insurers when assessing access to supports and funding.
 
 # CONTENT
 
-State functional impact across these domains. Cover each that has supporting evidence in the raw notes or criterion content provided:
+Write a 4–6 sentence summary that addresses functional impact across the following domains, where evidence is available in the source material:
+- Home environment and family functioning
+- Educational setting (kindergarten/school/childcare)
+- Communication and social engagement
+- Self-care and adaptive functioning (toileting, feeding, dressing, grooming, sleep)
+- Sensory regulation in daily activities
+- Peer relationships and community participation
 
-- Communication function (verbal and nonverbal in daily life)
-- Social function (peer relationships, family relationships, community participation)
-- Educational function (classroom participation, learning, school attendance)
-- Adaptive function (daily living, self-care, independence)
-- Emotional regulation function (managing distress, transitions, rejection)
-- Behavioural function (rigidity, meltdowns, safety)
-- Family function (family routines, sibling relationships, parent stress)
-
-# STRUCTURE
-
-Produce a discrete reader-facing functional impact summary in 4–6 sentences (not a formulation or recommendations section). Synthesise day-to-day functional consequences across home, childcare or school, communication, self-care, peer interaction, and family functioning when evidence exists in the raw notes, criterion outputs, or collateral summary.
-
-Open with declarative impact:
-- "[Client]'s presentation results in clinically significant impairment across multiple domains of functioning."
-- "[Client] demonstrates substantial functional impairment across key domains, including..."
-
-Use the impact verbs directly: limit, impact, contribute to, constrain, reduce, require.
-
-Close with a statement of support implication:
-- "These difficulties require ongoing structured support across home, educational, and community environments."
-- "These challenges impact functioning across home, educational, and community environments and require ongoing support."
+Open with the client's first name. Use third person. Do not introduce new evidence. Do not list recommendations. Conclude with a sentence on the integrated support load the family/system is currently managing.
 
 # AVOID
 
@@ -46,33 +32,54 @@ Close with a statement of support implication:
 
 export interface FunctionalImpactVariables {
   clientName: string;
+  clientFirstName: string;
   pronouns: string;
   chronologicalAge: string;
   yearLevel: string;
   rawNotes: string;
+  presentingConcerns: string;
+  backgroundText: string;
   criteriaState: string;
   collateralSummary: string;
+  clinicalFormulation: string;
 }
 
 export function buildFunctionalImpactUserPrompt(vars: FunctionalImpactVariables): string {
   return `# TASK
 
-Draft the Functional Impact Summary section. Synthesise across the criteria, collateral, and raw notes provided.
+You are writing the Functional Impact Summary section of a consensus-based neurodevelopmental assessment report in the voice defined by shared-voice.ts.
+
+This section synthesises functional consequences of the client's presentation across domains of daily life. It does NOT introduce new clinical evidence — it consolidates the functional implications already established in the preceding sections.
 
 # CLIENT CONTEXT
 
 Client name: ${vars.clientName || "[not provided]"}
+Client first name: ${vars.clientFirstName || "[not provided]"}
 Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}
 
-# CRITERION OUTPUTS (already generated)
+# SOURCE MATERIAL
 
-${vars.criteriaState || "[no criterion content available yet]"}
+## Presenting concerns
 
-# COLLATERAL SUMMARY
+${vars.presentingConcerns || "[no presenting concerns available]"}
+
+## Background sections
+
+${vars.backgroundText || "[no background sections available]"}
+
+## Collateral summary
 
 ${vars.collateralSummary || "[no collateral summary available]"}
+
+## DSM-5-TR criterion narratives (A1, A2, A3, B1, B2, B3, B4)
+
+${vars.criteriaState || "[no criterion narratives available yet]"}
+
+## Clinical formulation
+
+${vars.clinicalFormulation || "[no clinical formulation available yet]"}
 
 # RAW CLINICAL NOTES
 
@@ -80,5 +87,5 @@ ${vars.rawNotes || "[no raw notes provided]"}
 
 # WRITE THE FUNCTIONAL IMPACT SUMMARY NOW
 
-Plain prose. No preamble. Conclusive register — direct impact statements.`;
+Plain prose only. No headings, bullets, or labels. Open with the client's first name.`;
 }

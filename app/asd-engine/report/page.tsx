@@ -15,12 +15,17 @@ import {
   type SetStateAction,
 } from "react";
 import Link from "next/link";
-import { File as FileIcon, FileText, Image, Upload, X } from "lucide-react";
+import { File as FileIcon, FileText, Image, Upload, X, CirclePlus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { mergeCriterionSuggestedRating } from "@/lib/texlex-criterion-rating";
+import { normalizeCriterionState, sanitiseExtractedNumber, sanitiseForPdf } from "@/lib/texlex-pdf-sanitize";
+import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
+import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
+import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { EngineAssistant } from "../components/EngineAssistant";
 import { useAsdEnginePipeline } from "../asd-engine-core";
 import {
@@ -37,7 +42,15 @@ import {
   TEXLEX_SIGNATURE,
 } from "./constants/texlexBoilerplate";
 import { resolveTexlexPublicAsset, resolveTexlexSignatureSrc, TEXLEX_LOGO_PATH } from "./pdf/assets";
-import { isInsufficientEvidenceNarrative, safeFilenamePart } from "./pdf/utils";
+import {
+  BACKGROUND_EMOTIONAL_EMPTY_FALLBACK,
+  clientFirstName,
+  FUNCTIONAL_IMPACT_RENDER_FALLBACK,
+  isInsufficientEvidenceNarrative,
+  isTexlexSubsectionEmpty,
+  resolveFunctionalImpactDisplay,
+  safeFilenamePart,
+} from "./pdf/utils";
 
 const STORAGE_KEY = "texlex-report-draft-v1";
 const AUTO_SAVE_DEBOUNCE_MS = 2000;
@@ -117,8 +130,13 @@ export type PatientDetails = {
   clientName: string;
   parent1: string;
   parent2: string;
+  parent1Relationship: string;
+  parent2Relationship: string;
   dob: string;
   referringPractitioner: string;
+  referringPractitionerType: string;
+  referringPractitionerEmail: string;
+  assessmentType: string;
   assessmentDates: string[];
   school: string;
   reportDate: string;
@@ -130,14 +148,110 @@ export type PatientDetails = {
 };
 
 const DEFAULT_ASSESSOR = "Vishal Maharaj, Registered Psychologist, PSY0001579010";
+const PRESERVED_ASSESSOR_FOR_NEW_REPORT =
+  "Vishal Maharaj, Registered Psychologist, PSY0001579010, Azure Mind";
+
+function todayReportDateIso(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function patientDetailsAfterNewReport(): PatientDetails {
+  return {
+    ...emptyPatientDetails(),
+    assessor: PRESERVED_ASSESSOR_FOR_NEW_REPORT,
+    reportDate: todayReportDateIso(),
+  };
+}
+
+function isTexlexDraftEffectivelyEmpty(args: {
+  patientDetails: PatientDetails;
+  rawNotes: string;
+  collateralDocs: CollateralDoc[];
+  criteria: Record<CriterionCode, CriterionState>;
+  presentingConcernsRaw: string;
+  presentingConcerns: string;
+  background: BackgroundState;
+  collateralSummary: string;
+  functionalImpactSummary: string;
+  clinicalFormulation: string;
+  recommendations: string;
+  limitationsText: string;
+  cliniko: ClinikoDraftState | null;
+}): boolean {
+  const {
+    patientDetails,
+    rawNotes,
+    collateralDocs,
+    criteria,
+    presentingConcernsRaw,
+    presentingConcerns,
+    background,
+    collateralSummary,
+    functionalImpactSummary,
+    clinicalFormulation,
+    recommendations,
+    limitationsText,
+    cliniko,
+  } = args;
+
+  if (cliniko) return false;
+  if (rawNotes.trim()) return false;
+  if (collateralDocs.length > 0) return false;
+  if (presentingConcernsRaw.trim() || presentingConcerns.trim()) return false;
+  if (collateralSummary.trim() || functionalImpactSummary.trim()) return false;
+  if (clinicalFormulation.trim() || recommendations.trim()) return false;
+  if (limitationsText.trim() !== TEXLEX_LIMITATIONS.trim()) return false;
+
+  for (const key of Object.keys(background) as (keyof BackgroundState)[]) {
+    if (background[key].trim()) return false;
+  }
+
+  for (const code of CRITERION_CODES) {
+    const row = criteria[code];
+    if (row.rating !== null || row.indicators.trim() || row.lastGenerated) return false;
+  }
+
+  const details = patientDetails;
+  if (
+    details.clientName.trim() ||
+    details.parent1.trim() ||
+    details.parent2.trim() ||
+    details.parent1Relationship.trim() ||
+    details.parent2Relationship.trim() ||
+    details.dob.trim() ||
+    details.referringPractitioner.trim() ||
+    details.referringPractitionerType.trim() ||
+    details.referringPractitionerEmail.trim() ||
+    details.assessmentType.trim() ||
+    details.school.trim() ||
+    details.yearLevel.trim() ||
+    details.phone.trim() ||
+    details.address.trim() ||
+    details.pronouns.trim()
+  ) {
+    return false;
+  }
+
+  if (details.assessmentDates.some((date) => date.trim())) return false;
+
+  return true;
+}
 
 function emptyPatientDetails(): PatientDetails {
   return {
     clientName: "",
     parent1: "",
     parent2: "",
+    parent1Relationship: "",
+    parent2Relationship: "",
     dob: "",
     referringPractitioner: "",
+    referringPractitionerType: "",
+    referringPractitionerEmail: "",
+    assessmentType: "",
     assessmentDates: [""],
     school: "",
     reportDate: new Date().toISOString().slice(0, 10),
@@ -147,6 +261,12 @@ function emptyPatientDetails(): PatientDetails {
     address: "",
     pronouns: "",
   };
+}
+
+function stripPhoneFromStoredAddress(address: string): string {
+  const phoneIndex = address.search(/\bPhone\s*:/i);
+  if (phoneIndex === -1) return address;
+  return address.slice(0, phoneIndex).trim().replace(/[,\s]+$/, "");
 }
 
 function migratePatientDetails(raw: unknown): PatientDetails {
@@ -178,16 +298,29 @@ function migratePatientDetails(raw: unknown): PatientDetails {
       clientName: typeof r.clientName === "string" ? r.clientName : next.clientName,
       parent1,
       parent2,
+      parent1Relationship:
+        typeof r.parent1Relationship === "string" ? r.parent1Relationship : next.parent1Relationship,
+      parent2Relationship:
+        typeof r.parent2Relationship === "string" ? r.parent2Relationship : next.parent2Relationship,
       dob: typeof r.dob === "string" ? r.dob : next.dob,
       referringPractitioner:
         typeof r.referringPractitioner === "string" ? r.referringPractitioner : next.referringPractitioner,
+      referringPractitionerType:
+        typeof r.referringPractitionerType === "string"
+          ? r.referringPractitionerType
+          : next.referringPractitionerType,
+      referringPractitionerEmail:
+        typeof r.referringPractitionerEmail === "string"
+          ? r.referringPractitionerEmail
+          : next.referringPractitionerEmail,
+      assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : next.assessmentType,
       assessmentDates: assessmentDatesMerged,
       school: typeof r.school === "string" ? r.school : next.school,
       reportDate: typeof r.reportDate === "string" && r.reportDate ? r.reportDate : next.reportDate,
       yearLevel: typeof r.yearLevel === "string" ? r.yearLevel : next.yearLevel,
       assessor: typeof r.assessor === "string" && r.assessor ? r.assessor : next.assessor,
       phone: typeof r.phone === "string" ? r.phone : next.phone,
-      address: typeof r.address === "string" ? r.address : next.address,
+      address: stripPhoneFromStoredAddress(typeof r.address === "string" ? r.address : next.address),
       pronouns: typeof r.pronouns === "string" ? r.pronouns : next.pronouns,
     };
   }
@@ -196,6 +329,8 @@ function migratePatientDetails(raw: unknown): PatientDetails {
     clientName: typeof r.fullName === "string" ? r.fullName : typeof r.clientName === "string" ? r.clientName : "",
     parent1,
     parent2,
+    parent1Relationship: typeof r.parent1Relationship === "string" ? r.parent1Relationship : "",
+    parent2Relationship: typeof r.parent2Relationship === "string" ? r.parent2Relationship : "",
     dob:
       typeof r.dob === "string"
         ? r.dob
@@ -208,13 +343,17 @@ function migratePatientDetails(raw: unknown): PatientDetails {
         : typeof r.referrer === "string"
           ? r.referrer
           : "",
+    referringPractitionerType: typeof r.referringPractitionerType === "string" ? r.referringPractitionerType : "",
+    referringPractitionerEmail:
+      typeof r.referringPractitionerEmail === "string" ? r.referringPractitionerEmail : "",
+    assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : "",
     assessmentDates: assessmentDatesMerged,
     school: typeof r.school === "string" ? r.school : "",
     reportDate: typeof r.reportDate === "string" && r.reportDate ? r.reportDate : next.reportDate,
     yearLevel: typeof r.yearLevel === "string" ? r.yearLevel : "",
     assessor: typeof r.assessor === "string" && r.assessor ? r.assessor : next.assessor,
     phone: typeof r.phone === "string" ? r.phone : "",
-    address: typeof r.address === "string" ? r.address : "",
+    address: stripPhoneFromStoredAddress(typeof r.address === "string" ? r.address : ""),
     pronouns: typeof r.pronouns === "string" ? r.pronouns : "",
   };
 }
@@ -274,12 +413,44 @@ function buildCriteriaStateBlock(criteriaState: Record<CriterionCode, CriterionS
   return parts.join("\n\n");
 }
 
+type ReportGenerationSnapshot = {
+  presentingConcerns: string;
+  background: BackgroundState;
+  collateralSummary: string;
+  criteria: Record<CriterionCode, CriterionState>;
+  clinicalFormulation: string;
+};
+
+function cloneCriteriaState(criteria: Record<CriterionCode, CriterionState>): Record<CriterionCode, CriterionState> {
+  return Object.fromEntries(
+    CRITERION_CODES.map((code) => [code, { ...criteria[code] }])
+  ) as Record<CriterionCode, CriterionState>;
+}
+
+function cloneBackgroundState(background: BackgroundState): BackgroundState {
+  return { ...background };
+}
+
+function buildBackgroundTextBlock(background: BackgroundState): string {
+  const sections: Array<[string, string]> = [
+    ["Pregnancy and birth", background.pregnancyBirth],
+    ["Early development", background.earlyDevelopment],
+    ["Educational history", background.educationalHistory],
+    ["Emotional, behavioural and sensory", background.emotionalBehaviouralSensory],
+  ];
+  return sections
+    .filter(([, text]) => !isTexlexSubsectionEmpty(text))
+    .map(([label, text]) => `## ${label}\n${text.trim()}`)
+    .join("\n\n");
+}
+
 async function streamTexlexSse(
   url: string,
   body: unknown,
   onDelta: (text: string) => void,
   abortSignal: AbortSignal
-): Promise<void> {
+): Promise<string> {
+  let assembled = "";
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -314,17 +485,21 @@ async function streamTexlexSse(
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
       const data = line.slice(6).trim();
-      if (data === "[DONE]") return;
+      if (data === "[DONE]") return assembled;
       try {
         const parsed = JSON.parse(data) as { delta?: string; error?: string; done?: boolean };
         if (parsed.error) throw new Error(parsed.error);
-        if (typeof parsed.delta === "string" && parsed.delta.length) onDelta(parsed.delta);
+        if (typeof parsed.delta === "string" && parsed.delta.length) {
+          assembled += parsed.delta;
+          onDelta(parsed.delta);
+        }
       } catch (e) {
         if (e instanceof SyntaxError) continue;
         throw e;
       }
     }
   }
+  return assembled;
 }
 
 function buildCriterionApiBody(
@@ -444,7 +619,7 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
       out.push({
         id,
         filename: o.filename,
-        size: typeof o.size === "number" && Number.isFinite(o.size) && o.size >= 0 ? o.size : 0,
+        size: typeof o.size === "number" ? sanitiseExtractedNumber(o.size) ?? 0 : 0,
         mimeType: o.mimeType,
         category,
         uploadedAt: typeof o.uploadedAt === "string" ? o.uploadedAt : new Date().toISOString(),
@@ -533,15 +708,58 @@ function CollateralDocumentsUpload({
   const dragDepthRef = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [extractingFilename, setExtractingFilename] = useState<string | null>(null);
+
+  const extractPdfSummary = useCallback(
+    async (docId: string, file: File) => {
+      setExtractingFilename(file.name);
+      setUploadNotice(`Extracting from ${file.name}...`);
+      setUploadError(null);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch("/api/collateral/extract", { method: "POST", body: formData });
+        const data = (await response.json()) as {
+          summary?: string;
+          error?: string;
+          hasUnreliableNumbers?: boolean;
+        };
+        if (!response.ok || !data.summary) {
+          throw new Error(data.error ?? "Could not extract PDF text.");
+        }
+        setCollateralDocs((list) =>
+          list.map((doc) => (doc.id === docId ? { ...doc, content: data.summary } : doc))
+        );
+        if (data.hasUnreliableNumbers) {
+          setUploadNotice(
+            `Some scale values from ${file.name} could not be parsed reliably. Please verify or enter manually.`
+          );
+        } else {
+          setUploadNotice(`Extracted summary from ${file.name}`);
+        }
+      } catch (error) {
+        setUploadError(
+          `Could not extract from ${file.name}. Please enter scale data manually.`
+        );
+        console.error("Collateral PDF extraction failed:", error);
+      } finally {
+        setExtractingFilename(null);
+      }
+    },
+    [setCollateralDocs]
+  );
 
   const ingestFiles = useCallback(
     (fileList: File[]) => {
       touch();
       setUploadError(null);
+      setUploadNotice(null);
       const files = fileList.filter((f) => f.size > 0 || f.name);
       if (files.length === 0) return;
 
       let capturedError: string | null = null;
+      const pendingExtractions: Array<{ id: string; file: File }> = [];
       setCollateralDocs((prev) => {
         const additions: CollateralDoc[] = [];
         let firstError: string | null = null;
@@ -572,14 +790,18 @@ function CollateralDocumentsUpload({
             setErr("Total upload size cannot exceed 100 MB across all files.");
             break;
           }
+          const id = newCollateralDocId();
           additions.push({
-            id: newCollateralDocId(),
+            id,
             filename: file.name,
             size: file.size,
             mimeType: mime,
             category: DEFAULT_DOC_CATEGORY,
             uploadedAt: new Date().toISOString(),
           });
+          if (mime === "application/pdf") {
+            pendingExtractions.push({ id, file });
+          }
           count += 1;
           bytes += file.size;
         }
@@ -589,8 +811,11 @@ function CollateralDocumentsUpload({
         return [...prev, ...additions];
       });
       if (capturedError) setUploadError(capturedError);
+      for (const pending of pendingExtractions) {
+        void extractPdfSummary(pending.id, pending.file);
+      }
     },
-    [setCollateralDocs, touch]
+    [extractPdfSummary, setCollateralDocs, touch]
   );
 
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -609,8 +834,7 @@ function CollateralDocumentsUpload({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Upload supporting reports and forms. Names, sizes, and categories are saved with this draft; file contents are
-        not stored yet — after a refresh, re-upload files when you connect extraction.
+        Upload supporting reports and forms. PDF scale uploads are summarised for collateral generation; other file types keep metadata only in this draft.
       </p>
 
       <input
@@ -667,6 +891,20 @@ function CollateralDocumentsUpload({
         </p>
       ) : null}
 
+      {uploadNotice ? (
+        <p
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            uploadNotice.includes("could not be parsed reliably")
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+              : "border-border/60 bg-muted/40 text-foreground"
+          )}
+          role="status"
+        >
+          {uploadNotice}
+        </p>
+      ) : null}
+
       {collateralDocs.length > 0 ? (
         <ul className="space-y-2">
           {collateralDocs.map((doc) => (
@@ -681,6 +919,7 @@ function CollateralDocumentsUpload({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatFileSize(doc.size)} · {getFileTypeLabel(doc.mimeType)}
+                  {extractingFilename === doc.filename ? " · Extracting…" : null}
                 </p>
               </div>
               <select
@@ -761,6 +1000,7 @@ function migrateBackgroundFromStorage(raw: unknown): BackgroundState {
 
 export type TexlexReportDraftV1 = {
   patientDetails: PatientDetails;
+  cliniko?: ClinikoDraftState | null;
   rawNotes: string;
   collateralDocs: CollateralDoc[];
   criteria: Record<CriterionCode, CriterionState>;
@@ -898,7 +1138,7 @@ const NAV = [
   { id: "report-header", label: "Report header" },
   { id: "assessment-context", label: "Assessment context" },
   { id: "consent", label: "Consent" },
-  { id: "patient-details", label: "Patient details" },
+  { id: "patient-details", label: "Client details" },
   { id: "raw-notes", label: "Raw notes" },
   { id: "presenting-concerns", label: "Presenting concerns" },
   { id: "background", label: "Background" },
@@ -1135,6 +1375,9 @@ function CriterionCard({
 export default function TexlexReportPage() {
   const base = defaultDraft();
   const [patientDetails, setPatientDetails] = useState(() => emptyPatientDetails());
+  const [cliniko, setCliniko] = useState<ClinikoDraftState | null>(null);
+  const [clinikoToast, setClinikoToast] = useState<string | null>(null);
+  const [clinikoSyncNotice, setClinikoSyncNotice] = useState<string | null>(null);
   const [rawNotes, setRawNotes] = useState(base.rawNotes);
   const [collateralDocs, setCollateralDocs] = useState<CollateralDoc[]>(base.collateralDocs);
   const [criteria, setCriteria] = useState<Record<CriterionCode, CriterionState>>(base.criteria);
@@ -1155,9 +1398,16 @@ export default function TexlexReportPage() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [saveToast, setSaveToast] = useState(false);
   const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [clinikoSyncInProgress, setClinikoSyncInProgress] = useState(false);
+  const [newReportModalOpen, setNewReportModalOpen] = useState(false);
+  const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
+  const [newReportToast, setNewReportToast] = useState(false);
+  const [clinikoIntakeResetKey, setClinikoIntakeResetKey] = useState(0);
 
   const saveTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const saveToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const clinikoToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const newReportToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const debouncedRawNotes = useDebouncedValue(rawNotes, 400);
   const pipeline = useAsdEnginePipeline(debouncedRawNotes);
 
@@ -1176,7 +1426,7 @@ export default function TexlexReportPage() {
   }, [pipeline.dsmMatrix]);
 
   const startCriterionGeneration = useCallback(
-    async (code: CriterionCode) => {
+    async (code: CriterionCode): Promise<string | null> => {
       const sectionId = criterionSectionId(code);
       const sectionInput = criteria[code].indicators.trim();
       const masterInput = rawNotes.trim();
@@ -1186,7 +1436,7 @@ export default function TexlexReportPage() {
           ...p,
           [sectionId]: GENERATION_MIN_NOTES_ERROR,
         }));
-        return;
+        return null;
       }
 
       streamAbortRef.current?.abort();
@@ -1205,8 +1455,9 @@ export default function TexlexReportPage() {
 
       setCriteria((prev) => ({ ...prev, [code]: { ...prev[code], indicators: "" } }));
 
+      let generated = "";
       try {
-        await streamTexlexSse(
+        generated = await streamTexlexSse(
           `/api/generate/${code.toLowerCase()}`,
           body,
           (delta) => {
@@ -1218,8 +1469,8 @@ export default function TexlexReportPage() {
           controller.signal
         );
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof Error && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") return null;
+        if (err instanceof Error && err.name === "AbortError") return null;
         console.error(`${code} generation error:`, err);
         if (genSessionRef.current === session) {
           setSectionGenErrors((p) => ({
@@ -1227,18 +1478,38 @@ export default function TexlexReportPage() {
             [sectionId]: err instanceof Error ? err.message : `${code} generation failed.`,
           }));
         }
+        return null;
       } finally {
         if (genSessionRef.current === session) {
-          if (code === "A2") {
-            setCriteria((prev) => {
-              if (!isInsufficientEvidenceNarrative(prev.A2.indicators)) return prev;
-              return { ...prev, A2: { ...prev.A2, rating: null } };
-            });
-          }
+          setCriteria((prev) => {
+            const current = prev[code];
+            const resolvedSuggested = mergeCriterionSuggestedRating(
+              code,
+              generated || current.indicators,
+              current.suggestedRating
+            );
+            const nextCriterion = {
+              ...current,
+              indicators: generated || current.indicators,
+              suggestedRating: resolvedSuggested,
+            };
+            if (code === "A2" && isInsufficientEvidenceNarrative(nextCriterion.indicators)) {
+              return { ...prev, A2: { ...nextCriterion, rating: null } };
+            }
+            if (
+              nextCriterion.rating === null &&
+              resolvedSuggested !== null &&
+              !isInsufficientEvidenceNarrative(nextCriterion.indicators)
+            ) {
+              return { ...prev, [code]: { ...nextCriterion, rating: resolvedSuggested } };
+            }
+            return { ...prev, [code]: nextCriterion };
+          });
           setGeneratingSectionId(null);
           streamAbortRef.current = null;
         }
       }
+      return generated;
     },
     [criteria, patientDetails, pipeline.markers, rawNotes]
   );
@@ -1264,7 +1535,7 @@ export default function TexlexReportPage() {
     [generatingSectionId, startCriterionGeneration]
   );
 
-  const runPresentingConcernsStream = useCallback(async () => {
+  const runPresentingConcernsStream = useCallback(async (): Promise<string | null> => {
     const sectionId = "presenting-concerns";
     const sectionInput = presentingConcernsRaw.trim();
     const masterInput = rawNotes.trim();
@@ -1274,7 +1545,7 @@ export default function TexlexReportPage() {
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
       }));
-      return;
+      return null;
     }
     streamAbortRef.current?.abort();
     const controller = new AbortController();
@@ -1288,7 +1559,7 @@ export default function TexlexReportPage() {
     });
     setPresentingConcerns("");
     try {
-      await streamTexlexSse(
+      const generated = await streamTexlexSse(
         "/api/generate/presenting-concerns",
         {
           clientName: patientDetails.clientName,
@@ -1300,9 +1571,10 @@ export default function TexlexReportPage() {
         (delta) => setPresentingConcerns((prev) => prev + delta),
         controller.signal
       );
+      return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (err instanceof DOMException && err.name === "AbortError") return null;
+      if (err instanceof Error && err.name === "AbortError") return null;
       console.error("Presenting concerns generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -1310,6 +1582,7 @@ export default function TexlexReportPage() {
           [sectionId]: err instanceof Error ? err.message : "Presenting concerns generation failed.",
         }));
       }
+      return null;
     } finally {
       if (genSessionRef.current === session) {
         setGeneratingSectionId(null);
@@ -1344,7 +1617,7 @@ export default function TexlexReportPage() {
   };
 
   const runBackgroundStream = useCallback(
-    async (key: BackgroundSectionKey) => {
+    async (key: BackgroundSectionKey): Promise<string | null> => {
       const sectionId = BACKGROUND_STREAM_SLUG[key];
       const sectionInput = background[backgroundRawKey(key)].trim();
       const masterInput = rawNotes.trim();
@@ -1354,7 +1627,7 @@ export default function TexlexReportPage() {
           ...p,
           [sectionId]: GENERATION_MIN_NOTES_ERROR,
         }));
-        return;
+        return null;
       }
       streamAbortRef.current?.abort();
       const controller = new AbortController();
@@ -1368,7 +1641,7 @@ export default function TexlexReportPage() {
       });
       setBackground((b) => ({ ...b, [key]: "" }));
       try {
-        await streamTexlexSse(
+        const generated = await streamTexlexSse(
           `/api/generate/${sectionId}`,
           {
             clientName: patientDetails.clientName,
@@ -1380,9 +1653,10 @@ export default function TexlexReportPage() {
           (delta) => setBackground((b) => ({ ...b, [key]: b[key] + delta })),
           controller.signal
         );
+        return generated;
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof Error && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") return null;
+        if (err instanceof Error && err.name === "AbortError") return null;
         console.error("Background generation error:", err);
         if (genSessionRef.current === session) {
           setSectionGenErrors((p) => ({
@@ -1390,6 +1664,7 @@ export default function TexlexReportPage() {
             [sectionId]: err instanceof Error ? err.message : "Background generation failed.",
           }));
         }
+        return null;
       } finally {
         if (genSessionRef.current === session) {
           setGeneratingSectionId(null);
@@ -1421,7 +1696,7 @@ export default function TexlexReportPage() {
     [generatingSectionId, runBackgroundStream]
   );
 
-  const runCollateralSummaryStream = useCallback(async () => {
+  const runCollateralSummaryStream = useCallback(async (): Promise<string | null> => {
     const sectionId = "collateral-summary";
     const collateralContent = collateralDocs.length ? buildCollateralContentForApi(collateralDocs) : "";
     const masterInput = rawNotes.trim();
@@ -1430,7 +1705,7 @@ export default function TexlexReportPage() {
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
       }));
-      return;
+      return null;
     }
     const contextNotes =
       masterInput.length >= GENERATION_MIN_NOTES_CHARS
@@ -1443,7 +1718,7 @@ export default function TexlexReportPage() {
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
       }));
-      return;
+      return null;
     }
     streamAbortRef.current?.abort();
     const controller = new AbortController();
@@ -1457,7 +1732,7 @@ export default function TexlexReportPage() {
     });
     setCollateralSummary("");
     try {
-      await streamTexlexSse(
+      const generated = await streamTexlexSse(
         "/api/generate/collateral-summary",
         {
           clientName: patientDetails.clientName,
@@ -1470,9 +1745,10 @@ export default function TexlexReportPage() {
         (delta) => setCollateralSummary((prev) => prev + delta),
         controller.signal
       );
+      return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (err instanceof DOMException && err.name === "AbortError") return null;
+      if (err instanceof Error && err.name === "AbortError") return null;
       console.error("Collateral summary generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -1480,6 +1756,7 @@ export default function TexlexReportPage() {
           [sectionId]: err instanceof Error ? err.message : "Collateral summary generation failed.",
         }));
       }
+      return null;
     } finally {
       if (genSessionRef.current === session) {
         setGeneratingSectionId(null);
@@ -1502,60 +1779,98 @@ export default function TexlexReportPage() {
     void runCollateralSummaryStream();
   }, [generatingSectionId, runCollateralSummaryStream]);
 
-  const runFunctionalImpactStream = useCallback(async () => {
-    const sectionId = "functional-impact-summary";
-    const masterInput = rawNotes.trim();
-    if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
-      setSectionGenErrors((p) => ({
-        ...p,
-        [sectionId]: GENERATION_MIN_NOTES_ERROR,
-      }));
-      return;
-    }
-    streamAbortRef.current?.abort();
-    const controller = new AbortController();
-    streamAbortRef.current = controller;
-    const session = ++genSessionRef.current;
-    setGeneratingSectionId(sectionId);
-    setSectionGenErrors((p) => {
-      const n = { ...p };
-      delete n[sectionId];
-      return n;
-    });
-    setFunctionalImpactSummary("");
-    const criteriaState = buildCriteriaStateBlock(criteria);
-    try {
-      await streamTexlexSse(
-        "/api/generate/functional-impact",
-        {
-          clientName: patientDetails.clientName,
-          pronouns: patientDetails.pronouns,
-          chronologicalAge: computeChronologicalAge(patientDetails.dob),
-          yearLevel: patientDetails.yearLevel,
-          rawNotes: masterInput,
-          criteriaState,
-          collateralSummary: collateralSummary.trim(),
-        },
-        (delta) => setFunctionalImpactSummary((prev) => prev + delta),
-        controller.signal
-      );
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (err instanceof Error && err.name === "AbortError") return;
-      console.error("Functional impact generation error:", err);
-      if (genSessionRef.current === session) {
+  const runFunctionalImpactStream = useCallback(
+    async (snapshot?: ReportGenerationSnapshot): Promise<string | null> => {
+      const sectionId = "functional-impact-summary";
+      const masterInput = rawNotes.trim();
+      if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
         setSectionGenErrors((p) => ({
           ...p,
-          [sectionId]: err instanceof Error ? err.message : "Functional impact generation failed.",
+          [sectionId]: GENERATION_MIN_NOTES_ERROR,
         }));
+        return null;
       }
-    } finally {
-      if (genSessionRef.current === session) {
-        setGeneratingSectionId(null);
-        streamAbortRef.current = null;
+      const source = snapshot ?? {
+        presentingConcerns,
+        background,
+        collateralSummary,
+        criteria,
+        clinicalFormulation,
+      };
+      streamAbortRef.current?.abort();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const session = ++genSessionRef.current;
+      setGeneratingSectionId(sectionId);
+      setSectionGenErrors((p) => {
+        const n = { ...p };
+        delete n[sectionId];
+        return n;
+      });
+      setFunctionalImpactSummary("");
+      const criteriaState = buildCriteriaStateBlock(source.criteria);
+      const backgroundText = buildBackgroundTextBlock(source.background);
+      const payload = {
+        clientName: patientDetails.clientName,
+        clientFirstName: clientFirstName(patientDetails.clientName),
+        pronouns: patientDetails.pronouns,
+        chronologicalAge: computeChronologicalAge(patientDetails.dob),
+        yearLevel: patientDetails.yearLevel,
+        rawNotes: masterInput,
+        presentingConcerns: source.presentingConcerns.trim(),
+        backgroundText,
+        criteriaState,
+        collateralSummary: source.collateralSummary.trim(),
+        clinicalFormulation: source.clinicalFormulation.trim(),
+      };
+      const payloadPreview = JSON.stringify(payload);
+      console.log(
+        `FUNCTIONAL_IMPACT: prompt input received: ${payloadPreview.length} chars`,
+        payloadPreview.slice(0, 500)
+      );
+      try {
+        const generated = await streamTexlexSse(
+          "/api/generate/functional-impact",
+          payload,
+          (delta) => setFunctionalImpactSummary((prev) => prev + delta),
+          controller.signal
+        );
+        console.log(
+          `FUNCTIONAL_IMPACT: model response received: ${generated.length} chars`,
+          generated.slice(0, 500)
+        );
+        if (genSessionRef.current === session) {
+          if (isTexlexSubsectionEmpty(generated)) {
+            throw new Error("Functional impact model returned no prose");
+          }
+          setFunctionalImpactSummary(generated);
+          console.log(
+            `FUNCTIONAL_IMPACT: returning to renderer: ${generated.length} chars`,
+            generated.slice(0, 500)
+          );
+        }
+        return generated;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return null;
+        if (err instanceof Error && err.name === "AbortError") return null;
+        console.error("Functional impact generation error:", err);
+        if (genSessionRef.current === session) {
+          setFunctionalImpactSummary(FUNCTIONAL_IMPACT_RENDER_FALLBACK);
+          setSectionGenErrors((p) => ({
+            ...p,
+            [sectionId]: err instanceof Error ? err.message : "Functional impact generation failed.",
+          }));
+        }
+        return null;
+      } finally {
+        if (genSessionRef.current === session) {
+          setGeneratingSectionId(null);
+          streamAbortRef.current = null;
+        }
       }
-    }
-  }, [collateralSummary, criteria, patientDetails, rawNotes]);
+    },
+    [background, clinicalFormulation, collateralSummary, criteria, patientDetails, presentingConcerns, rawNotes]
+  );
 
   const handleGenerateFunctionalImpact = useCallback(() => {
     const sectionId = "functional-impact-summary";
@@ -1571,7 +1886,8 @@ export default function TexlexReportPage() {
     void runFunctionalImpactStream();
   }, [generatingSectionId, runFunctionalImpactStream]);
 
-  const runFormulationStream = useCallback(async () => {
+  const runFormulationStream = useCallback(
+    async (snapshot?: ReportGenerationSnapshot): Promise<string | null> => {
     const sectionId = "clinical-formulation";
     const masterInput = rawNotes.trim();
     if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
@@ -1579,8 +1895,15 @@ export default function TexlexReportPage() {
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
       }));
-      return;
+      return null;
     }
+    const source = snapshot ?? {
+      presentingConcerns,
+      background,
+      collateralSummary,
+      criteria,
+      clinicalFormulation,
+    };
     streamAbortRef.current?.abort();
     const controller = new AbortController();
     streamAbortRef.current = controller;
@@ -1592,9 +1915,9 @@ export default function TexlexReportPage() {
       return n;
     });
     setClinicalFormulation("");
-    const criteriaState = buildCriteriaStateBlock(criteria);
+    const criteriaState = buildCriteriaStateBlock(source.criteria);
     try {
-      await streamTexlexSse(
+      const generated = await streamTexlexSse(
         "/api/generate/formulation",
         {
           clientName: patientDetails.clientName,
@@ -1604,15 +1927,16 @@ export default function TexlexReportPage() {
           referringPractitioner: patientDetails.referringPractitioner,
           rawNotes: masterInput,
           criteriaState,
-          collateralSummary: collateralSummary.trim(),
+          collateralSummary: source.collateralSummary.trim(),
           functionalImpactSummary: functionalImpactSummary.trim(),
         },
         (delta) => setClinicalFormulation((prev) => prev + delta),
         controller.signal
       );
+      return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (err instanceof DOMException && err.name === "AbortError") return null;
+      if (err instanceof Error && err.name === "AbortError") return null;
       console.error("Formulation generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -1620,13 +1944,16 @@ export default function TexlexReportPage() {
           [sectionId]: err instanceof Error ? err.message : "Formulation generation failed.",
         }));
       }
+      return null;
     } finally {
       if (genSessionRef.current === session) {
         setGeneratingSectionId(null);
         streamAbortRef.current = null;
       }
     }
-  }, [collateralSummary, criteria, functionalImpactSummary, patientDetails, rawNotes]);
+  },
+    [background, collateralSummary, criteria, functionalImpactSummary, patientDetails, presentingConcerns, rawNotes]
+  );
 
   const handleGenerateFormulation = useCallback(() => {
     const sectionId = "clinical-formulation";
@@ -1713,6 +2040,99 @@ export default function TexlexReportPage() {
     void runRecommendationsStream();
   }, [generatingSectionId, runRecommendationsStream]);
 
+  const runFullReportGeneration = useCallback(async () => {
+    const masterInput = rawNotes.trim();
+    if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        "report-generation": GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+
+    setSectionGenErrors((p) => {
+      const next = { ...p };
+      delete next["report-generation"];
+      return next;
+    });
+
+    try {
+      const snapshot: ReportGenerationSnapshot = {
+        presentingConcerns,
+        background: cloneBackgroundState(background),
+        collateralSummary,
+        criteria: cloneCriteriaState(criteria),
+        clinicalFormulation,
+      };
+
+      const presentingGenerated = await runPresentingConcernsStream();
+      if (presentingGenerated) snapshot.presentingConcerns = presentingGenerated;
+
+      const backgroundKeys: BackgroundSectionKey[] = [
+        "pregnancyBirth",
+        "earlyDevelopment",
+        "educationalHistory",
+        "emotionalBehaviouralSensory",
+      ];
+      for (const key of backgroundKeys) {
+        const generated = await runBackgroundStream(key);
+        if (generated) snapshot.background[key] = generated;
+      }
+
+      const collateralGenerated = await runCollateralSummaryStream();
+      if (collateralGenerated) snapshot.collateralSummary = collateralGenerated;
+
+      for (const code of CRITERION_CODES) {
+        const narrative = await startCriterionGeneration(code);
+        if (!narrative) continue;
+        const resolvedSuggested = mergeCriterionSuggestedRating(
+          code,
+          narrative,
+          snapshot.criteria[code].suggestedRating
+        );
+        snapshot.criteria[code] = {
+          ...snapshot.criteria[code],
+          indicators: narrative,
+          suggestedRating: resolvedSuggested,
+          rating: snapshot.criteria[code].rating ?? resolvedSuggested,
+        };
+      }
+
+      const formulationGenerated = await runFormulationStream(snapshot);
+      if (formulationGenerated) snapshot.clinicalFormulation = formulationGenerated;
+
+      const functionalImpactGenerated = await runFunctionalImpactStream(snapshot);
+      if (!functionalImpactGenerated) {
+        throw new Error("Functional impact generation did not return prose");
+      }
+
+      await runRecommendationsStream();
+    } catch (err) {
+      console.error("Full report generation error:", err);
+      setSectionGenErrors((p) => ({
+        ...p,
+        "report-generation": err instanceof Error ? err.message : "Full report generation failed.",
+      }));
+    }
+  }, [
+    rawNotes,
+    runBackgroundStream,
+    runCollateralSummaryStream,
+    runFormulationStream,
+    runFunctionalImpactStream,
+    runPresentingConcernsStream,
+    runRecommendationsStream,
+    startCriterionGeneration,
+  ]);
+
+  const handleGenerateReport = useCallback(() => {
+    if (generatingSectionId) {
+      streamAbortRef.current?.abort();
+      return;
+    }
+    void runFullReportGeneration();
+  }, [generatingSectionId, runFullReportGeneration]);
+
   const getCriterionGenerateProps = useCallback(
     (code: CriterionCode) => {
       const sid = criterionSectionId(code);
@@ -1769,7 +2189,27 @@ export default function TexlexReportPage() {
   useEffect(() => {
     return () => {
       if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+      if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+      if (newReportToastTimerRef.current) clearTimeout(newReportToastTimerRef.current);
     };
+  }, []);
+
+  const showClinikoLoadedToast = useCallback((message: string) => {
+    setClinikoToast(message);
+    if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+    clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+      setClinikoToast(null);
+      clinikoToastTimerRef.current = null;
+    }, 3000);
+  }, []);
+
+  const showClinikoErrorToast = useCallback((message: string) => {
+    setClinikoToast(message);
+    if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+    clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+      setClinikoToast(null);
+      clinikoToastTimerRef.current = null;
+    }, 4000);
   }, []);
 
   useEffect(() => {
@@ -1781,6 +2221,7 @@ export default function TexlexReportPage() {
       }
       const data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
       if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
+      if (data.cliniko) setCliniko(data.cliniko);
       if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
       if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
       if (data.criteria) {
@@ -1788,7 +2229,7 @@ export default function TexlexReportPage() {
           const next = { ...c };
           for (const code of CRITERION_CODES) {
             const patch = data.criteria?.[code];
-            if (patch) next[code] = { ...next[code], ...patch, code };
+            if (patch) next[code] = normalizeCriterionState({ ...next[code], ...patch, code });
           }
           return next;
         });
@@ -1815,12 +2256,13 @@ export default function TexlexReportPage() {
         const row = pipeline.dsmMatrix.find((r: { code: string }) => r.code === code) as
           | { count: number; status: string }
           | undefined;
-        const count = row?.count ?? 0;
+        const count = sanitiseExtractedNumber(row?.count ?? 0) ?? 0;
         const status = row?.status ?? "Missing";
+        const matrixRating = suggestedRatingFromMatrix(count, status);
         next[code] = {
           ...prev[code],
           markerCount: count,
-          suggestedRating: suggestedRatingFromMatrix(count, status),
+          suggestedRating: mergeCriterionSuggestedRating(code, prev[code].indicators, matrixRating),
         };
       }
       return next;
@@ -1831,6 +2273,7 @@ export default function TexlexReportPage() {
     const lastSaved = new Date().toISOString();
     return {
       patientDetails,
+      cliniko,
       rawNotes,
       collateralDocs,
       criteria,
@@ -1846,6 +2289,7 @@ export default function TexlexReportPage() {
     };
   }, [
     patientDetails,
+    cliniko,
     rawNotes,
     collateralDocs,
     criteria,
@@ -1858,6 +2302,105 @@ export default function TexlexReportPage() {
     recommendations,
     limitationsText,
   ]);
+
+  const draftIsEffectivelyEmpty = useMemo(
+    () =>
+      isTexlexDraftEffectivelyEmpty({
+        patientDetails,
+        rawNotes,
+        collateralDocs,
+        criteria,
+        presentingConcernsRaw,
+        presentingConcerns,
+        background,
+        collateralSummary,
+        functionalImpactSummary,
+        clinicalFormulation,
+        recommendations,
+        limitationsText,
+        cliniko,
+      }),
+    [
+      patientDetails,
+      rawNotes,
+      collateralDocs,
+      criteria,
+      presentingConcernsRaw,
+      presentingConcerns,
+      background,
+      collateralSummary,
+      functionalImpactSummary,
+      clinicalFormulation,
+      recommendations,
+      limitationsText,
+      cliniko,
+    ]
+  );
+
+  const startNewReport = useCallback(() => {
+    streamAbortRef.current?.abort();
+    genSessionRef.current += 1;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+
+    const fresh = defaultDraft();
+    setPatientDetails(patientDetailsAfterNewReport());
+    setCliniko(null);
+    setClinikoIntakeResetKey((key) => key + 1);
+    setClinikoToast(null);
+    setClinikoSyncNotice(null);
+    setRawNotes(fresh.rawNotes);
+    setCollateralDocs(fresh.collateralDocs);
+    setCriteria(fresh.criteria);
+    setPresentingConcernsRaw(fresh.presentingConcernsRaw);
+    setPresentingConcerns(fresh.presentingConcerns);
+    setBackground(fresh.background);
+    setCollateralSummary(fresh.collateralSummary);
+    setFunctionalImpactSummary(fresh.functionalImpactSummary);
+    setClinicalFormulation(fresh.clinicalFormulation);
+    setRecommendations(fresh.recommendations);
+    setLimitationsText(fresh.limitationsText);
+    setEditLimitations(false);
+    setGeneratingSectionId(null);
+    setSectionGenErrors({});
+    setLastSavedAt(null);
+    setSaveFailed(false);
+    setSaveToast(false);
+    setLastEditAt(0);
+    window.scrollTo({ top: 0, behavior: "auto" });
+    setNewReportToast(true);
+    if (newReportToastTimerRef.current) clearTimeout(newReportToastTimerRef.current);
+    newReportToastTimerRef.current = globalThis.setTimeout(() => {
+      setNewReportToast(false);
+      newReportToastTimerRef.current = null;
+    }, 2000);
+  }, []);
+
+  const handleNewReportClick = useCallback(() => {
+    if (pdfDownloading) return;
+    if (draftIsEffectivelyEmpty) {
+      startNewReport();
+      return;
+    }
+    if (skipNewReportConfirmSession && !clinikoSyncInProgress) {
+      startNewReport();
+      return;
+    }
+    setNewReportModalOpen(true);
+  }, [clinikoSyncInProgress, draftIsEffectivelyEmpty, pdfDownloading, skipNewReportConfirmSession, startNewReport]);
+
+  const handleConfirmNewReport = useCallback(() => {
+    if (clinikoSyncInProgress) return;
+    startNewReport();
+    setNewReportModalOpen(false);
+  }, [clinikoSyncInProgress, startNewReport]);
 
   const saveDraftNow = useCallback(() => {
     if (saveTimerRef.current) {
@@ -1882,6 +2425,53 @@ export default function TexlexReportPage() {
 
   const handleDownloadPdf = useCallback(async () => {
     setPdfDownloading(true);
+    setClinikoSyncNotice(null);
+    if (cliniko?.patientId && cliniko.syncEnabled) {
+      setClinikoSyncInProgress(true);
+      try {
+        const response = await fetch("/api/cliniko/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            patientId: cliniko.patientId,
+            baseline: cliniko.baseline,
+            patientDetails: {
+              clientName: patientDetails.clientName,
+              parent1: patientDetails.parent1,
+              parent2: patientDetails.parent2,
+              parent1Relationship: patientDetails.parent1Relationship,
+              parent2Relationship: patientDetails.parent2Relationship,
+              dob: patientDetails.dob,
+              referringPractitioner: patientDetails.referringPractitioner,
+              referringPractitionerType: patientDetails.referringPractitionerType,
+              referringPractitionerEmail: patientDetails.referringPractitionerEmail,
+              assessmentType: patientDetails.assessmentType,
+              school: patientDetails.school,
+              yearLevel: patientDetails.yearLevel,
+              phone: patientDetails.phone,
+              address: patientDetails.address,
+            },
+          }),
+        });
+        const data = (await response.json()) as { updatedCount?: number; error?: string };
+        if (!response.ok) {
+          throw new Error(data.error ?? "Cliniko sync failed.");
+        }
+        if ((data.updatedCount ?? 0) > 0) {
+          setClinikoSyncNotice(`Updated ${data.updatedCount} field(s) in Cliniko`);
+        }
+      } catch (error) {
+        console.error("Cliniko sync failed:", error);
+        setClinikoToast("Couldn't sync to Cliniko — your changes are still in the report.");
+        if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+        clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+          setClinikoToast(null);
+          clinikoToastTimerRef.current = null;
+        }, 4000);
+      } finally {
+        setClinikoSyncInProgress(false);
+      }
+    }
     try {
       const [{ pdf }, { TexlexPdfDocument }] = await Promise.all([
         import("@react-pdf/renderer"),
@@ -1889,10 +2479,11 @@ export default function TexlexReportPage() {
       ]);
       const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
         persistPayload;
+      const cleanDraft = sanitiseForPdf(draft);
       const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
       const signatureSrc = await resolveTexlexSignatureSrc();
       const blob = await pdf(
-        <TexlexPdfDocument draft={draft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+        <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
       ).toBlob();
       const stem = safeFilenamePart(draft.patientDetails.clientName);
       const url = URL.createObjectURL(blob);
@@ -1907,7 +2498,7 @@ export default function TexlexReportPage() {
     } finally {
       setPdfDownloading(false);
     }
-  }, [persistPayload]);
+  }, [cliniko, patientDetails, persistPayload]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1979,6 +2570,21 @@ export default function TexlexReportPage() {
                   Saved
                 </span>
               ) : null}
+              {clinikoToast ? (
+                <span className="text-xs font-medium text-foreground" aria-live="polite">
+                  {clinikoToast}
+                </span>
+              ) : null}
+              {clinikoSyncNotice ? (
+                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+                  {clinikoSyncNotice}
+                </span>
+              ) : null}
+              {newReportToast ? (
+                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+                  Started new report
+                </span>
+              ) : null}
               {saveFailed ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => saveDraftNow()}>
                   Retry
@@ -1986,6 +2592,17 @@ export default function TexlexReportPage() {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={pdfDownloading}
+                onClick={handleNewReportClick}
+                className="border border-[#0E9F98] text-[#0E9F98] hover:bg-[#0E9F98]/10"
+              >
+                <CirclePlus className="size-3.5" />
+                New Report
+              </Button>
               <Button type="button" variant="default" size="sm" onClick={() => saveDraftNow()}>
                 Save Draft
               </Button>
@@ -2079,8 +2696,20 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
+            <ClinikoIntakeCard
+              key={clinikoIntakeResetKey}
+              inputClass={inputClass}
+              patientDetails={patientDetails}
+              setPatientDetails={setPatientDetails}
+              cliniko={cliniko}
+              setCliniko={setCliniko}
+              onTouch={touch}
+              onLoaded={showClinikoLoadedToast}
+              onError={showClinikoErrorToast}
+            />
+
             <section id="patient-details">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Patient details</h2>
+              <h2 className="mb-3 text-lg font-semibold leading-tight">Client details</h2>
               <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                 <CardContent className="p-4 sm:p-6">
                   {(() => {
@@ -2128,6 +2757,21 @@ export default function TexlexReportPage() {
                                   setPatientDetails((p) => ({ ...p, parent1: e.target.value }));
                                 }}
                               />
+                              <select
+                                className={cn(inputClass, "w-full")}
+                                value={patientDetails.parent1Relationship}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, parent1Relationship: e.target.value }));
+                                }}
+                              >
+                                <option value="">Relationship (optional)</option>
+                                <option value="mother">mother</option>
+                                <option value="father">father</option>
+                                <option value="carer">carer</option>
+                                <option value="guardian">guardian</option>
+                                <option value="other">other</option>
+                              </select>
                             </label>
                           </td>
                         </tr>
@@ -2148,6 +2792,21 @@ export default function TexlexReportPage() {
                                   setPatientDetails((p) => ({ ...p, parent2: e.target.value }));
                                 }}
                               />
+                              <select
+                                className={cn(inputClass, "w-full")}
+                                value={patientDetails.parent2Relationship}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, parent2Relationship: e.target.value }));
+                                }}
+                              >
+                                <option value="">Relationship (optional)</option>
+                                <option value="mother">mother</option>
+                                <option value="father">father</option>
+                                <option value="carer">carer</option>
+                                <option value="guardian">guardian</option>
+                                <option value="other">other</option>
+                              </select>
                             </label>
                           </td>
                         </tr>
@@ -2198,6 +2857,27 @@ export default function TexlexReportPage() {
                                 onChange={(e) => {
                                   touch();
                                   setPatientDetails((p) => ({ ...p, referringPractitioner: e.target.value }));
+                                }}
+                              />
+                              <input
+                                maxLength={METADATA_INPUT_MAX_LENGTH}
+                                className={cn(inputClass, "w-full")}
+                                placeholder="Referrer type (optional)"
+                                value={patientDetails.referringPractitionerType}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, referringPractitionerType: e.target.value }));
+                                }}
+                              />
+                              <input
+                                type="email"
+                                maxLength={METADATA_INPUT_MAX_LENGTH}
+                                className={cn(inputClass, "w-full")}
+                                placeholder="Referrer email (optional)"
+                                value={patientDetails.referringPractitionerEmail}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, referringPractitionerEmail: e.target.value }));
                                 }}
                               />
                             </label>
@@ -2315,6 +2995,19 @@ export default function TexlexReportPage() {
                                   setPatientDetails((p) => ({ ...p, yearLevel: e.target.value }));
                                 }}
                               />
+                              <select
+                                className={cn(inputClass, "w-full")}
+                                value={patientDetails.assessmentType}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, assessmentType: e.target.value }));
+                                }}
+                              >
+                                <option value="">Assessment type (optional)</option>
+                                <option value="ADHD">ADHD</option>
+                                <option value="ASD">ASD</option>
+                                <option value="SLD">SLD</option>
+                              </select>
                             </label>
                           </td>
                         </tr>
@@ -2413,11 +3106,17 @@ export default function TexlexReportPage() {
                       type="button"
                       size="lg"
                       className="px-5 text-sm font-semibold"
-                      onClick={() => console.log("Generate Report from raw notes — triggers all sections")}
+                      onClick={handleGenerateReport}
+                      disabled={Boolean(generatingSectionId)}
                     >
-                      Generate Report
+                      {generatingSectionId ? "Stop generation" : "Generate Report"}
                     </Button>
                   </div>
+                  {sectionGenErrors["report-generation"] ? (
+                    <p className="mt-2 text-right text-sm text-destructive" role="alert">
+                      {sectionGenErrors["report-generation"]}
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-right text-xs text-muted-foreground">
                     Click to populate all editable sections from the raw notes above. Each section can also be generated
                     or regenerated individually.
@@ -2505,6 +3204,13 @@ export default function TexlexReportPage() {
                 >
               ).map(([key, label, sectionId, modelName]) => {
                 const rawKey = backgroundRawKey(key);
+                const subsectionValue = background[key];
+                const showPreview =
+                  key === "emotionalBehaviouralSensory" || !isTexlexSubsectionEmpty(subsectionValue);
+                const previewText =
+                  key === "emotionalBehaviouralSensory" && isTexlexSubsectionEmpty(subsectionValue)
+                    ? BACKGROUND_EMOTIONAL_EMPTY_FALLBACK
+                    : subsectionValue;
                 return (
                 <Card key={key} className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                   <CardContent className="p-6">
@@ -2562,6 +3268,11 @@ export default function TexlexReportPage() {
                       />
                       <SectionCharWordCount text={background[key]} />
                     </label>
+                    {showPreview ? (
+                      <div className="mt-4 whitespace-pre-wrap rounded-lg border border-border/60 bg-muted/20 p-4 text-[15px] leading-[1.55] text-muted-foreground">
+                        {previewText}
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
               );
@@ -2582,7 +3293,7 @@ export default function TexlexReportPage() {
               </Card>
               <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                 <CardContent className="p-6">
-                  <h3 className="text-base font-semibold">Collateral summary</h3>
+                  <h3 className="text-[11pt] font-semibold text-[#0e7c8a]">Caregiver Observations (M-CHAT)</h3>
                   <ReportTextarea
                     rows={10}
                     value={collateralSummary}
@@ -2619,6 +3330,11 @@ export default function TexlexReportPage() {
                       ) : null
                     }
                   />
+                  {!isTexlexSubsectionEmpty(collateralSummary) ? (
+                    <div className="mt-4 whitespace-pre-wrap rounded-lg border border-border/60 bg-muted/20 p-4 text-[15px] leading-[1.55] text-muted-foreground">
+                      {collateralSummary}
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             </section>
@@ -2720,6 +3436,9 @@ export default function TexlexReportPage() {
                       ) : null
                     }
                   />
+                  <div className="mt-4 whitespace-pre-wrap rounded-lg border border-border/60 bg-muted/20 p-4 text-[15px] leading-[1.55] text-muted-foreground">
+                    {resolveFunctionalImpactDisplay(functionalImpactSummary)}
+                  </div>
                 </CardContent>
               </Card>
             </section>
@@ -2888,6 +3607,14 @@ export default function TexlexReportPage() {
           </div>
         </aside>
       </div>
+      <NewReportConfirmModal
+        open={newReportModalOpen}
+        clinikoSyncInProgress={clinikoSyncInProgress}
+        onCancel={() => setNewReportModalOpen(false)}
+        onConfirm={handleConfirmNewReport}
+        skipConfirmThisSession={skipNewReportConfirmSession}
+        onSkipConfirmThisSessionChange={setSkipNewReportConfirmSession}
+      />
     </div>
   );
 }

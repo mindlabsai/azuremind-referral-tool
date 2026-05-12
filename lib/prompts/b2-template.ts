@@ -1,3 +1,4 @@
+import { texlexFirstNameVoiceBlock } from "./texlex-first-name-voice";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const B2_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
@@ -30,8 +31,8 @@ B2 is about the RIGIDITY and INSISTENCE ON SAMENESS pattern itself.
 # STRUCTURE
 
 Three-paragraph defensibility architecture. Open with:
-- "[Client] demonstrates significant rigidity and difficulty adapting to change."
-- "[Client] presents with marked inflexibility, characterised by..."
+- "[first name] demonstrates significant rigidity and difficulty adapting to change."
+- "[first name] presents with marked inflexibility, characterised by..."
 
 For ruled-out cases (transitions tolerated, no rigidity, flexibility evident), single concise paragraph noting what was observed and that findings do not support clinically significant rigidity.`;
 
@@ -45,13 +46,17 @@ export interface B2PromptVariables {
 }
 
 export function buildB2UserPrompt(vars: B2PromptVariables): string {
-  return `# TASK
+  const clientFirstName = vars.clientName.trim().split(/\s+/)[0] || "";
+  return `${texlexFirstNameVoiceBlock(clientFirstName)}
+
+# TASK
 
 Draft the Criterion B2 (Insistence on Sameness, Inflexible Adherence to Routines) Indicators section.
 
 # CLIENT CONTEXT
 
 Client name: ${vars.clientName || "[not provided]"}
+Client first name: ${clientFirstName || "[not provided]"}
 Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}

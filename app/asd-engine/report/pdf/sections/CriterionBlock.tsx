@@ -4,7 +4,7 @@ import { ProseParagraphs } from "../components/ProseParagraphs";
 import { RatingPill } from "../components/RatingPill";
 import { styles } from "../styles";
 import type { CriterionCode, CriterionState } from "../types";
-import { isInsufficientEvidenceNarrative } from "../utils";
+import { resolveCriterionDisplayRating } from "../utils";
 
 export function CriterionBlock({
   code,
@@ -14,8 +14,7 @@ export function CriterionBlock({
   criterion: CriterionState;
 }) {
   const meta = TEXLEX_CRITERIA[code];
-  const displayRating =
-    code === "A2" && isInsufficientEvidenceNarrative(criterion.indicators) ? null : criterion.rating;
+  const displayRating = resolveCriterionDisplayRating(code, criterion);
 
   return (
     <View>

@@ -1,3 +1,4 @@
+import { texlexFirstNameVoiceBlock } from "./texlex-first-name-voice";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const B4_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
@@ -27,13 +28,13 @@ B4 must contain ONLY B4-relevant content. Do NOT include:
 - Restricted interests (B3)
 - Any A criterion content
 
-B4 is about SENSORY PROCESSING — how the client experiences and responds to sensory input.
+B4 is about SENSORY PROCESSING — how sensory input is experienced and responded to in daily life.
 
 # STRUCTURE
 
 Three-paragraph defensibility architecture. Open with:
-- "[Client] demonstrates clear sensory sensitivities across multiple modalities."
-- "[Client] presents with marked sensory differences, characterised by..."
+- "[first name] demonstrates clear sensory sensitivities across multiple modalities."
+- "[first name] presents with marked sensory differences, characterised by..."
 - "Parent report indicates a pervasive pattern of sensory reactivity, characterised by..."
 
 You may reference modalities explicitly (auditory, tactile, gustatory, vestibular, proprioceptive) within the prose, but always in continuous sentences — NEVER as bulleted lists.
@@ -50,13 +51,17 @@ export interface B4PromptVariables {
 }
 
 export function buildB4UserPrompt(vars: B4PromptVariables): string {
-  return `# TASK
+  const clientFirstName = vars.clientName.trim().split(/\s+/)[0] || "";
+  return `${texlexFirstNameVoiceBlock(clientFirstName)}
+
+# TASK
 
 Draft the Criterion B4 (Hyper- or Hypo-reactivity to Sensory Input) Indicators section.
 
 # CLIENT CONTEXT
 
 Client name: ${vars.clientName || "[not provided]"}
+Client first name: ${clientFirstName || "[not provided]"}
 Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}

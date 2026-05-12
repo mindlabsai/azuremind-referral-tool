@@ -4,6 +4,43 @@ export const INSUFFICIENT_EVIDENCE_FALLBACK =
 export const BACKGROUND_EMOTIONAL_EMPTY_FALLBACK =
   "No specific concerns were identified in this domain at the time of assessment. Further enquiry recommended during paediatric review.";
 
+export const FUNCTIONAL_IMPACT_RENDER_FALLBACK =
+  "Functional impact across home, educational, and community settings is consolidated in the Clinical Formulation section below.";
+
+export function isTexlexSubsectionEmpty(text: string): boolean {
+  if (!text) return true;
+  const trimmed = text.trim();
+  return trimmed === "" || trimmed === "—" || trimmed === "-";
+}
+
+export function resolveFunctionalImpactDisplay(content: string): string {
+  return isTexlexSubsectionEmpty(content) ? FUNCTIONAL_IMPACT_RENDER_FALLBACK : content.trim();
+}
+
+export function resolveCriterionDisplayRating(
+  code: string,
+  criterion: { rating: 0 | 1 | 2 | 3 | null; suggestedRating: 0 | 1 | 2 | 3 | null; indicators: string }
+): 0 | 1 | 2 | 3 | null {
+  const rating = criterion.rating;
+  const suggested = criterion.suggestedRating;
+  const safeRating =
+    rating !== null && Number.isFinite(rating) && rating >= 0 && rating <= 3 ? rating : null;
+  const safeSuggested =
+    suggested !== null && Number.isFinite(suggested) && suggested >= 0 && suggested <= 3
+      ? suggested
+      : null;
+  if (code === "A2" && isInsufficientEvidenceNarrative(criterion.indicators)) return null;
+  if (safeRating !== null) return safeRating;
+  if (isInsufficientEvidenceNarrative(criterion.indicators)) return null;
+  return safeSuggested;
+}
+
+export function clientFirstName(clientName: string): string {
+  const trimmed = clientName.trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\s+/)[0] ?? "";
+}
+
 export type DetailPlaceholderKind = "notProvided" | "na" | "dash";
 
 export function formatIsoDate(iso: string, emptyKind: DetailPlaceholderKind = "dash"): string {

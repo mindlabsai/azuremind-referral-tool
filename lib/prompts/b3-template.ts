@@ -1,3 +1,4 @@
+import { texlexFirstNameVoiceBlock } from "./texlex-first-name-voice";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const B3_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
@@ -29,7 +30,7 @@ B3 is about the INTERESTS themselves — their content, intensity, dominance, an
 # STRUCTURE
 
 Three-paragraph defensibility architecture. Open with:
-- "[Client] demonstrates highly restricted and circumscribed interests, characterised by..."
+- "[first name] demonstrates highly restricted and circumscribed interests, characterised by..."
 - "Parent report indicates intense and persistent interests in [domain], characterised by..."
 
 For ruled-out cases (interests varied, no fixation, flexible engagement), single concise paragraph noting findings do not support clinically significant restricted interests.`;
@@ -44,13 +45,17 @@ export interface B3PromptVariables {
 }
 
 export function buildB3UserPrompt(vars: B3PromptVariables): string {
-  return `# TASK
+  const clientFirstName = vars.clientName.trim().split(/\s+/)[0] || "";
+  return `${texlexFirstNameVoiceBlock(clientFirstName)}
+
+# TASK
 
 Draft the Criterion B3 (Highly Restricted, Fixated Interests) Indicators section.
 
 # CLIENT CONTEXT
 
 Client name: ${vars.clientName || "[not provided]"}
+Client first name: ${clientFirstName || "[not provided]"}
 Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}

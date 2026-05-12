@@ -9,6 +9,10 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+function preview(text: string, length = 500): string {
+  return text.slice(0, length);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as FunctionalImpactVariables;
@@ -28,6 +32,10 @@ export async function POST(req: NextRequest) {
     }
 
     const userPrompt = buildFunctionalImpactUserPrompt(body);
+    console.log(
+      `FUNCTIONAL_IMPACT: prompt input received: ${userPrompt.length} chars`,
+      preview(userPrompt)
+    );
 
     const stream = await anthropic.messages.create({
       model: MODELS.OPUS,
@@ -46,9 +54,11 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        let assembled = "";
         try {
           for await (const event of stream) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              assembled += event.delta.text;
               const data = JSON.stringify({ delta: event.delta.text });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
@@ -60,10 +70,22 @@ export async function POST(req: NextRequest) {
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             }
           }
+          console.log(
+            `FUNCTIONAL_IMPACT: model response received: ${assembled.length} chars`,
+            preview(assembled)
+          );
+          console.log(
+            `FUNCTIONAL_IMPACT: returning to renderer: ${assembled.length} chars`,
+            preview(assembled)
+          );
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
         } catch (err) {
           const message = err instanceof Error ? err.message : "Stream error";
+          console.log(
+            `FUNCTIONAL_IMPACT: model response received: ${assembled.length} chars`,
+            preview(assembled)
+          );
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`));
           controller.close();
         }

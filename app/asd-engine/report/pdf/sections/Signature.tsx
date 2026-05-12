@@ -5,6 +5,7 @@ import { styles } from "../styles";
 export function Signature({ signatureSrc }: { signatureSrc: string | null }) {
   return (
     <View>
+      <View style={styles.signatureDivider} />
       <Text style={styles.signatureClosing}>{TEXLEX_SIGNATURE.closing}</Text>
       {signatureSrc ? (
         <Image src={signatureSrc} style={styles.signatureImage} />

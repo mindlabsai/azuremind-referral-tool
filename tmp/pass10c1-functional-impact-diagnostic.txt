@@ -1,0 +1,8 @@
+
+=== EMPTY_SOURCE_SNAPSHOT ===
+response length: 1135
+Allan demonstrates functional impact across home, school, and community settings, with substantial adult scaffolding currently required to support daily participation. At home, rigidity around routines limits flexibility across transitions, mealtimes, and daily activities, contributing to heightened distress when even minor changes occur. In the Kindergarten setting, sensory sensitivities across multiple modalities reduce his capacity to regulate within the classroom environment, impacting engag
+
+=== POPULATED_SOURCE_SNAPSHOT ===
+response length: 1169
+Allan's presentation results in substantial functional impact across home, kindergarten, and community settings. At home, his rigidity around routines and severe distress with unexpected change require consistent adult anticipation and scaffolding of transitions, with family routines structured around his predictability needs and circumscribed interests. In the kindergarten environment, reduced social-emotional reciprocity limits his capacity to initiate and sustain peer engagement, while sensor

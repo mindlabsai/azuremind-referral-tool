@@ -1,0 +1,27 @@
+[
+  {
+    "name": "status endpoint",
+    "passed": true,
+    "detail": "{\"configured\":true,\"connected\":true,\"customFieldCount\":12}"
+  },
+  {
+    "name": "search Luna",
+    "passed": true,
+    "detail": "Rotondella, Luna"
+  },
+  {
+    "name": "load Luna patient",
+    "passed": true,
+    "detail": ""
+  },
+  {
+    "name": "write-back sync",
+    "passed": true,
+    "detail": "{\"updatedCount\":0}"
+  },
+  {
+    "name": "reload custom fields",
+    "passed": true,
+    "detail": "{\"parent1Relationship\":\"father\",\"schoolName\":\"Treeby Primary\"}"
+  }
+]
