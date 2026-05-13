@@ -7,7 +7,9 @@ export const styles = StyleSheet.create({
     paddingBottom: 50,
     paddingLeft: 60,
     paddingRight: 60,
-    fontFamily: "Inter",
+    /* Standard PDF font only — avoids remote Inter + fontkit subset bugs that produce
+       out-of-range floats in pdfkit's PDFObject.number (±1e21). */
+    fontFamily: "Helvetica",
     fontSize: 10,
     lineHeight: 1.5,
     color: INK,
@@ -36,29 +38,32 @@ export const styles = StyleSheet.create({
   },
   sectionHeading: {
     fontSize: 13,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: INK,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   subsectionHeading: {
     fontSize: 11,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: BRAND,
     marginTop: 14,
     marginBottom: 6,
   },
   documentTitle: {
     fontSize: 11,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: INK,
     textTransform: "uppercase",
     letterSpacing: 1.5,
   },
   documentSubtitle: {
     fontSize: 9,
+    fontFamily: "Helvetica-Oblique",
     fontWeight: 400,
-    fontStyle: "italic",
     color: MUTED,
     marginTop: 2,
   },
@@ -75,7 +80,8 @@ export const styles = StyleSheet.create({
   },
   confidentialMark: {
     fontSize: 8,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: MUTED,
     textTransform: "uppercase",
     letterSpacing: 2,
@@ -96,7 +102,8 @@ export const styles = StyleSheet.create({
   },
   blockLabel: {
     fontSize: 8,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: MUTED,
     textTransform: "uppercase",
     letterSpacing: 2,
@@ -107,7 +114,7 @@ export const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 8,
-    fontWeight: 500,
+    fontWeight: 400,
     color: MUTED,
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -133,7 +140,7 @@ export const styles = StyleSheet.create({
   },
   metadataLabel: {
     fontSize: 8,
-    fontWeight: 500,
+    fontWeight: 400,
     color: MUTED,
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -153,7 +160,8 @@ export const styles = StyleSheet.create({
   },
   criterionTitle: {
     fontSize: 11,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: BRAND,
   },
   ratingPill: {
@@ -164,7 +172,8 @@ export const styles = StyleSheet.create({
   },
   ratingPillText: {
     fontSize: 9,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: BRAND,
     textTransform: "uppercase",
   },
@@ -197,7 +206,8 @@ export const styles = StyleSheet.create({
   ratingLegendNumber: {
     width: 16,
     fontSize: 9,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: BRAND,
   },
   ratingLegendLabel: {
@@ -226,7 +236,8 @@ export const styles = StyleSheet.create({
   footerLeft: {
     flex: 1,
     fontSize: 8,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: MUTED,
   },
   footerCenter: {
@@ -270,7 +281,8 @@ export const styles = StyleSheet.create({
   },
   signatureName: {
     fontSize: 11,
-    fontWeight: 600,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
     color: INK,
   },
   signatureLine: {

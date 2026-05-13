@@ -1,5 +1,6 @@
 import { Document, Page } from "@react-pdf/renderer";
-import "./fonts";
+/* PDF uses built-in Helvetica (see styles.ts). Do not load remote Inter here — fontkit metrics
+   can corrupt and yield coordinates outside pdfkit's ±1e21 range, causing "unsupported number". */
 export { BRAND, BRAND_LIGHT, INK, MUTED, RULE, SUBTLE } from "./tokens";
 import { AssessmentContext } from "./sections/AssessmentContext";
 import { Background } from "./sections/Background";
