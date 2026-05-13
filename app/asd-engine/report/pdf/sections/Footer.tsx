@@ -10,7 +10,11 @@ export function Footer() {
         <Text style={styles.footerCenter}>Confidential</Text>
         <Text
           style={styles.footerRight}
-          render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`}
+          render={({ pageNumber, totalPages }) => {
+            const p = Number.isFinite(pageNumber) ? Math.max(1, Math.floor(pageNumber)) : 1;
+            const t = Number.isFinite(totalPages) ? Math.max(1, Math.floor(totalPages)) : 1;
+            return `Page ${p} of ${t}`;
+          }}
         />
       </View>
     </View>

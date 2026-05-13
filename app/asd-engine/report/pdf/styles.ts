@@ -90,7 +90,6 @@ export const styles = StyleSheet.create({
   },
   identityRow: {
     flexDirection: "row",
-    gap: 24,
   },
   identityColumn: {
     flex: 1,
@@ -123,12 +122,14 @@ export const styles = StyleSheet.create({
   metadataStrip: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 16,
     marginBottom: 18,
   },
   metadataItem: {
-    minWidth: "22%",
     flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    paddingRight: 8,
   },
   metadataLabel: {
     fontSize: 8,
@@ -147,7 +148,6 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 8,
     marginTop: 14,
     marginBottom: 6,
   },

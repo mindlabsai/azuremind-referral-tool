@@ -15,12 +15,14 @@ export function CriterionBlock({
 }) {
   const meta = TEXLEX_CRITERIA[code];
   const displayRating = resolveCriterionDisplayRating(code, criterion);
+  const pillRating =
+    displayRating !== null && [0, 1, 2, 3].includes(displayRating) ? displayRating : null;
 
   return (
     <View>
       <View style={styles.criterionHeadingRow}>
-        <Text style={styles.criterionTitle}>{meta.title}</Text>
-        {displayRating !== null ? <RatingPill rating={displayRating} /> : null}
+        <Text style={[styles.criterionTitle, { marginRight: 8 }]}>{meta.title}</Text>
+        {pillRating !== null ? <RatingPill rating={pillRating} /> : null}
       </View>
       <Text style={styles.criterionDescription}>{meta.description}</Text>
       <ProseParagraphs text={criterion.indicators} />

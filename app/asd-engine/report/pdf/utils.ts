@@ -7,6 +7,26 @@ export const BACKGROUND_EMOTIONAL_EMPTY_FALLBACK =
 export const FUNCTIONAL_IMPACT_RENDER_FALLBACK =
   "Functional impact across home, educational, and community settings is consolidated in the Clinical Formulation section below.";
 
+function pdfCalcDebugEnabled(): boolean {
+  try {
+    return (
+      typeof globalThis !== "undefined" &&
+      (globalThis as { __TEXLEX_PDF_CALC_DEBUG__?: boolean }).__TEXLEX_PDF_CALC_DEBUG__ === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function logPdfCalc(label: string, input: unknown, output: unknown, extra?: Record<string, unknown>): void {
+  if (!pdfCalcDebugEnabled()) return;
+  console.log(`[TexlexPdfCalc] ${label}`, { input, output, ...extra });
+}
+
+function warnPdfCalc(label: string, input: unknown, output: unknown, extra?: Record<string, unknown>): void {
+  console.warn(`[TexlexPdfCalc] ${label}`, { input, output, ...extra });
+}
+
 export function isTexlexSubsectionEmpty(text: string): boolean {
   if (!text) return true;
   const trimmed = text.trim();
@@ -21,14 +41,16 @@ export function resolveCriterionDisplayRating(
   code: string,
   criterion: { rating: 0 | 1 | 2 | 3 | null; suggestedRating: 0 | 1 | 2 | 3 | null; indicators: string }
 ): 0 | 1 | 2 | 3 | null {
-  const rating = criterion.rating;
-  const suggested = criterion.suggestedRating;
-  const safeRating =
-    rating !== null && Number.isFinite(rating) && rating >= 0 && rating <= 3 ? rating : null;
-  const safeSuggested =
-    suggested !== null && Number.isFinite(suggested) && suggested >= 0 && suggested <= 3
-      ? suggested
-      : null;
+  const toRating = (n: unknown): 0 | 1 | 2 | 3 | null => {
+    if (n === null || n === undefined) return null;
+    const v = typeof n === "number" ? n : Number(n);
+    if (!Number.isFinite(v)) return null;
+    const r = Math.round(v);
+    if (r < 0 || r > 3) return null;
+    return r as 0 | 1 | 2 | 3;
+  };
+  const safeRating = toRating(criterion.rating);
+  const safeSuggested = toRating(criterion.suggestedRating);
   if (code === "A2" && isInsufficientEvidenceNarrative(criterion.indicators)) return null;
   if (safeRating !== null) return safeRating;
   if (isInsufficientEvidenceNarrative(criterion.indicators)) return null;
@@ -44,14 +66,24 @@ export function clientFirstName(clientName: string): string {
 export type DetailPlaceholderKind = "notProvided" | "na" | "dash";
 
 export function formatIsoDate(iso: string, emptyKind: DetailPlaceholderKind = "dash"): string {
-  if (!iso.trim()) return placeholderForKind(emptyKind);
-  const t = new Date(`${iso}T12:00:00`);
-  if (Number.isNaN(t.getTime())) return iso;
-  return t.toLocaleDateString("en-AU", { dateStyle: "medium" });
+  const raw = typeof iso === "string" ? iso : iso == null ? "" : String(iso);
+  const trimmed = raw.trim();
+  if (!trimmed) return placeholderForKind(emptyKind);
+  const t = new Date(`${trimmed}T12:00:00`);
+  const ms = t.getTime();
+  if (!Number.isFinite(ms) || Number.isNaN(ms)) {
+    warnPdfCalc("formatIsoDate: invalid date", raw, trimmed, { emptyKind });
+    return trimmed;
+  }
+  const out = t.toLocaleDateString("en-AU", { dateStyle: "medium" });
+  logPdfCalc("formatIsoDate", raw, out);
+  return out;
 }
 
 export function formatAssessmentDates(dates: string[], emptyKind: DetailPlaceholderKind = "dash"): string {
-  const filled = dates.map((d) => d.trim()).filter(Boolean);
+  const filled = (dates ?? [])
+    .map((d) => (typeof d === "string" ? d : d == null ? "" : String(d)).trim())
+    .filter(Boolean);
   if (!filled.length) return placeholderForKind(emptyKind);
   return filled.map((date) => formatIsoDate(date, emptyKind)).join(", ");
 }
@@ -86,20 +118,36 @@ export function sanitizeAddressField(address: string, phone: string): string {
 }
 
 export function isSchoolAgeNotApplicable(dobString: string): boolean {
-  if (!dobString.trim()) return false;
-  const dob = new Date(dobString);
-  if (Number.isNaN(dob.getTime())) return false;
+  const s = typeof dobString === "string" ? dobString : dobString == null ? "" : String(dobString);
+  if (!s.trim()) return false;
+  const dob = new Date(s);
+  const dobMs = dob.getTime();
+  if (!Number.isFinite(dobMs) || Number.isNaN(dobMs)) {
+    warnPdfCalc("isSchoolAgeNotApplicable: invalid DOB", dobString, false, { dobMs });
+    return false;
+  }
   const today = new Date();
   let years = today.getFullYear() - dob.getFullYear();
   const monthDelta = today.getMonth() - dob.getMonth();
   if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < dob.getDate())) years--;
-  return years < 5;
+  if (!Number.isFinite(years)) {
+    warnPdfCalc("isSchoolAgeNotApplicable: non-finite years", dobString, false, { years });
+    return false;
+  }
+  const out = years < 5;
+  logPdfCalc("isSchoolAgeNotApplicable", dobString, out, { years });
+  return out;
 }
 
 export function computeChronologicalAge(dobString: string): string {
-  if (!dobString) return placeholderForKind("notProvided");
-  const dob = new Date(dobString);
-  if (Number.isNaN(dob.getTime())) return placeholderForKind("notProvided");
+  const s = typeof dobString === "string" ? dobString : dobString == null ? "" : String(dobString);
+  if (!s.trim()) return placeholderForKind("notProvided");
+  const dob = new Date(s);
+  const dobMs = dob.getTime();
+  if (!Number.isFinite(dobMs) || Number.isNaN(dobMs)) {
+    warnPdfCalc("computeChronologicalAge: invalid DOB", dobString, placeholderForKind("notProvided"), { dobMs });
+    return placeholderForKind("notProvided");
+  }
   const today = new Date();
   let years = today.getFullYear() - dob.getFullYear();
   let months = today.getMonth() - dob.getMonth();
@@ -108,7 +156,18 @@ export function computeChronologicalAge(dobString: string): string {
     years--;
     months += 12;
   }
-  return `${years}y ${months}m`;
+  if (!Number.isFinite(years) || !Number.isFinite(months)) {
+    warnPdfCalc("computeChronologicalAge: non-finite y/m", dobString, placeholderForKind("notProvided"), {
+      years,
+      months,
+    });
+    return placeholderForKind("notProvided");
+  }
+  years = Math.min(150, Math.max(0, years));
+  months = Math.min(11, Math.max(0, months));
+  const out = `${years}y ${months}m`;
+  logPdfCalc("computeChronologicalAge", dobString, out, { years, months });
+  return out;
 }
 
 export function splitParagraphs(text: string): string[] {
@@ -166,7 +225,7 @@ export function formatParentsBlock(parent1: string, parent2: string): string | n
 
 export function formatAustralianPhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
-  if (digits.length < 8) return null;
+  if (digits.length < 8 || digits.length > 24) return null;
   if (digits.length === 10) {
     return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
   }

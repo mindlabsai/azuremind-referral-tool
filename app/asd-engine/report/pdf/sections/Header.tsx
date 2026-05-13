@@ -41,8 +41,8 @@ function MetadataStrip({
 
   return (
     <View style={styles.metadataStrip}>
-      {items.map((item) => (
-        <View key={item.label} style={styles.metadataItem}>
+        {items.map((item) => (
+          <View key={item.label} style={[styles.metadataItem, { marginRight: 16, marginBottom: 8 }]}>
           <Text style={styles.metadataLabel}>{item.label}</Text>
           <Text style={styles.metadataValue}>{item.value}</Text>
         </View>
@@ -89,7 +89,7 @@ export function Header({ draft, logoSrc }: { draft: TexlexPdfDraft; logoSrc: str
       <HorizontalRule />
 
       <View style={styles.identityRow}>
-        <View style={styles.identityColumn}>
+        <View style={[styles.identityColumn, { marginRight: 24 }]}>
           <Text style={styles.blockLabel}>Client</Text>
           <View style={styles.fieldStack}>
             <Text style={styles.fieldValue}>{clientName}</Text>

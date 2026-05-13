@@ -17,8 +17,8 @@ export function DSMIntro() {
       <SubsectionHeading title="Rating scale" />
       <View style={styles.ratingLegend}>
         {TEXLEX_RATING_GUIDE.map((rating) => (
-          <View key={rating.value} style={styles.ratingLegendRow}>
-            <Text style={styles.ratingLegendNumber}>{rating.value}</Text>
+          <View key={String(rating.value)} style={styles.ratingLegendRow}>
+            <Text style={styles.ratingLegendNumber}>{String(rating.value)}</Text>
             <Text style={styles.ratingLegendLabel}>{rating.label}</Text>
           </View>
         ))}

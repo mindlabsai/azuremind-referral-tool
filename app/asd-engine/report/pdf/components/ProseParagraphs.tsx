@@ -23,11 +23,8 @@ export function ProseParagraphs({
   return (
     <View>
       {paragraphs.map((paragraph, index) => (
-        <Text
-          key={`${index}-${paragraph.slice(0, 12)}`}
-          style={[baseStyle, index < paragraphs.length - 1 ? { marginBottom: 8 } : {}]}
-        >
-          {paragraph}
+        <Text key={`p-${index}`} style={index < paragraphs.length - 1 ? [baseStyle, { marginBottom: 8 }] : baseStyle}>
+          {String(paragraph)}
         </Text>
       ))}
     </View>

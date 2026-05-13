@@ -45,6 +45,7 @@ import { resolveTexlexPublicAsset, resolveTexlexSignatureSrc, TEXLEX_LOGO_PATH }
 import {
   BACKGROUND_EMOTIONAL_EMPTY_FALLBACK,
   clientFirstName,
+  computeChronologicalAge,
   FUNCTIONAL_IMPACT_RENDER_FALLBACK,
   isInsufficientEvidenceNarrative,
   isTexlexSubsectionEmpty,
@@ -65,19 +66,33 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-function computeChronologicalAge(dobString: string): string {
-  if (!dobString) return "";
-  const dob = new Date(dobString);
-  if (isNaN(dob.getTime())) return "";
-  const today = new Date();
-  let years = today.getFullYear() - dob.getFullYear();
-  let months = today.getMonth() - dob.getMonth();
-  if (today.getDate() < dob.getDate()) months--;
-  if (months < 0) {
-    years--;
-    months += 12;
-  }
-  return `${years}y ${months}m`;
+function pdfFieldString(value: unknown): string {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+/** Remove tokens that look like corrupted floats (e.g. from bad PDF extraction pasted into a field). */
+function stripCorruptedSciNumericTokens(input: string): string {
+  return input
+    .replace(/-?\d+(?:\.\d+)?[eE][+-]?\d+/g, (m) => {
+      const n = Number(m);
+      if (!Number.isFinite(n) || Math.abs(n) > 1e9) return "";
+      return m;
+    })
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Resolve DOB for storage / UI. Canonical field is `dob`; also accepts Cliniko-style `date_of_birth`
+ * and legacy `dateOfBirth` so one value always maps into `dob`.
+ */
+function resolveDobFromRaw(r: Record<string, unknown>): string {
+  const direct = typeof r.dob === "string" ? r.dob.trim() : "";
+  if (direct) return stripCorruptedSciNumericTokens(direct);
+  const camel = typeof r.dateOfBirth === "string" ? r.dateOfBirth.trim() : "";
+  if (camel) return stripCorruptedSciNumericTokens(camel);
+  const snake = typeof r.date_of_birth === "string" ? r.date_of_birth.trim() : "";
+  return stripCorruptedSciNumericTokens(snake);
 }
 
 function normalizeAssessmentDatesFromStorage(v: unknown): string[] {
@@ -302,7 +317,7 @@ function migratePatientDetails(raw: unknown): PatientDetails {
         typeof r.parent1Relationship === "string" ? r.parent1Relationship : next.parent1Relationship,
       parent2Relationship:
         typeof r.parent2Relationship === "string" ? r.parent2Relationship : next.parent2Relationship,
-      dob: typeof r.dob === "string" ? r.dob : next.dob,
+      dob: resolveDobFromRaw(r) || next.dob,
       referringPractitioner:
         typeof r.referringPractitioner === "string" ? r.referringPractitioner : next.referringPractitioner,
       referringPractitionerType:
@@ -331,12 +346,7 @@ function migratePatientDetails(raw: unknown): PatientDetails {
     parent2,
     parent1Relationship: typeof r.parent1Relationship === "string" ? r.parent1Relationship : "",
     parent2Relationship: typeof r.parent2Relationship === "string" ? r.parent2Relationship : "",
-    dob:
-      typeof r.dob === "string"
-        ? r.dob
-        : typeof r.dateOfBirth === "string"
-          ? r.dateOfBirth
-          : "",
+    dob: resolveDobFromRaw(r),
     referringPractitioner:
       typeof r.referringPractitioner === "string"
         ? r.referringPractitioner
@@ -425,6 +435,110 @@ function cloneCriteriaState(criteria: Record<CriterionCode, CriterionState>): Re
   return Object.fromEntries(
     CRITERION_CODES.map((code) => [code, { ...criteria[code] }])
   ) as Record<CriterionCode, CriterionState>;
+}
+
+function clampCriterionRatingForPdfExport(value: unknown): 0 | 1 | 2 | 3 | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  const r = Math.round(n);
+  if (r < 0 || r > 3) return null;
+  return r as 0 | 1 | 2 | 3;
+}
+
+function safeMarkerCountForPdfExport(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(10_000, Math.round(n));
+}
+
+function normalizeTexlexTextForPdf(value: unknown): string {
+  return stripCorruptedSciNumericTokens(pdfFieldString(value));
+}
+
+/**
+ * Coerce every patient-details field to plain strings before @react-pdf render.
+ * No `...details` spread — strips unknown keys from hydrated JSON that could carry stray numbers.
+ */
+function normalizePatientDetailsForPdf(details: PatientDetails): PatientDetails {
+  const datesRaw = Array.isArray(details.assessmentDates) ? details.assessmentDates : [""];
+  const dates = datesRaw.map((d) => normalizeTexlexTextForPdf(d)).filter(Boolean);
+
+  return {
+    clientName: normalizeTexlexTextForPdf(details.clientName),
+    parent1: normalizeTexlexTextForPdf(details.parent1),
+    parent2: normalizeTexlexTextForPdf(details.parent2),
+    parent1Relationship: normalizeTexlexTextForPdf(details.parent1Relationship),
+    parent2Relationship: normalizeTexlexTextForPdf(details.parent2Relationship),
+    dob: normalizeTexlexTextForPdf(details.dob),
+    referringPractitioner: normalizeTexlexTextForPdf(details.referringPractitioner),
+    referringPractitionerType: normalizeTexlexTextForPdf(details.referringPractitionerType),
+    referringPractitionerEmail: normalizeTexlexTextForPdf(details.referringPractitionerEmail),
+    assessmentType: normalizeTexlexTextForPdf(details.assessmentType),
+    assessmentDates: dates.length ? dates : [""],
+    school: normalizeTexlexTextForPdf(details.school),
+    reportDate: normalizeTexlexTextForPdf(details.reportDate),
+    yearLevel: normalizeTexlexTextForPdf(details.yearLevel),
+    assessor: normalizeTexlexTextForPdf(details.assessor),
+    phone: normalizeTexlexTextForPdf(details.phone),
+    address: normalizeTexlexTextForPdf(details.address),
+    pronouns: normalizeTexlexTextForPdf(details.pronouns),
+  };
+}
+
+function normalizeBackgroundForPdf(bg: BackgroundState): BackgroundState {
+  const k = (s: string) => stripCorruptedSciNumericTokens(pdfFieldString(s));
+  return {
+    pregnancyBirthRaw: k(bg.pregnancyBirthRaw),
+    pregnancyBirth: k(bg.pregnancyBirth),
+    earlyDevelopmentRaw: k(bg.earlyDevelopmentRaw),
+    earlyDevelopment: k(bg.earlyDevelopment),
+    educationalHistoryRaw: k(bg.educationalHistoryRaw),
+    educationalHistory: k(bg.educationalHistory),
+    emotionalBehaviouralSensoryRaw: k(bg.emotionalBehaviouralSensoryRaw),
+    emotionalBehaviouralSensory: k(bg.emotionalBehaviouralSensory),
+  };
+}
+
+/** Only fields read by TexlexPdfDocument — strips lastGenerated and coerces ratings. */
+function criteriaStateForPdfRenderer(
+  criteria: Record<CriterionCode, CriterionState>
+): Record<CriterionCode, CriterionState> {
+  return Object.fromEntries(
+    CRITERION_CODES.map((code) => {
+      const c = criteria[code];
+      return [
+        code,
+        {
+          code,
+          indicators: normalizeTexlexTextForPdf(c.indicators),
+          rating: clampCriterionRatingForPdfExport(c.rating),
+          suggestedRating: clampCriterionRatingForPdfExport(c.suggestedRating),
+          markerCount: safeMarkerCountForPdfExport(c.markerCount),
+          lastGenerated: null,
+        },
+      ];
+    })
+  ) as Record<CriterionCode, CriterionState>;
+}
+
+/** Explicit PDF-only draft: no spread from sanitized JSON (drops stray keys) and strips cliniko payload. */
+function buildPdfRenderDraftFromSanitized(
+  sanitised: Omit<TexlexReportDraftV1, "lastSaved" | "rawNotes" | "collateralDocs">
+): Omit<TexlexReportDraftV1, "lastSaved" | "rawNotes" | "collateralDocs"> {
+  return {
+    patientDetails: normalizePatientDetailsForPdf(sanitised.patientDetails),
+    background: normalizeBackgroundForPdf(sanitised.background),
+    presentingConcernsRaw: normalizeTexlexTextForPdf(sanitised.presentingConcernsRaw),
+    presentingConcerns: normalizeTexlexTextForPdf(sanitised.presentingConcerns),
+    collateralSummary: normalizeTexlexTextForPdf(sanitised.collateralSummary),
+    functionalImpactSummary: normalizeTexlexTextForPdf(sanitised.functionalImpactSummary),
+    clinicalFormulation: normalizeTexlexTextForPdf(sanitised.clinicalFormulation),
+    recommendations: normalizeTexlexTextForPdf(sanitised.recommendations),
+    limitationsText: normalizeTexlexTextForPdf(sanitised.limitationsText),
+    criteria: criteriaStateForPdfRenderer(sanitised.criteria),
+    cliniko: null,
+  };
 }
 
 function cloneBackgroundState(background: BackgroundState): BackgroundState {
@@ -2479,12 +2593,22 @@ export default function TexlexReportPage() {
       ]);
       const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
         persistPayload;
-      const cleanDraft = sanitiseForPdf(draft);
+      const sanitised = sanitiseForPdf(draft);
+      const cleanDraft = buildPdfRenderDraftFromSanitized(sanitised);
       const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
-      const signatureSrc = await resolveTexlexSignatureSrc();
-      const blob = await pdf(
-        <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
-      ).toBlob();
+      let signatureSrc = await resolveTexlexSignatureSrc();
+      let blob: Blob;
+      try {
+        blob = await pdf(
+          <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+        ).toBlob();
+      } catch (firstError) {
+        console.warn("Texlex PDF export: first attempt failed, retrying without signature image.", firstError);
+        signatureSrc = null;
+        blob = await pdf(
+          <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+        ).toBlob();
+      }
       const stem = safeFilenamePart(draft.patientDetails.clientName);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");

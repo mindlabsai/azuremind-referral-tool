@@ -49,5 +49,7 @@ assert.equal(clean.criteria.A1.suggestedRating, 1);
 assert.equal(clean.criteria.A1.indicators, "Contains and tokens");
 assert.ok(warnings.some((entry) => String(entry[0]).includes("Sanitised garbage number from PDF render")));
 
+assert.deepEqual(sanitiseForPdf({ ts: 1_735_689_600_000 }), { ts: 1_735_689_600_000 });
+
 console.warn = originalWarn;
 console.log("texlex-pdf-sanitize tests passed");
