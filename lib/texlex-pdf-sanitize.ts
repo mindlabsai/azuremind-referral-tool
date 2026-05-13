@@ -80,7 +80,12 @@ function logPdfSanitise(path: string, before: unknown, after: unknown): void {
   }
 }
 
-function walkValue(value: unknown, path: string): unknown {
+export type PdfSanitiseAudit = {
+  /** Field paths where a value was altered for PDF safety */
+  paths: string[];
+};
+
+function walkValue(value: unknown, path: string, audit: PdfSanitiseAudit): unknown {
   if (value === null || value === undefined) {
     logPdfSanitise(path, value, value);
     return value;
@@ -88,6 +93,7 @@ function walkValue(value: unknown, path: string): unknown {
 
   if (typeof value === "bigint") {
     console.warn("Sanitised bigint from PDF render:", { path, originalValue: String(value) });
+    audit.paths.push(path);
     logPdfSanitise(path, value, null);
     return null;
   }
@@ -95,6 +101,7 @@ function walkValue(value: unknown, path: string): unknown {
   if (typeof value === "number") {
     if (!isLayoutSafeNumber(value)) {
       console.warn("Sanitised garbage number from PDF render:", { path, originalValue: value });
+      audit.paths.push(path);
       logPdfSanitise(path, value, "");
       return "";
     }
@@ -104,6 +111,7 @@ function walkValue(value: unknown, path: string): unknown {
 
   if (typeof value === "string") {
     const next = sanitiseStringForPdf(value);
+    if (next !== value) audit.paths.push(path);
     logPdfSanitise(path, value, next);
     return next;
   }
@@ -117,6 +125,7 @@ function walkValue(value: unknown, path: string): unknown {
     const t = value.getTime();
     if (!Number.isFinite(t)) {
       console.warn("Sanitised invalid Date from PDF render:", { path });
+      audit.paths.push(path);
       logPdfSanitise(path, value, null);
       return null;
     }
@@ -126,7 +135,7 @@ function walkValue(value: unknown, path: string): unknown {
   }
 
   if (Array.isArray(value)) {
-    const next = value.map((item, index) => walkValue(item, `${path}[${index}]`));
+    const next = value.map((item, index) => walkValue(item, `${path}[${index}]`, audit));
     logPdfSanitise(path, `[Array len=${value.length}]`, `[Array len=${(next as unknown[]).length}]`);
     return next;
   }
@@ -135,7 +144,7 @@ function walkValue(value: unknown, path: string): unknown {
     const next: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
       const childPath = path ? `${path}.${key}` : key;
-      next[key] = walkValue(nested, childPath);
+      next[key] = walkValue(nested, childPath, audit);
     }
     if (pdfSanitiseDebugEnabled()) {
       console.log("[sanitiseForPdf]", path || "(root)", "OBJECT keys:", Object.keys(next).join(", "));
@@ -160,6 +169,12 @@ function deepCloneSerializable<T>(draft: T): T {
 }
 
 export function sanitiseForPdf<T>(draft: T): T {
+  const audit: PdfSanitiseAudit = { paths: [] };
   const clone = deepCloneSerializable(draft);
-  return walkValue(clone, "") as T;
+  const out = walkValue(clone, "", audit) as T;
+  const n = audit.paths.length;
+  if (typeof globalThis !== "undefined" && typeof console !== "undefined" && console.info) {
+    console.info(`[Texlex] Sanitised ${n} corrupted field(s)`, { paths: audit.paths });
+  }
+  return out;
 }
