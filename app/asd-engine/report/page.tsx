@@ -14,8 +14,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import Link from "next/link";
-import { File as FileIcon, FileText, Image, Upload, X, CirclePlus } from "lucide-react";
+import { File as FileIcon, FileText, Image, Upload, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +41,7 @@ import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { TexlexModelPill } from "./components/TexlexModelPill";
 import { TexlexReportSidebarNav } from "./components/TexlexReportSidebarNav";
+import { TexlexReportHeader } from "./components/TexlexReportHeader";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { EngineAssistant } from "../components/EngineAssistant";
@@ -3233,109 +3233,40 @@ export default function TexlexReportPage() {
 
   return (
     <div className="min-h-screen bg-background font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-foreground">
-      <header className="sticky top-0 z-10 border-b border-border/80 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-5 py-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight">Texlex Live Report Generator</h1>
-              <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
-                Draft
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Clinician report surface · engine assistant in the right pane · auto-saves locally
-            </p>
-          </div>
-          <div className="flex max-w-full shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <span
-                className={cn(
-                  "text-sm text-muted-foreground",
-                  saveFailed && "font-medium text-destructive",
-                  editing && !saveFailed && "text-foreground"
-                )}
-              >
-                {statusLabel}
+      <TexlexReportHeader
+        clientName={patientDetails.clientName}
+        statusLabel={statusLabel}
+        saveFailed={saveFailed}
+        editing={editing}
+        pdfDownloading={pdfDownloading}
+        onDownloadPdf={() => void handleDownloadPdf()}
+        onNewReport={handleNewReportClick}
+        onSaveDraft={() => saveDraftNow()}
+        statusExtras={
+          <>
+            {saveToast ? (
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+                Saved
               </span>
-              {saveToast ? (
-                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
-                  Saved
-                </span>
-              ) : null}
-              {clinikoToast ? (
-                <span className="text-xs font-medium text-foreground" aria-live="polite">
-                  {clinikoToast}
-                </span>
-              ) : null}
-              {clinikoSyncNotice ? (
-                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
-                  {clinikoSyncNotice}
-                </span>
-              ) : null}
-              {newReportToast ? (
-                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
-                  Started new report
-                </span>
-              ) : null}
-              {saveFailed ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => saveDraftNow()}>
-                  Retry
-                </Button>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={pdfDownloading}
-                onClick={handleNewReportClick}
-                className="border border-[#0E9F98] text-[#0E9F98] hover:bg-[#0E9F98]/10"
-              >
-                <CirclePlus className="size-3.5" />
-                New Report
-              </Button>
-              <Button type="button" variant="default" size="sm" onClick={() => saveDraftNow()}>
-                Save Draft
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void handleDownloadPdf()}
-                disabled={pdfDownloading}
-              >
-                {pdfDownloading ? "Preparing PDF…" : "Download PDF"}
-              </Button>
-              <span className="inline-flex" title="Available after report sections are generated">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled
-                  className="cursor-not-allowed bg-muted/60 text-muted-foreground opacity-80"
-                >
-                  Download DOCX
-                </Button>
+            ) : null}
+            {clinikoToast ? (
+              <span className="text-xs font-medium text-foreground" aria-live="polite">
+                {clinikoToast}
               </span>
-              <span className="inline-flex" title="Available after report sections are generated">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled
-                  className="cursor-not-allowed bg-muted/60 text-muted-foreground opacity-80"
-                >
-                  Email
-                </Button>
+            ) : null}
+            {clinikoSyncNotice ? (
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+                {clinikoSyncNotice}
               </span>
-              <Button type="button" variant="outline" size="sm" asChild>
-                <Link href="/asd-engine">Engine dashboard</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+            ) : null}
+            {newReportToast ? (
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+                Started new report
+              </span>
+            ) : null}
+          </>
+        }
+      />
 
       <div className="mx-auto flex max-w-[1600px] gap-6 bg-[var(--bg-page)] px-5 py-8">
         <TexlexReportSidebarNav />
