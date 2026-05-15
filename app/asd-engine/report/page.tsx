@@ -3346,7 +3346,7 @@ export default function TexlexReportPage() {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-[1600px] gap-6 px-5 py-8">
+      <div className="mx-auto flex max-w-[1600px] gap-6 bg-[var(--bg-page)] px-5 py-8">
         <nav className="hidden w-44 shrink-0 lg:block">
           <div className="sticky top-24 space-y-1 text-sm">
             {NAV.map((item) => (
