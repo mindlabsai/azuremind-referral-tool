@@ -39,6 +39,7 @@ import {
 } from "@/lib/prompts/formulation-template";
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
 import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
+import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { EngineAssistant } from "../components/EngineAssistant";
@@ -3882,8 +3883,7 @@ export default function TexlexReportPage() {
               <TexlexSectionHeading className="mb-1">Presenting concerns</TexlexSectionHeading>
               <Card className={cn(TEXLEX_SECTION_CONTAINER_CLASS, "mt-2")}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
-                  <label className="block space-y-1.5 text-sm font-medium">
-                    Raw notes for this section (optional)
+                  <TexlexSectionRawNotesField>
                     <ReportTextarea
                       rows={4}
                       value={presentingConcernsRaw}
@@ -3895,7 +3895,7 @@ export default function TexlexReportPage() {
                       className="rounded-lg"
                     />
                     <SectionCharWordCount text={presentingConcernsRaw} />
-                  </label>
+                  </TexlexSectionRawNotesField>
                   <GenerateRegenerateRow
                     sectionId="presenting-concerns"
                     modelName={TEXLEX_SECTION_MODELS.presentingConcerns}
@@ -3968,8 +3968,7 @@ export default function TexlexReportPage() {
                 <Card key={key} className={TEXLEX_SECTION_CONTAINER_CLASS}>
                   <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                     <h3 className="text-base font-semibold">{label}</h3>
-                    <label className="mt-2 block space-y-1.5 text-sm font-medium">
-                      Raw notes for this section (optional)
+                    <TexlexSectionRawNotesField className="mt-2">
                       <ReportTextarea
                         rows={4}
                         value={background[rawKey]}
@@ -3981,7 +3980,7 @@ export default function TexlexReportPage() {
                         className="rounded-lg"
                       />
                       <SectionCharWordCount text={background[rawKey]} />
-                    </label>
+                    </TexlexSectionRawNotesField>
                     <GenerateRegenerateRow
                       sectionId={sectionId}
                       modelName={modelName}
