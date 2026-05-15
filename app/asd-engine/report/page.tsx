@@ -40,6 +40,7 @@ import {
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
 import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
+import { TexlexModelPill } from "./components/TexlexModelPill";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { EngineAssistant } from "../components/EngineAssistant";
@@ -1675,7 +1676,7 @@ function GenerateRegenerateRow({
       >
         Regenerate
       </Button>
-      <span className="text-xs text-muted-foreground">Generation model: {modelName}</span>
+      <TexlexModelPill modelName={modelName} />
       {bottomSlot}
     </div>
   );
@@ -1731,8 +1732,9 @@ function GenerateRegenerateRowDual({
       >
         Regenerate
       </Button>
-      <span className="text-xs text-muted-foreground">
-        Generation model: {generationModel} · Refinement: {refinementModel}
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <TexlexModelPill modelName={generationModel} />
+        <TexlexModelPill modelName={refinementModel} />
       </span>
       {bottomSlot}
     </div>
