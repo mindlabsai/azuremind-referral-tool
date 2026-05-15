@@ -2161,18 +2161,31 @@ export default function TexlexReportPage() {
       return n;
     });
     setCollateralSummary("");
+    setVoiceCriticBadgeBySection((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
+    const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+    const chronologicalAge = computeChronologicalAge(patientDetails.dob);
     try {
-      const generated = await streamTexlexSse(
+      const generated = await streamTexlexWithCriticSse(
         "/api/generate/collateral-summary",
         {
           clientName: patientDetails.clientName,
           pronouns: patientDetails.pronouns,
-          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          chronologicalAge,
           yearLevel: patientDetails.yearLevel,
           rawNotes: contextNotes,
           collateralContent,
+          ...buildVoiceCriticPayloadExtras(patientDetails, criteria, effectiveConclusion),
         },
         (delta) => setCollateralSummary((prev) => prev + delta),
+        (meta, finalContent) => {
+          setCollateralSummary(finalContent);
+          setSectionVoiceCriticBadge(sectionId, meta);
+          logVoiceCriticComplete("Collateral summary", meta);
+        },
         controller.signal
       );
       return generated;
@@ -2193,7 +2206,7 @@ export default function TexlexReportPage() {
         streamAbortRef.current = null;
       }
     }
-  }, [collateralDocs, patientDetails, rawNotes]);
+  }, [collateralDocs, criteria, diagnosticConclusion, patientDetails, rawNotes, setSectionVoiceCriticBadge]);
 
   const handleGenerateCollateralSummary = useCallback(() => {
     const sectionId = "collateral-summary";
@@ -3889,7 +3902,7 @@ export default function TexlexReportPage() {
               </Card>
               <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                 <CardContent className="p-6">
-                  <h3 className="text-[11pt] font-semibold text-[#0e7c8a]">Caregiver Observations (M-CHAT)</h3>
+                  <h3 className="text-[11pt] font-semibold text-[#0e7c8a]">Collateral Rating Scales and Reports</h3>
                   <ReportTextarea
                     rows={10}
                     value={collateralSummary}
@@ -3919,11 +3932,14 @@ export default function TexlexReportPage() {
                       ) : undefined
                     }
                     bottomSlot={
-                      sectionGenErrors["collateral-summary"] ? (
-                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
-                          {sectionGenErrors["collateral-summary"]}
-                        </p>
-                      ) : null
+                      <>
+                        <VoiceCriticBadge kind={voiceCriticBadgeBySection["collateral-summary"] ?? null} />
+                        {sectionGenErrors["collateral-summary"] ? (
+                          <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                            {sectionGenErrors["collateral-summary"]}
+                          </p>
+                        ) : null}
+                      </>
                     }
                   />
                   {!isTexlexSubsectionEmpty(collateralSummary) ? (

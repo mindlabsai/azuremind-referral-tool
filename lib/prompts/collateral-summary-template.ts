@@ -1,37 +1,57 @@
+import type { TexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const COLLATERAL_SUMMARY_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
 
-# THIS SECTION — COLLATERAL DOCUMENT SUMMARY
+# THIS SECTION — COLLATERAL RATING SCALES AND REPORTS
 
-This section synthesises information from uploaded collateral documents — paediatrician reports, school reports, formal assessment results (WISC, ADOS-2, Vineland-3, BASC-3, Sensory Profile-2, ASRS, Conners), speech pathology reports, OT assessments, and prior diagnostic reports.
+This section summarises uploaded screening instruments, allied health reports, and educational feedback (e.g. ASRS, Conners, Vanderbilt, speech pathology reports, school reports, paediatric letters). It is non-diagnostic.
 
-# CONTENT
+# COLLATERAL RATING SCALES AND REPORTS — CLINICAL PRINCIPLE
 
-For each document available, integrate findings into clinical prose:
-- Open with what document is being summarised, who authored it, and when
-- Translate scores into clinical descriptors using Australian convention (Very Elevated, Elevated, Average, Below Average)
-- Note convergence or divergence across informants
-- Reference specific domains where scores informed the clinical picture
-- Use direct attribution: "The ASRS administered to both parents and teacher yielded...", "The paediatric review by Dr [X] dated [date] identified..."
+The collateral section summarises uploaded screening instruments, allied health reports, and educational feedback. This section is non-diagnostic and must follow these rules:
 
-Standard opener for ASRS:
+1. STICK TO FACTS AND NUMBERS
+   - Report elevations, scores, T-scores, or domain ratings as they appear in the source document
+   - If the source describes 'elevations in social communication and behavioural flexibility', report that — do not paraphrase into 'consistent with autism' or 'pervasive pattern'
+   - Where possible, identify the instrument by name and purpose (e.g. 'ASRS — Autism Spectrum Rating Scales')
+
+2. NO DIAGNOSTIC ASSUMPTIONS
+   - Do NOT conclude that elevated scores support a diagnosis
+   - Do NOT use phrases like 'consistent with autism', 'pervasive pattern supporting ASD', 'cross-setting difficulties suggestive of [diagnosis]'
+   - Do NOT integrate collateral findings into a diagnostic narrative — that is the clinician's job in the Formulation section
+
+3. EXPLICIT NON-DIAGNOSTIC FRAMING
+   - Open each instrument summary with a statement of its purpose and limitations
+     Example: 'The Autism Spectrum Rating Scales (ASRS) is a screening instrument. It is not diagnostic and must be interpreted alongside the broader clinical assessment.'
+   - Close the section with a reminder that collateral findings inform but do not determine the clinical formulation
+
+4. CROSS-INFORMANT REPORTING
+   - When multiple informants completed the same instrument (e.g. ASRS parent + ASRS teacher), describe agreement or divergence in domains factually
+   - Do NOT extrapolate 'cross-informant consistency supports the diagnosis' — describe what each informant reported and let the clinician integrate
+
+5. DESCRIPTIVE NOT INTERPRETIVE LANGUAGE
+   - Use: 'elevations identified', 'areas of concern noted', 'convergence in [specific domains]', 'divergence in [specific domains]'
+   - Do NOT use: 'demonstrates a pattern of', 'consistent with', 'supports the presence of', 'generalises across settings'
+
+The collateral section reports the instruments. The formulation section interprets them. Maintain this boundary strictly.
+
+# CONTENT (FACTUAL REPORTING ONLY)
+
+For each document available:
+- Open with document type, instrument name, informant (parent/teacher/clinician), and date where known
+- Translate scores into clinical descriptors using Australian convention (Very Elevated, Elevated, Average, Below Average) when scores are present
+- Note agreement or divergence across informants by domain — factually only
+- Use direct attribution: "The ASRS completed by the parent yielded...", "The speech pathology report dated [date] noted..."
+
+Standard opener for ASRS (adapt informant as needed):
 - "The Autism Spectrum Rating Scales (ASRS) were completed by [parent(s) / teacher / both] to assess behaviours associated with Autism Spectrum Disorder. This is a screening tool and is not diagnostic; findings must be interpreted within the broader clinical assessment."
 
-Standard opener for paediatric review:
-- "Paediatric review by Dr [name] dated [date] identified..."
-- "The paediatrician concluded that [Client] demonstrates features consistent with..."
-
-Standard opener for speech pathology:
-- "Speech pathology assessment by [name] identified..."
+For prior diagnostic or paediatric letters: report what the author stated without endorsing or re-stating as your own diagnostic conclusion.
 
 # STRUCTURE
 
 Continuous prose paragraphs. One paragraph per major document or per major finding cluster. NEVER use bullets.
-
-State convergence across informants explicitly:
-- "Cross-informant analysis demonstrates strong consistency across home and school environments, with a pervasive pattern of..."
-- "Findings were consistent across both caregivers, indicating stability of concerns within the home environment."
 
 # WHEN NO COLLATERAL IS PROVIDED
 
@@ -42,7 +62,8 @@ If no collateral documents have been uploaded or pasted, output:
 
 - Listing scores as a table or bullets
 - Repeating the same finding across multiple sentences
-- Pre-empting the Formulation conclusion
+- Pre-empting or stating the Formulation diagnostic conclusion
+- Diagnostic synthesis language in closing sentences
 - Generic openers like "Various documents were reviewed."`;
 
 export interface CollateralSummaryVariables {
@@ -52,12 +73,22 @@ export interface CollateralSummaryVariables {
   yearLevel: string;
   rawNotes: string;
   collateralContent: string;
+  diagnosticConclusion?: TexlexDiagnosticConclusion | string;
 }
 
 export function buildCollateralSummaryUserPrompt(vars: CollateralSummaryVariables): string {
+  const conclusion =
+    typeof vars.diagnosticConclusion === "string" && vars.diagnosticConclusion.trim()
+      ? vars.diagnosticConclusion.trim()
+      : "[not specified]";
+
   return `# TASK
 
-Draft the Collateral Summary section synthesising the documents below.
+Draft the Collateral Rating Scales and Reports section synthesising the documents below. Apply the non-diagnostic clinical principle in the system instructions. Do not draw diagnostic conclusions in this section regardless of the clinician diagnostic conclusion setting below.
+
+# CLINICIAN DIAGNOSTIC CONCLUSION SETTING (context only — do not state or argue for this conclusion in collateral prose)
+
+${conclusion}
 
 # CLIENT CONTEXT
 
@@ -74,7 +105,7 @@ ${vars.collateralContent || "[no collateral content provided — return the no-c
 
 ${vars.rawNotes || "[no raw notes provided]"}
 
-# WRITE THE COLLATERAL SUMMARY NOW
+# WRITE THE COLLATERAL RATING SCALES AND REPORTS SECTION NOW
 
-Plain prose. No preamble.`;
+Plain prose. No preamble. Close with a brief reminder that screening and collateral findings inform but do not determine the clinical formulation.`;
 }

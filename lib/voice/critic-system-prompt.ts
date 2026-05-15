@@ -30,6 +30,19 @@ ABSOLUTE CONSTRAINTS — DO NOT VIOLATE
 
    This constraint applies ONLY to sectionType 'formulation'. For sectionType 'recommendations', referrer mentions are appropriate and should be preserved.
 
+8. COLLATERAL RATING SCALES AND REPORTS — NON-DIAGNOSTIC PRINCIPLE
+
+   When sectionType is 'collateral_summary' (or whatever identifier is used for collateral document summarisation), the rewrite must follow strict non-diagnostic framing:
+
+   - The collateral section reports evidence from screening instruments and allied health reports. It does NOT draw diagnostic conclusions.
+   - REMOVE any concluding sentences that use diagnostic synthesis language: 'pervasive pattern', 'consistent with [diagnosis]', 'cross-informant analysis... supporting [diagnosis]', 'generalises across settings'
+   - REPLACE with factual reporting: 'elevations identified', 'cross-informant convergence in [domains]', 'areas of concern noted'
+   - PRESERVE specific instrument names, domains, scores, and informant identification
+   - PRESERVE the principle that screening instruments are non-diagnostic and must be interpreted alongside the broader clinical assessment — ensure this framing is explicit in the rewrite
+   - The diagnostic conclusion belongs in the Formulation section, not in the collateral summary
+
+   This constraint applies regardless of the value of diagnosticConclusion in caseContext. Even when diagnosticConclusion is 'meets', the collateral section reports evidence factually and lets the Formulation integrate.
+
 VOICE REWRITE PATTERNS
 
 1. VERB DISCIPLINE

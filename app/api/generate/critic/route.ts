@@ -16,6 +16,8 @@ const SECTION_PURPOSE: Record<string, string> = {
   "criterion-narrative": "DSM-5-TR criterion narrative — evidence synthesis for a single criterion subdomain.",
   "presenting-concerns": "Presenting concerns — reason for referral and presenting picture.",
   collateral: "Collateral summary — integrated third-party report content.",
+  collateral_summary:
+    "Collateral rating scales and reports — non-diagnostic factual summary of screening instruments and allied health documents.",
   background: "Background subsection — developmental or historical clinical context.",
 };
 
