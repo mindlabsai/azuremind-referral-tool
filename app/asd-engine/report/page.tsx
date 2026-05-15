@@ -55,6 +55,10 @@ import {
   TEXLEX_SECTION_MODELS,
   TEXLEX_SIGNATURE,
 } from "./constants/texlexBoilerplate";
+import {
+  TEXLEX_SECTION_CONTAINER_CLASS,
+  TEXLEX_SECTION_CONTENT_CLASS,
+} from "./constants/texlexSectionSurface";
 import { resolveTexlexPublicAsset, resolveTexlexSignatureSrc, TEXLEX_LOGO_PATH } from "./pdf/assets";
 import {
   BACKGROUND_EMOTIONAL_EMPTY_FALLBACK,
@@ -1759,8 +1763,8 @@ function CriterionCard({
   };
 }) {
   return (
-    <Card className="rounded-xl border border-border/80 shadow-sm transition-all hover:-translate-y-px hover:shadow-md">
-      <CardContent className="space-y-4 p-6">
+    <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+      <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold">{criterion.title}</h3>
@@ -3362,10 +3366,10 @@ export default function TexlexReportPage() {
         </nav>
 
         <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-[760px] space-y-7 text-[15px] leading-[1.55]">
+          <div className="mx-auto max-w-[760px] space-y-[14px] text-[15px] leading-[1.55]">
             <section id="report-header">
-              <Card className="rounded-xl border border-border/80 bg-card shadow-sm">
-                <CardContent className="space-y-3 p-6 text-center md:text-left">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3 text-center md:text-left")}>
                   <Badge variant="outline" className="font-semibold tracking-wide">
                     {TEXLEX_HEADER.confidential}
                   </Badge>
@@ -3377,8 +3381,8 @@ export default function TexlexReportPage() {
 
             <section id="assessment-context">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Assessment context</h2>
-              <Card className="rounded-xl border border-border/80 bg-card shadow-sm">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="whitespace-pre-wrap text-[15px] leading-[1.55] text-muted-foreground">
                     {TEXLEX_ASSESSMENT_CONTEXT}
                   </div>
@@ -3388,8 +3392,8 @@ export default function TexlexReportPage() {
 
             <section id="consent">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Consent and use of report</h2>
-              <Card className="rounded-xl border border-border/80 bg-card shadow-sm">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="whitespace-pre-wrap text-[15px] leading-[1.55] text-muted-foreground">
                     {TEXLEX_CONSENT}
                   </div>
@@ -3411,8 +3415,8 @@ export default function TexlexReportPage() {
 
             <section id="patient-details">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Client details</h2>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-4 sm:p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   {(() => {
                     const parentsLine = formatParentsCarers(patientDetails.parent1, patientDetails.parent2);
                     const datesLine = formatAssessmentDatesDisplay(patientDetails.assessmentDates);
@@ -3789,8 +3793,8 @@ export default function TexlexReportPage() {
 
             <section id="diagnostic-conclusion">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Diagnostic conclusion</h2>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="space-y-3 p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
                   <p className="text-sm text-muted-foreground">
                     This setting controls the Clinical Formulation opening statement. Set this before generating the
                     Formulation.
@@ -3836,8 +3840,8 @@ export default function TexlexReportPage() {
 
             <section id="raw-notes">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Raw clinical notes</h2>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
                     rows={12}
                     value={rawNotes}
@@ -3875,8 +3879,8 @@ export default function TexlexReportPage() {
 
             <section id="presenting-concerns">
               <h2 className="mb-1 text-lg font-semibold leading-tight">Presenting concerns</h2>
-              <Card className="mt-2 rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={cn(TEXLEX_SECTION_CONTAINER_CLASS, "mt-2")}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <label className="block space-y-1.5 text-sm font-medium">
                     Raw notes for this section (optional)
                     <ReportTextarea
@@ -3934,7 +3938,7 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
-            <section id="background" className="space-y-4">
+            <section id="background" className="space-y-[14px]">
               <h2 className="mb-1 text-lg font-semibold leading-tight">Background</h2>
               {(
                 [
@@ -3960,8 +3964,8 @@ export default function TexlexReportPage() {
                     ? BACKGROUND_EMOTIONAL_EMPTY_FALLBACK
                     : subsectionValue;
                 return (
-                <Card key={key} className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                  <CardContent className="p-6">
+                <Card key={key} className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                  <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                     <h3 className="text-base font-semibold">{label}</h3>
                     <label className="mt-2 block space-y-1.5 text-sm font-medium">
                       Raw notes for this section (optional)
@@ -4027,10 +4031,10 @@ export default function TexlexReportPage() {
               })}
             </section>
 
-            <section id="collateral" className="space-y-4">
+            <section id="collateral" className="space-y-[14px]">
               <h2 className="mb-1 text-lg font-semibold leading-tight">Collateral documents</h2>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <CollateralDocumentsUpload
                     collateralDocs={collateralDocs}
                     setCollateralDocs={setCollateralDocs}
@@ -4039,8 +4043,8 @@ export default function TexlexReportPage() {
                   />
                 </CardContent>
               </Card>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <h3 className="text-[11pt] font-semibold text-[#0e7c8a]">Collateral Rating Scales and Reports</h3>
                   <ReportTextarea
                     rows={10}
@@ -4090,7 +4094,7 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
-            <section id="dsm-criteria" className="space-y-6">
+            <section id="dsm-criteria" className="space-y-[14px]">
               <h2 className="text-lg font-semibold leading-tight">DSM-5-TR criteria (A &amp; B)</h2>
               <div className="whitespace-pre-wrap text-sm text-muted-foreground">{TEXLEX_DSM_INTRO}</div>
               <p className="text-sm text-muted-foreground">
@@ -4147,8 +4151,8 @@ export default function TexlexReportPage() {
 
             <section id="functional-impact">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Functional impact summary</h2>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
                     rows={10}
                     value={functionalImpactSummary}
@@ -4214,8 +4218,8 @@ export default function TexlexReportPage() {
                   criteria show emerging features. Review before generating.
                 </div>
               ) : null}
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
                     rows={12}
                     value={clinicalFormulation}
@@ -4268,8 +4272,8 @@ export default function TexlexReportPage() {
 
             <section id="recommendations">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Recommendations</h2>
-              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
                     rows={10}
                     value={recommendations}
@@ -4331,8 +4335,8 @@ export default function TexlexReportPage() {
                   {editLimitations ? "Lock boilerplate" : "Edit boilerplate"}
                 </Button>
               </div>
-              <Card className="rounded-xl border border-border/80 bg-card shadow-sm">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   {editLimitations ? (
                     <>
                       <ReportTextarea
@@ -4357,8 +4361,8 @@ export default function TexlexReportPage() {
 
             <section id="signature">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Signature block</h2>
-              <Card className="rounded-xl border border-border/80 bg-card shadow-sm">
-                <CardContent className="p-6">
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <blockquote className="space-y-3 border-l-2 border-border pl-4 text-[15px] leading-[1.55] text-muted-foreground">
                     <p>{TEXLEX_SIGNATURE.closing}</p>
                     <p className="text-foreground">{TEXLEX_SIGNATURE.signaturePlaceholder}</p>

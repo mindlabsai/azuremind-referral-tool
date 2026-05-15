@@ -11,6 +11,10 @@ import {
   type ClinikoDraftState,
 } from "@/lib/texlex-cliniko-sync";
 import type { PatientDetails } from "../page";
+import {
+  TEXLEX_SECTION_CONTAINER_CLASS,
+  TEXLEX_SECTION_CONTENT_CLASS,
+} from "../constants/texlexSectionSurface";
 
 type ClinikoIntakeCardProps = {
   inputClass: string;
@@ -221,8 +225,8 @@ export function ClinikoIntakeCard({
       ) : null}
 
       {configured && !connectionError && showSearchCard ? (
-        <Card className="rounded-xl border border-border/80 bg-card shadow-sm">
-          <CardContent className="space-y-4 p-4 sm:p-6">
+        <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+          <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
             <div>
               <h3 className="text-base font-semibold">Load from Cliniko</h3>
               <p className="text-sm text-muted-foreground">Search Cliniko to auto-fill client details</p>
