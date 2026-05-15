@@ -28,13 +28,13 @@ export type TexlexPdfDocumentProps = {
 export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDocumentProps) {
   return (
     <Document>
-      {/* Cover only (no footer). Separate <Page> so the body <Page>’s fixed footer paints from physical page 2 onward. */}
+      {/* Cover (no footer): identity + assessment context + consent. Body starts at Presenting Concerns. */}
       <Page size="A4" wrap={false} style={styles.page}>
         <Header draft={draft} logoSrc={logoSrc} />
+        <AssessmentContext />
       </Page>
       <Page size="A4" wrap style={styles.page}>
         <Footer />
-        <AssessmentContext />
         <PresentingConcerns content={draft.presentingConcerns} />
         <Background background={draft.background} />
         <CollateralSummary content={draft.collateralSummary} />
