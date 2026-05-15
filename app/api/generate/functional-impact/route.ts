@@ -9,6 +9,9 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/** PASS 10w-3: long-form prose; keep at ≥4096 and isolated from short-field generators. */
+const FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS = 4096;
+
 function preview(text: string, length = 500): string {
   return text.slice(0, length);
 }
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     const stream = await anthropic.messages.create({
       model: MODELS.OPUS,
-      max_tokens: 4096,
+      max_tokens: FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS,
       stream: true,
       system: [
         {

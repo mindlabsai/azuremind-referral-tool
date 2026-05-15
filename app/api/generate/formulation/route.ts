@@ -7,6 +7,10 @@ import {
   type FormulationVariables,
 } from "@/lib/prompts/formulation-template";
 import { resolveTexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
+import { assessFormulationCompleteness } from "@/lib/texlex-formulation-completeness";
+
+/** PASS 10w-3: long clinical formulation (multi-paragraph); keep isolated from other generators' budgets. */
+const FORMULATION_MAX_OUTPUT_TOKENS = 4096;
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -64,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     const stream = await anthropic.messages.create({
       model: MODELS.OPUS,
-      max_tokens: 4096,
+      max_tokens: FORMULATION_MAX_OUTPUT_TOKENS,
       stream: true,
       system: [
         {
@@ -79,19 +83,27 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        let assembled = "";
+        let stopReason: string | undefined;
         try {
           for await (const event of stream) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              assembled += event.delta.text;
               const data = JSON.stringify({ delta: event.delta.text });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
             if (event.type === "message_delta" && event.delta.stop_reason) {
+              stopReason = event.delta.stop_reason;
               const data = JSON.stringify({ done: true, stop_reason: event.delta.stop_reason });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
-            if (event.type === "message_stop") {
-              controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-            }
+            // Do not send [DONE] here — wait until after completeness check so clients can read truncation_warning first.
+          }
+          const { truncation_warning } = assessFormulationCompleteness(assembled, stopReason);
+          if (truncation_warning) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ truncation_warning })}\n\n`)
+            );
           }
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();

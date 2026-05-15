@@ -9,6 +9,9 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/** PASS 10w-3: numbered list 8–11 items; keep at ≥4096 and isolated from short-field generators. */
+const RECOMMENDATIONS_MAX_OUTPUT_TOKENS = 4096;
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RecommendationsVariables;
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const stream = await anthropic.messages.create({
       model: MODELS.OPUS,
-      max_tokens: 4096,
+      max_tokens: RECOMMENDATIONS_MAX_OUTPUT_TOKENS,
       stream: true,
       system: [
         {
