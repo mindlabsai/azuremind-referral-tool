@@ -41,6 +41,7 @@ import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
 import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { TexlexModelPill } from "./components/TexlexModelPill";
+import { TexlexReportSidebarNav } from "./components/TexlexReportSidebarNav";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { EngineAssistant } from "../components/EngineAssistant";
@@ -1599,24 +1600,6 @@ function ReportTextarea({
     />
   );
 }
-
-const NAV = [
-  { id: "report-header", label: "Report header" },
-  { id: "assessment-context", label: "Assessment context" },
-  { id: "consent", label: "Consent" },
-  { id: "patient-details", label: "Client details" },
-  { id: "diagnostic-conclusion", label: "Diagnostic conclusion" },
-  { id: "raw-notes", label: "Raw notes" },
-  { id: "presenting-concerns", label: "Presenting concerns" },
-  { id: "background", label: "Background" },
-  { id: "collateral", label: "Collateral" },
-  { id: "dsm-criteria", label: "DSM-5-TR criteria" },
-  { id: "functional-impact", label: "Functional impact" },
-  { id: "formulation", label: "Formulation" },
-  { id: "recommendations", label: "Recommendations" },
-  { id: "limitations", label: "Limitations" },
-  { id: "signature", label: "Signature" },
-] as const;
 
 const DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL: Record<TexlexDiagnosticConclusion, string> = {
   meets: "Meets DSM-5-TR criteria for ASD",
@@ -3355,19 +3338,7 @@ export default function TexlexReportPage() {
       </header>
 
       <div className="mx-auto flex max-w-[1600px] gap-6 bg-[var(--bg-page)] px-5 py-8">
-        <nav className="hidden w-44 shrink-0 lg:block">
-          <div className="sticky top-24 space-y-1 text-sm">
-            {NAV.map((item) => (
-              <a
-                key={item.id}
-                href={`#${item.id}`}
-                className="block rounded-lg px-2 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                {item.label}
-              </a>
-            ))}
-          </div>
-        </nav>
+        <TexlexReportSidebarNav />
 
         <main className="min-w-0 flex-1">
           <div className="mx-auto max-w-[760px] space-y-[14px] text-[15px] leading-[1.55]">
@@ -3967,7 +3938,7 @@ export default function TexlexReportPage() {
                     ? BACKGROUND_EMOTIONAL_EMPTY_FALLBACK
                     : subsectionValue;
                 return (
-                <Card key={key} className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <Card key={key} id={sectionId} className={TEXLEX_SECTION_CONTAINER_CLASS}>
                   <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                     <h3 className="text-base font-semibold">{label}</h3>
                     <TexlexSectionRawNotesField className="mt-2">
