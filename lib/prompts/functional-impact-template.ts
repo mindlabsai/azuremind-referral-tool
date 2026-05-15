@@ -35,7 +35,12 @@ ${CLINICAL_RECENCY_GATE_FUNCTIONAL_IMPACT}
 
 # LENGTH
 
-4–6 sentences. Dense synthesis is preferred over padding.`;
+4–6 sentences. Dense synthesis is preferred over padding.
+
+# PARAGRAPH FORMAT (PDF)
+
+When the summary naturally falls into two or more blocks (for example home and school versus community and participation), separate blocks with a **blank line** (empty line between blocks) so the printed report shows distinct paragraphs.`;
+
 
 export interface FunctionalImpactVariables {
   clientName: string;

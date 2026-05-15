@@ -87,7 +87,10 @@ function pdfFieldString(value: unknown): string {
 /** Remove tokens that look like corrupted floats (e.g. from bad PDF extraction pasted into a field). */
 function stripCorruptedSciNumericTokens(input: string): string {
   return stripScientificNotationGarbageFromText(input, "normalizeTexlexTextForPdf")
-    .replace(/\s{2,}/g, " ")
+    .replace(/\r\n/g, "\n")
+    // Horizontal whitespace only — \s{2,} would collapse \n\n and destroy PDF paragraph breaks.
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 

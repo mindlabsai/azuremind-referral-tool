@@ -71,7 +71,9 @@ function sanitiseStringForPdf(value: string, path: string): string {
     s = s
       .replace(/\bNaN\b/g, "")
       .replace(/\b-?Infinity\b/g, "")
-      .replace(/\s{2,}/g, " ")
+      .replace(/\r\n/g, "\n")
+      .replace(/[ \t\f\v]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
   s = stripScientificNotationGarbageFromText(s, path);

@@ -112,6 +112,20 @@ Conclude the formulation with a single integrative paragraph (4–6 sentences) t
 
 5-7 paragraphs total. 400-700 words. The final paragraph must be this integrative close.
 
+# PARAGRAPH FORMAT (REQUIRED FOR PDF LAYOUT)
+
+Separate **every** logical paragraph with a **blank line** (an empty line between blocks — press Enter twice so there is a visible gap in plain text). Single newlines inside a paragraph are only for short lists, not between major blocks.
+
+Use this clinical pivot order (merge related points if needed to stay within 5-7 paragraphs, but keep the sequence clear):
+
+1. Paragraph 1 — Diagnostic conclusion statement (must align with the locked opening when provided).
+2. Paragraph 2 — Methodology / assessment context (consensus pathway, sources integrated).
+3. Paragraph 3 — Domain A (social communication and interaction): synthesis of A1–A3 evidence.
+4. Paragraph 4 — Domain B (restricted / repetitive behaviour and interests): synthesis of B1–B4 evidence.
+5. Paragraph 5 — Exclusion, differential, and co-occurring conditions as clinically relevant.
+6. Paragraph 6 — Referral pathway, communication of findings to referrer, and review recommendation.
+7. Paragraph 7 — Strengths-based integrative closing paragraph (required close per rules above).
+
 # CRITICAL RULES
 
 - This is the ONLY section where diagnostic conclusions appear

@@ -170,10 +170,24 @@ export function computeChronologicalAge(dobString: string): string {
   return out;
 }
 
+/**
+ * Split prose into PDF layout paragraphs. Prefers explicit blank lines (\n\n);
+ * falls back to single newlines after sentence-ending punctuation when the model
+ * omits blank lines (common LLM output).
+ */
 export function splitParagraphs(text: string): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-  return trimmed.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
+
+  const byBlankLine = normalized.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  if (byBlankLine.length > 1) return byBlankLine;
+
+  const single = byBlankLine[0] ?? normalized;
+  const byHardBreak = single
+    .split(/(?<=[.!?][")\]]?)\n(?=[A-Z"(])/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return byHardBreak.length > 1 ? byHardBreak : [single];
 }
 
 /**
