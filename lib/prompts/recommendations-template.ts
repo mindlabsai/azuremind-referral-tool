@@ -1,3 +1,7 @@
+import {
+  CLINICAL_RECENCY_GATE_RECOMMENDATIONS,
+  REFERRER_TYPE_HONESTY,
+} from "./clinical-recency-referrer-blocks";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const RECOMMENDATIONS_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
@@ -10,9 +14,9 @@ Forward-looking, specific, prioritised recommendations for the support pathway f
 
 Address as relevant from raw notes and criterion content:
 
-1. Paediatrician / Psychiatrist referral pathway (always required for diagnostic confirmation)
-- "[Client] will require review by a Developmental Paediatrician to finalise the Autism Spectrum Disorder consensus outcome."
-- "Paediatrician or psychiatrist review is also recommended to ratify the Attention-Deficit/Hyperactivity Disorder diagnosis and guide management."
+1. Diagnostic confirmation / specialist pathway (tailor to clinical context)
+- Where developmental paediatric diagnostic confirmation applies in this pathway, recommend it clearly — without mislabelling the referring practitioner (use Referrer Type from patient details; see user-message rules).
+- When ADHD or other conditions require psychiatric input, recommend that separately.
 
 2. Education Assistant hours (where applicable, school-aged)
 - "Provision of a minimum of [N] hours per week of Education Assistant support within the school environment to facilitate engagement with the curriculum, support behavioural regulation, and scaffold social participation."
@@ -53,7 +57,11 @@ NUMBERED PROSE PARAGRAPHS, not bulleted lists. Each recommendation is a complete
 
 # LENGTH
 
-300-500 words. Specific, not generic. End on the final numbered recommendation only. Do not add a prose coda after the last numbered item.`;
+300-500 words. Specific, not generic. End on the final numbered recommendation only. Do not add a prose coda after the last numbered item.
+
+# EVIDENCE RECENCY AND STAKEHOLDERS (MANDATORY)
+
+${CLINICAL_RECENCY_GATE_RECOMMENDATIONS}`;
 
 export interface RecommendationsVariables {
   clientName: string;
@@ -61,6 +69,8 @@ export interface RecommendationsVariables {
   chronologicalAge: string;
   yearLevel: string;
   referringPractitioner: string;
+  referringPractitionerType: string;
+  school?: string;
   rawNotes: string;
   criteriaState: string;
   formulation: string;
@@ -78,7 +88,9 @@ Client name: ${vars.clientName || "[not provided]"}
 Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}
-Referring paediatrician: ${vars.referringPractitioner || "[not specified]"}
+Current school / early childhood setting (from intake): ${vars.school?.trim() || "[not specified]"}
+Referring practitioner name: ${vars.referringPractitioner || "[not specified]"}
+Referring practitioner type (use for title — do not infer): ${vars.referringPractitionerType?.trim() || "[not specified]"}
 
 # CRITERION OUTPUTS
 
@@ -95,6 +107,14 @@ ${vars.functionalImpactSummary || "[no functional impact summary available]"}
 # RAW CLINICAL NOTES
 
 ${vars.rawNotes || "[no raw notes provided]"}
+
+# EVIDENCE RECENCY (MANDATORY)
+
+${CLINICAL_RECENCY_GATE_RECOMMENDATIONS}
+
+# REFERRING PRACTITIONER (MANDATORY)
+
+${REFERRER_TYPE_HONESTY}
 
 # WRITE THE RECOMMENDATIONS SECTION NOW
 

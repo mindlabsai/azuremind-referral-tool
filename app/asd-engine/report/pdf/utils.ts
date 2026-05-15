@@ -176,6 +176,54 @@ export function splitParagraphs(text: string): string[] {
   return trimmed.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 }
 
+/**
+ * Split stored recommendations prose into discrete items for PDF layout.
+ * Handles (1) newline-started numbering, (2) inline "1. … 2. …" on one line, (3) plain fallback.
+ */
+export function parseRecommendationsListItems(raw: string): string[] {
+  const t = raw.trim().replace(/\r\n/g, "\n");
+  if (!t) return [];
+
+  // Wall-of-text case: "1. … 2. …" on one line (no newlines between items)
+  if (!t.includes("\n")) {
+    const inlineParts = t
+      .split(/\s+(?=\d+\.\s+)/)
+      .map((p) => p.replace(/^\d+\.\s+/, "").trim())
+      .filter(Boolean);
+    if (inlineParts.length > 1) return inlineParts;
+  }
+
+  const lines = t.split("\n");
+  const items: string[] = [];
+  let buf = "";
+  const flush = () => {
+    const x = buf.trim();
+    if (x) items.push(x);
+    buf = "";
+  };
+
+  for (const line of lines) {
+    const m = line.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (m) {
+      flush();
+      buf = m[2] ?? "";
+    } else {
+      buf = buf ? `${buf}\n${line}` : line;
+    }
+  }
+  flush();
+
+  if (items.length > 0) return items;
+
+  const inlineParts = t
+    .split(/\s+(?=\d+\.\s+)/)
+    .map((p) => p.replace(/^\d+\.\s+/, "").trim())
+    .filter(Boolean);
+  if (inlineParts.length > 0) return inlineParts;
+
+  return [t];
+}
+
 export function safeFilenamePart(value: string): string {
   const cleaned = value.trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
   return cleaned || "Texlex-Report";

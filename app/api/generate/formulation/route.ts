@@ -3,15 +3,17 @@ import { anthropic, MODELS } from "@/lib/anthropic-client";
 import {
   FORMULATION_SYSTEM_PROMPT,
   buildFormulationUserPrompt,
+  buildLockedFormulationOpening,
   type FormulationVariables,
 } from "@/lib/prompts/formulation-template";
+import { resolveTexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as FormulationVariables;
+    const body = (await req.json()) as Partial<FormulationVariables>;
 
     if (!body.rawNotes || body.rawNotes.trim().length < 20) {
       return new Response(
@@ -27,7 +29,38 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const userPrompt = buildFormulationUserPrompt(body);
+    const conclusion = resolveTexlexDiagnosticConclusion(body.diagnosticConclusion);
+    let locked =
+      typeof body.lockedFormulationOpening === "string" ? body.lockedFormulationOpening.trim() : "";
+    if (!locked) {
+      locked = buildLockedFormulationOpening({
+        conclusion,
+        clientName: body.clientName ?? "",
+        criteria: {},
+        overallLevel:
+          typeof body.overallLevel === "number" && Number.isFinite(body.overallLevel)
+            ? body.overallLevel
+            : null,
+      });
+    }
+
+    const vars: FormulationVariables = {
+      clientName: body.clientName ?? "",
+      pronouns: body.pronouns ?? "",
+      chronologicalAge: body.chronologicalAge ?? "",
+      yearLevel: body.yearLevel ?? "",
+      referringPractitioner: body.referringPractitioner ?? "",
+      referringPractitionerType: body.referringPractitionerType ?? "",
+      school: typeof body.school === "string" ? body.school : "",
+      rawNotes: body.rawNotes ?? "",
+      criteriaState: body.criteriaState ?? "",
+      collateralSummary: body.collateralSummary ?? "",
+      functionalImpactSummary: body.functionalImpactSummary ?? "",
+      diagnosticConclusion: conclusion,
+      lockedFormulationOpening: locked,
+    };
+
+    const userPrompt = buildFormulationUserPrompt(vars);
 
     const stream = await anthropic.messages.create({
       model: MODELS.OPUS,

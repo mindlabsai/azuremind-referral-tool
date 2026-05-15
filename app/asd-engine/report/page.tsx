@@ -22,7 +22,16 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { mergeCriterionSuggestedRating } from "@/lib/texlex-criterion-rating";
+import {
+  capSuggestedRatingForDiagnosticConclusion,
+  resolveTexlexDiagnosticConclusion,
+  type TexlexDiagnosticConclusion,
+} from "@/lib/texlex-diagnostic-conclusion";
 import { normalizeCriterionState, sanitiseExtractedNumber, sanitiseForPdf } from "@/lib/texlex-pdf-sanitize";
+import {
+  buildLockedFormulationOpening,
+  type FormulationCriterionSnapshot,
+} from "@/lib/prompts/formulation-template";
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
@@ -195,6 +204,7 @@ function isTexlexDraftEffectivelyEmpty(args: {
   recommendations: string;
   limitationsText: string;
   cliniko: ClinikoDraftState | null;
+  diagnosticConclusion?: TexlexDiagnosticConclusion;
 }): boolean {
   const {
     patientDetails,
@@ -210,7 +220,10 @@ function isTexlexDraftEffectivelyEmpty(args: {
     recommendations,
     limitationsText,
     cliniko,
+    diagnosticConclusion,
   } = args;
+
+  if (resolveTexlexDiagnosticConclusion(diagnosticConclusion) !== "inconclusive") return false;
 
   if (cliniko) return false;
   if (rawNotes.trim()) return false;
@@ -423,12 +436,32 @@ function buildCriteriaStateBlock(criteriaState: Record<CriterionCode, CriterionS
   return parts.join("\n\n");
 }
 
+function criteriaSnapshotForFormulationLock(
+  criteriaState: Record<CriterionCode, CriterionState>
+): Record<string, FormulationCriterionSnapshot> {
+  return Object.fromEntries(
+    CRITERION_CODES.map((code) => {
+      const row = criteriaState[code];
+      return [
+        code,
+        {
+          indicators: row.indicators,
+          markerCount: row.markerCount,
+          suggestedRating: row.suggestedRating,
+          rating: row.rating,
+        },
+      ];
+    })
+  );
+}
+
 type ReportGenerationSnapshot = {
   presentingConcerns: string;
   background: BackgroundState;
   collateralSummary: string;
   criteria: Record<CriterionCode, CriterionState>;
   clinicalFormulation: string;
+  diagnosticConclusion: TexlexDiagnosticConclusion;
 };
 
 function cloneCriteriaState(criteria: Record<CriterionCode, CriterionState>): Record<CriterionCode, CriterionState> {
@@ -538,6 +571,7 @@ function buildPdfRenderDraftFromSanitized(
     limitationsText: normalizeTexlexTextForPdf(sanitised.limitationsText),
     criteria: criteriaStateForPdfRenderer(sanitised.criteria),
     cliniko: null,
+    diagnosticConclusion: resolveTexlexDiagnosticConclusion(sanitised.diagnosticConclusion),
   };
 }
 
@@ -1127,6 +1161,8 @@ export type TexlexReportDraftV1 = {
   recommendations: string;
   limitationsText: string;
   lastSaved: string;
+  /** Clinician-set diagnostic framing for formulation + auto-rating caps. Omitted in older saves = inconclusive. */
+  diagnosticConclusion?: TexlexDiagnosticConclusion;
 };
 
 const A_CRITERION_CODES = ["A1", "A2", "A3"] as const satisfies readonly CriterionCode[];
@@ -1169,6 +1205,7 @@ function defaultDraft(): Omit<TexlexReportDraftV1, "lastSaved"> {
     clinicalFormulation: "",
     recommendations: "",
     limitationsText: TEXLEX_LIMITATIONS,
+    diagnosticConclusion: "inconclusive",
   };
 }
 
@@ -1253,6 +1290,7 @@ const NAV = [
   { id: "assessment-context", label: "Assessment context" },
   { id: "consent", label: "Consent" },
   { id: "patient-details", label: "Client details" },
+  { id: "diagnostic-conclusion", label: "Diagnostic conclusion" },
   { id: "raw-notes", label: "Raw notes" },
   { id: "presenting-concerns", label: "Presenting concerns" },
   { id: "background", label: "Background" },
@@ -1264,6 +1302,12 @@ const NAV = [
   { id: "limitations", label: "Limitations" },
   { id: "signature", label: "Signature" },
 ] as const;
+
+const DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL: Record<TexlexDiagnosticConclusion, string> = {
+  meets: "Meets DSM-5-TR criteria for ASD",
+  does_not_meet: "Does Not Meet",
+  inconclusive: "Inconclusive — further evidence required",
+};
 
 function SectionModelHint({ modelName }: { modelName: string }) {
   return <p className="mt-1 text-xs text-muted-foreground">Draft assistant model: {modelName}</p>;
@@ -1503,6 +1547,9 @@ export default function TexlexReportPage() {
   const [clinicalFormulation, setClinicalFormulation] = useState(base.clinicalFormulation);
   const [recommendations, setRecommendations] = useState(base.recommendations);
   const [limitationsText, setLimitationsText] = useState(base.limitationsText);
+  const [diagnosticConclusion, setDiagnosticConclusion] = useState<TexlexDiagnosticConclusion>(
+    base.diagnosticConclusion ?? "inconclusive"
+  );
   const [editLimitations, setEditLimitations] = useState(false);
 
   const [hydrated, setHydrated] = useState(false);
@@ -1538,6 +1585,29 @@ export default function TexlexReportPage() {
       null
     );
   }, [pipeline.dsmMatrix]);
+
+  const criterionEngineEvidenceAtLeast1 = useMemo(() => {
+    const m = pipeline.dsmMatrix as unknown;
+    if (!Array.isArray(m)) return 0;
+    const rows = m as Array<{ code: string; count?: number; status?: string }>;
+    let n = 0;
+    for (const code of CRITERION_CODES) {
+      const row = rows.find((r) => r.code === code);
+      const count = sanitiseExtractedNumber(row?.count ?? 0) ?? 0;
+      const status = row?.status ?? "Missing";
+      const matrixRating = suggestedRatingFromMatrix(count, status);
+      const merged = mergeCriterionSuggestedRating(code, criteria[code].indicators, matrixRating);
+      if (merged !== null && merged >= 1) n++;
+    }
+    return n;
+  }, [pipeline.dsmMatrix, criteria]);
+
+  const showDiagnosticConclusionMismatch = useMemo(
+    () =>
+      resolveTexlexDiagnosticConclusion(diagnosticConclusion) === "does_not_meet" &&
+      criterionEngineEvidenceAtLeast1 >= 4,
+    [criterionEngineEvidenceAtLeast1, diagnosticConclusion]
+  );
 
   const startCriterionGeneration = useCallback(
     async (code: CriterionCode): Promise<string | null> => {
@@ -1597,10 +1667,16 @@ export default function TexlexReportPage() {
         if (genSessionRef.current === session) {
           setCriteria((prev) => {
             const current = prev[code];
-            const resolvedSuggested = mergeCriterionSuggestedRating(
+            const conclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+            const merged = mergeCriterionSuggestedRating(
               code,
               generated || current.indicators,
               current.suggestedRating
+            );
+            const resolvedSuggested = capSuggestedRatingForDiagnosticConclusion(
+              merged,
+              conclusion,
+              code
             );
             const nextCriterion = {
               ...current,
@@ -1625,7 +1701,7 @@ export default function TexlexReportPage() {
       }
       return generated;
     },
-    [criteria, patientDetails, pipeline.markers, rawNotes]
+    [criteria, diagnosticConclusion, patientDetails, pipeline.markers, rawNotes]
   );
 
   const handleGenerateCriterion = useCallback(
@@ -1910,6 +1986,7 @@ export default function TexlexReportPage() {
         collateralSummary,
         criteria,
         clinicalFormulation,
+        diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
       };
       streamAbortRef.current?.abort();
       const controller = new AbortController();
@@ -1930,6 +2007,7 @@ export default function TexlexReportPage() {
         pronouns: patientDetails.pronouns,
         chronologicalAge: computeChronologicalAge(patientDetails.dob),
         yearLevel: patientDetails.yearLevel,
+        school: patientDetails.school,
         rawNotes: masterInput,
         presentingConcerns: source.presentingConcerns.trim(),
         backgroundText,
@@ -2017,7 +2095,16 @@ export default function TexlexReportPage() {
       collateralSummary,
       criteria,
       clinicalFormulation,
+      diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
     };
+    const effectiveConclusion = resolveTexlexDiagnosticConclusion(source.diagnosticConclusion);
+    const criteriaLock = criteriaSnapshotForFormulationLock(source.criteria);
+    const lockedOpening = buildLockedFormulationOpening({
+      conclusion: effectiveConclusion,
+      clientName: patientDetails.clientName,
+      criteria: criteriaLock,
+      overallLevel: pipeline.levelOfSupport?.overallLevel ?? null,
+    });
     streamAbortRef.current?.abort();
     const controller = new AbortController();
     streamAbortRef.current = controller;
@@ -2039,10 +2126,15 @@ export default function TexlexReportPage() {
           chronologicalAge: computeChronologicalAge(patientDetails.dob),
           yearLevel: patientDetails.yearLevel,
           referringPractitioner: patientDetails.referringPractitioner,
+          referringPractitionerType: patientDetails.referringPractitionerType,
+          school: patientDetails.school,
           rawNotes: masterInput,
           criteriaState,
           collateralSummary: source.collateralSummary.trim(),
           functionalImpactSummary: functionalImpactSummary.trim(),
+          diagnosticConclusion: effectiveConclusion,
+          lockedFormulationOpening: lockedOpening,
+          overallLevel: pipeline.levelOfSupport?.overallLevel ?? null,
         },
         (delta) => setClinicalFormulation((prev) => prev + delta),
         controller.signal
@@ -2066,7 +2158,7 @@ export default function TexlexReportPage() {
       }
     }
   },
-    [background, collateralSummary, criteria, functionalImpactSummary, patientDetails, presentingConcerns, rawNotes]
+    [background, collateralSummary, criteria, diagnosticConclusion, functionalImpactSummary, patientDetails, pipeline.levelOfSupport, presentingConcerns, rawNotes]
   );
 
   const handleGenerateFormulation = useCallback(() => {
@@ -2114,6 +2206,8 @@ export default function TexlexReportPage() {
           chronologicalAge: computeChronologicalAge(patientDetails.dob),
           yearLevel: patientDetails.yearLevel,
           referringPractitioner: patientDetails.referringPractitioner,
+          referringPractitionerType: patientDetails.referringPractitionerType,
+          school: patientDetails.school,
           rawNotes: masterInput,
           criteriaState,
           formulation: clinicalFormulation.trim(),
@@ -2177,6 +2271,7 @@ export default function TexlexReportPage() {
         collateralSummary,
         criteria: cloneCriteriaState(criteria),
         clinicalFormulation,
+        diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
       };
 
       const presentingGenerated = await runPresentingConcernsStream();
@@ -2199,10 +2294,10 @@ export default function TexlexReportPage() {
       for (const code of CRITERION_CODES) {
         const narrative = await startCriterionGeneration(code);
         if (!narrative) continue;
-        const resolvedSuggested = mergeCriterionSuggestedRating(
-          code,
-          narrative,
-          snapshot.criteria[code].suggestedRating
+        const resolvedSuggested = capSuggestedRatingForDiagnosticConclusion(
+          mergeCriterionSuggestedRating(code, narrative, snapshot.criteria[code].suggestedRating),
+          snapshot.diagnosticConclusion,
+          code
         );
         snapshot.criteria[code] = {
           ...snapshot.criteria[code],
@@ -2237,6 +2332,7 @@ export default function TexlexReportPage() {
     runPresentingConcernsStream,
     runRecommendationsStream,
     startCriterionGeneration,
+    diagnosticConclusion,
   ]);
 
   const handleGenerateReport = useCallback(() => {
@@ -2356,6 +2452,9 @@ export default function TexlexReportPage() {
       if (typeof data.clinicalFormulation === "string") setClinicalFormulation(data.clinicalFormulation);
       if (typeof data.recommendations === "string") setRecommendations(data.recommendations);
       if (typeof data.limitationsText === "string") setLimitationsText(data.limitationsText);
+      if (data.diagnosticConclusion === "meets" || data.diagnosticConclusion === "does_not_meet" || data.diagnosticConclusion === "inconclusive") {
+        setDiagnosticConclusion(data.diagnosticConclusion);
+      }
       if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
     } catch {
       /* ignore corrupt storage */
@@ -2364,6 +2463,7 @@ export default function TexlexReportPage() {
   }, []);
 
   useEffect(() => {
+    const conclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
     setCriteria((prev) => {
       const next = { ...prev };
       for (const code of CRITERION_CODES) {
@@ -2373,15 +2473,17 @@ export default function TexlexReportPage() {
         const count = sanitiseExtractedNumber(row?.count ?? 0) ?? 0;
         const status = row?.status ?? "Missing";
         const matrixRating = suggestedRatingFromMatrix(count, status);
+        const merged = mergeCriterionSuggestedRating(code, prev[code].indicators, matrixRating);
+        const capped = capSuggestedRatingForDiagnosticConclusion(merged, conclusion, code);
         next[code] = {
           ...prev[code],
           markerCount: count,
-          suggestedRating: mergeCriterionSuggestedRating(code, prev[code].indicators, matrixRating),
+          suggestedRating: capped,
         };
       }
       return next;
     });
-  }, [pipeline.dsmMatrix]);
+  }, [pipeline.dsmMatrix, diagnosticConclusion]);
 
   const persistPayload = useMemo((): TexlexReportDraftV1 => {
     const lastSaved = new Date().toISOString();
@@ -2400,6 +2502,7 @@ export default function TexlexReportPage() {
       recommendations,
       limitationsText,
       lastSaved,
+      diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
     };
   }, [
     patientDetails,
@@ -2415,6 +2518,7 @@ export default function TexlexReportPage() {
     clinicalFormulation,
     recommendations,
     limitationsText,
+    diagnosticConclusion,
   ]);
 
   const draftIsEffectivelyEmpty = useMemo(
@@ -2433,6 +2537,7 @@ export default function TexlexReportPage() {
         recommendations,
         limitationsText,
         cliniko,
+        diagnosticConclusion,
       }),
     [
       patientDetails,
@@ -2448,6 +2553,7 @@ export default function TexlexReportPage() {
       recommendations,
       limitationsText,
       cliniko,
+      diagnosticConclusion,
     ]
   );
 
@@ -2481,6 +2587,7 @@ export default function TexlexReportPage() {
     setClinicalFormulation(fresh.clinicalFormulation);
     setRecommendations(fresh.recommendations);
     setLimitationsText(fresh.limitationsText);
+    setDiagnosticConclusion(fresh.diagnosticConclusion ?? "inconclusive");
     setEditLimitations(false);
     setGeneratingSectionId(null);
     setSectionGenErrors({});
@@ -3210,6 +3317,53 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
+            <section id="diagnostic-conclusion">
+              <h2 className="mb-3 text-lg font-semibold leading-tight">Diagnostic conclusion</h2>
+              <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
+                <CardContent className="space-y-3 p-6">
+                  <p className="text-sm text-muted-foreground">
+                    This setting controls the Clinical Formulation opening statement. Set this before generating the
+                    Formulation.
+                  </p>
+                  <fieldset>
+                    <legend className="sr-only">Diagnostic conclusion</legend>
+                    <div className="flex flex-col gap-3">
+                      {(
+                        [
+                          ["meets", "Meets DSM-5-TR criteria for ASD"],
+                          ["does_not_meet", "Does not meet DSM-5-TR criteria for ASD"],
+                          ["inconclusive", "Inconclusive — further evidence required"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <label
+                          key={value}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm transition-colors",
+                            diagnosticConclusion === value
+                              ? "border-primary bg-primary/5"
+                              : "border-border/80 hover:bg-muted/30"
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="texlex-diagnostic-conclusion"
+                            value={value}
+                            checked={diagnosticConclusion === value}
+                            onChange={() => {
+                              touch();
+                              setDiagnosticConclusion(value);
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span className="font-medium leading-snug">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </CardContent>
+              </Card>
+            </section>
+
             <section id="raw-notes">
               <h2 className="mb-3 text-lg font-semibold leading-tight">Raw clinical notes</h2>
               <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
@@ -3568,7 +3722,22 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="formulation">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Clinical formulation and consensus opinion</h2>
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
+                <h2 className="text-lg font-semibold leading-tight">Clinical formulation and consensus opinion</h2>
+                <span className="text-xs text-muted-foreground sm:text-right">
+                  Generating with:{" "}
+                  {DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL[resolveTexlexDiagnosticConclusion(diagnosticConclusion)]}
+                </span>
+              </div>
+              {showDiagnosticConclusionMismatch ? (
+                <div
+                  className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-50"
+                  role="status"
+                >
+                  ⚠ Diagnostic conclusion (&quot;Does Not Meet&quot;) may not align with narrative content. Multiple
+                  criteria show emerging features. Review before generating.
+                </div>
+              ) : null}
               <Card className="rounded-xl border border-border/80 shadow-sm transition-shadow hover:shadow-md">
                 <CardContent className="p-6">
                   <ReportTextarea

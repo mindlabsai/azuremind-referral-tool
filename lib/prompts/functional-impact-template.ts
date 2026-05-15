@@ -1,3 +1,6 @@
+import {
+  CLINICAL_RECENCY_GATE_FUNCTIONAL_IMPACT,
+} from "./clinical-recency-referrer-blocks";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 export const FUNCTIONAL_IMPACT_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
@@ -12,13 +15,17 @@ This section is read closely by NDIS planners, school psychologists, paediatrici
 
 Write a 4–6 sentence summary that addresses functional impact across the following domains, where evidence is available in the source material:
 - Home environment and family functioning
-- Educational setting (kindergarten/school/childcare)
+- Educational setting (kindergarten/school/childcare) — **current placement only**; do not treat past schools or past daycare as present-day impact unless clearly framed as historical continuity without naming past sites
 - Communication and social engagement
 - Self-care and adaptive functioning (toileting, feeding, dressing, grooming, sleep)
 - Sensory regulation in daily activities
 - Peer relationships and community participation
 
 Open with the client's first name. Use third person. Do not introduce new evidence. Do not list recommendations. Conclude with a sentence on the integrated support load the family/system is currently managing.
+
+# EVIDENCE RECENCY (MANDATORY)
+
+${CLINICAL_RECENCY_GATE_FUNCTIONAL_IMPACT}
 
 # AVOID
 
@@ -36,6 +43,8 @@ export interface FunctionalImpactVariables {
   pronouns: string;
   chronologicalAge: string;
   yearLevel: string;
+  /** Current school / ECEC from intake — anchors current placement. */
+  school?: string;
   rawNotes: string;
   presentingConcerns: string;
   backgroundText: string;
@@ -58,6 +67,7 @@ Client first name: ${vars.clientFirstName || "[not provided]"}
 Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}
+Current school / early childhood setting (from intake): ${vars.school?.trim() || "[not specified]"}
 
 # SOURCE MATERIAL
 
@@ -84,6 +94,10 @@ ${vars.clinicalFormulation || "[no clinical formulation available yet]"}
 # RAW CLINICAL NOTES
 
 ${vars.rawNotes || "[no raw notes provided]"}
+
+# RECENCY (RESTATE — MANDATORY)
+
+${CLINICAL_RECENCY_GATE_FUNCTIONAL_IMPACT}
 
 # WRITE THE FUNCTIONAL IMPACT SUMMARY NOW
 

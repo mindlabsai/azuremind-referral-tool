@@ -296,4 +296,30 @@ export const styles = StyleSheet.create({
     color: BRAND,
     marginTop: 4,
   },
+  recommendationsList: {
+    marginTop: 4,
+  },
+  recommendationItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  recommendationNumber: {
+    width: 28,
+    paddingRight: 6,
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    fontWeight: 700,
+    color: BRAND,
+    lineHeight: 1.45,
+  },
+  recommendationText: {
+    flex: 1,
+    fontSize: 10,
+    fontWeight: 400,
+    fontFamily: "Helvetica",
+    color: INK,
+    lineHeight: 1.45,
+    textAlign: "left",
+  },
 });
