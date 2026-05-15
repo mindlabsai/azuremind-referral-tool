@@ -27,7 +27,12 @@ import {
   resolveTexlexDiagnosticConclusion,
   type TexlexDiagnosticConclusion,
 } from "@/lib/texlex-diagnostic-conclusion";
-import { normalizeCriterionState, sanitiseExtractedNumber, sanitiseForPdf } from "@/lib/texlex-pdf-sanitize";
+import {
+  normalizeCriterionState,
+  sanitiseExtractedNumber,
+  sanitiseForPdf,
+  stripScientificNotationGarbageFromText,
+} from "@/lib/texlex-pdf-sanitize";
 import {
   buildLockedFormulationOpening,
   type FormulationCriterionSnapshot,
@@ -81,12 +86,7 @@ function pdfFieldString(value: unknown): string {
 
 /** Remove tokens that look like corrupted floats (e.g. from bad PDF extraction pasted into a field). */
 function stripCorruptedSciNumericTokens(input: string): string {
-  return input
-    .replace(/-?\d+(?:\.\d+)?[eE][+-]?\d+/g, (m) => {
-      const n = Number(m);
-      if (!Number.isFinite(n) || Math.abs(n) > 1e9) return "";
-      return m;
-    })
+  return stripScientificNotationGarbageFromText(input, "normalizeTexlexTextForPdf")
     .replace(/\s{2,}/g, " ")
     .trim();
 }

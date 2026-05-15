@@ -41,7 +41,31 @@ export function normalizeCriterionState<
   };
 }
 
-function sanitiseStringForPdf(value: string): string {
+/**
+ * Removes standalone scientific-notation numeric tokens (e.g. corrupted -8.854e+21 pasted into prose).
+ * Uses (?<![A-Za-z0-9_]) / (?![0-9.eE]) so substrings inside words like "pathology", "her", "strategies",
+ * "Vegemite", "during" are never matched — a letter-adjacent mantissa is not a numeric token here.
+ * Only strips when Number(token) is non-finite or |token| > 1e9 (aligns with report PDF field stripper).
+ */
+export function stripScientificNotationGarbageFromText(input: string, fieldPath?: string): string {
+  return input.replace(
+    /(?<![A-Za-z0-9_])-?\d+(?:\.\d*)?[eE][+-]?\d+(?![0-9.eE])/g,
+    (token) => {
+      const x = Number(token);
+      if (!Number.isFinite(x) || Math.abs(x) > 1e9) {
+        if (typeof globalThis !== "undefined" && typeof console !== "undefined" && console.info) {
+          console.info(
+            `[Texlex] Sanitiser stripped numeric token "${token}" from field "${fieldPath ?? "(unknown)"}"`
+          );
+        }
+        return "";
+      }
+      return token;
+    }
+  );
+}
+
+function sanitiseStringForPdf(value: string, path: string): string {
   let s = value;
   if (/(?:^|\s)(?:NaN|Infinity|-Infinity)(?:\s|$)/.test(s)) {
     s = s
@@ -50,12 +74,7 @@ function sanitiseStringForPdf(value: string): string {
       .replace(/\s{2,}/g, " ")
       .trim();
   }
-  // Strip corrupted scientific-notation tokens that can confuse downstream parsers
-  s = s.replace(/-?\d+(?:\.\d+)?[eE][+-]?\d{2,}/g, (m) => {
-    const x = Number(m);
-    if (!Number.isFinite(x) || Math.abs(x) > 1e6) return "";
-    return m;
-  });
+  s = stripScientificNotationGarbageFromText(s, path);
   return s;
 }
 
@@ -110,7 +129,7 @@ function walkValue(value: unknown, path: string, audit: PdfSanitiseAudit): unkno
   }
 
   if (typeof value === "string") {
-    const next = sanitiseStringForPdf(value);
+    const next = sanitiseStringForPdf(value, path);
     if (next !== value) audit.paths.push(path);
     logPdfSanitise(path, value, next);
     return next;
