@@ -38,6 +38,7 @@ import {
   type FormulationCriterionSnapshot,
 } from "@/lib/prompts/formulation-template";
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
+import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { EngineAssistant } from "../components/EngineAssistant";
@@ -3380,7 +3381,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="assessment-context">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Assessment context</h2>
+              <TexlexSectionHeading className="mb-3">Assessment context</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="whitespace-pre-wrap text-[15px] leading-[1.55] text-muted-foreground">
@@ -3391,7 +3392,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="consent">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Consent and use of report</h2>
+              <TexlexSectionHeading className="mb-3">Consent and use of report</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="whitespace-pre-wrap text-[15px] leading-[1.55] text-muted-foreground">
@@ -3414,7 +3415,7 @@ export default function TexlexReportPage() {
             />
 
             <section id="patient-details">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Client details</h2>
+              <TexlexSectionHeading className="mb-3">Client details</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   {(() => {
@@ -3792,7 +3793,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="diagnostic-conclusion">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Diagnostic conclusion</h2>
+              <TexlexSectionHeading className="mb-3">Diagnostic conclusion</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
                   <p className="text-sm text-muted-foreground">
@@ -3839,7 +3840,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="raw-notes">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Raw clinical notes</h2>
+              <TexlexSectionHeading className="mb-3">Raw clinical notes</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
@@ -3878,7 +3879,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="presenting-concerns">
-              <h2 className="mb-1 text-lg font-semibold leading-tight">Presenting concerns</h2>
+              <TexlexSectionHeading className="mb-1">Presenting concerns</TexlexSectionHeading>
               <Card className={cn(TEXLEX_SECTION_CONTAINER_CLASS, "mt-2")}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <label className="block space-y-1.5 text-sm font-medium">
@@ -3939,7 +3940,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="background" className="space-y-[14px]">
-              <h2 className="mb-1 text-lg font-semibold leading-tight">Background</h2>
+              <TexlexSectionHeading className="mb-1">Background</TexlexSectionHeading>
               {(
                 [
                   ["pregnancyBirth", "Pregnancy & birth", "background-pregnancy-birth", TEXLEX_SECTION_MODELS.pregnancyBirth],
@@ -4032,7 +4033,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="collateral" className="space-y-[14px]">
-              <h2 className="mb-1 text-lg font-semibold leading-tight">Collateral documents</h2>
+              <TexlexSectionHeading className="mb-1">Collateral documents</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <CollateralDocumentsUpload
@@ -4095,7 +4096,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="dsm-criteria" className="space-y-[14px]">
-              <h2 className="text-lg font-semibold leading-tight">DSM-5-TR criteria (A &amp; B)</h2>
+              <TexlexSectionHeading>DSM-5-TR criteria (A &amp; B)</TexlexSectionHeading>
               <div className="whitespace-pre-wrap text-sm text-muted-foreground">{TEXLEX_DSM_INTRO}</div>
               <p className="text-sm text-muted-foreground">
                 Auto-suggested ratings derive from the live marker matrix in the engine assistant. Use the clinician
@@ -4150,7 +4151,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="functional-impact">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Functional impact summary</h2>
+              <TexlexSectionHeading className="mb-3">Functional impact summary</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
@@ -4203,7 +4204,7 @@ export default function TexlexReportPage() {
 
             <section id="formulation">
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
-                <h2 className="text-lg font-semibold leading-tight">Clinical formulation and consensus opinion</h2>
+                <TexlexSectionHeading>Clinical formulation and consensus opinion</TexlexSectionHeading>
                 <span className="text-xs text-muted-foreground sm:text-right">
                   Generating with:{" "}
                   {DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL[resolveTexlexDiagnosticConclusion(diagnosticConclusion)]}
@@ -4271,7 +4272,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="recommendations">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Recommendations</h2>
+              <TexlexSectionHeading className="mb-3">Recommendations</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
@@ -4321,7 +4322,7 @@ export default function TexlexReportPage() {
 
             <section id="limitations">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold leading-tight">Limitations</h2>
+                <TexlexSectionHeading>Limitations</TexlexSectionHeading>
                 <Button
                   type="button"
                   variant="ghost"
@@ -4360,7 +4361,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="signature">
-              <h2 className="mb-3 text-lg font-semibold leading-tight">Signature block</h2>
+              <TexlexSectionHeading className="mb-3">Signature block</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <blockquote className="space-y-3 border-l-2 border-border pl-4 text-[15px] leading-[1.55] text-muted-foreground">
