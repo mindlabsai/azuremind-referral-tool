@@ -88,10 +88,7 @@ export async function createCollateralPass1Message(
         ],
         messages: [{ role: "user", content }],
       });
-      const processed = pdfs.filter(
-        (p) => !failedPdfs.some((f) => f.id === p.id)
-      );
-      return { message, processedPdfs: processed, failedPdfs };
+      return { message, processedPdfs: remaining, failedPdfs };
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       if (!isRetryablePdfError(err) || remaining.length === 0) {

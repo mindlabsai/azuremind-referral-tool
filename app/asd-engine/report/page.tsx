@@ -409,15 +409,108 @@ function criterionSectionId(code: CriterionCode): string {
   return `criterion-${code}`;
 }
 
-function buildCollateralContentForApi(docs: CollateralDoc[]): string {
+function isCollateralPdfDoc(doc: CollateralDoc): boolean {
+  return (
+    doc.mimeType === "application/pdf" || doc.filename.toLowerCase().endsWith(".pdf")
+  );
+}
+
+function collateralAiStatusLabel(doc: CollateralDoc): string {
+  if (isCollateralPdfDoc(doc)) {
+    if (doc.extractionStatus === "ready") return "📄 PDF: AI summary enabled";
+    if (doc.extractionStatus === "failed") return "PDF: read failed — manual summary required";
+    return "PDF: preparing…";
+  }
+  return "⏳ JPG/PNG/HEIC/DOCX: manual summary";
+}
+
+function buildCollateralManifestForApi(docs: CollateralDoc[]): string {
   if (!docs.length) return "";
-  return docs
-    .map((d) => {
-      const title = d.filename.trim() || "Collateral document";
-      const body = d.content?.trim() ?? "";
-      return body ? `${title}: ${body}` : `${title}:`;
-    })
-    .join("\n");
+  const lines = docs.map((d) => {
+    const title = d.filename.trim() || "Collateral document";
+    const manual = d.content?.trim();
+    let line = `- ${title} (${d.category}): ${collateralAiStatusLabel(d)}`;
+    if (manual) line += `\n  Clinician manual summary: ${manual}`;
+    return line;
+  });
+  return `Collateral upload manifest:\n${lines.join("\n")}`;
+}
+
+function buildCollateralPdfPayload(docs: CollateralDoc[]): {
+  collateralPdfDocuments: Array<{
+    id: string;
+    filename: string;
+    category: string;
+    data: string;
+  }>;
+  unsupportedCollateralDocuments: Array<{ id: string; filename: string; mimeType: string }>;
+  pendingCollateralDocuments: Array<{ id: string; filename: string }>;
+} {
+  const collateralPdfDocuments: Array<{
+    id: string;
+    filename: string;
+    category: string;
+    data: string;
+  }> = [];
+  const unsupportedCollateralDocuments: Array<{ id: string; filename: string; mimeType: string }> =
+    [];
+  const pendingCollateralDocuments: Array<{ id: string; filename: string }> = [];
+
+  for (const doc of docs) {
+    if (isCollateralPdfDoc(doc)) {
+      if (doc.extractionStatus === "ready" && doc.pdfBase64) {
+        collateralPdfDocuments.push({
+          id: doc.id,
+          filename: doc.filename,
+          category: doc.category,
+          data: doc.pdfBase64,
+        });
+      } else if (doc.extractionStatus === "failed") {
+        pendingCollateralDocuments.push({ id: doc.id, filename: doc.filename });
+      } else {
+        pendingCollateralDocuments.push({ id: doc.id, filename: doc.filename });
+      }
+    } else {
+      unsupportedCollateralDocuments.push({
+        id: doc.id,
+        filename: doc.filename,
+        mimeType: doc.mimeType,
+      });
+    }
+  }
+
+  return {
+    collateralPdfDocuments,
+    unsupportedCollateralDocuments,
+    pendingCollateralDocuments,
+  };
+}
+
+function serialiseCollateralDocsForStorage(docs: CollateralDoc[]): CollateralDoc[] {
+  return docs.map((doc) => {
+    const { pdfBase64: _pdf, ...rest } = doc;
+    const extractionStatus =
+      isCollateralPdfDoc(doc) && doc.extractionStatus === "ready"
+        ? "pending"
+        : doc.extractionStatus;
+    return { ...rest, pdfBase64: null, extractionStatus };
+  });
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Could not read file"));
+        return;
+      }
+      const comma = reader.result.indexOf(",");
+      resolve(comma >= 0 ? reader.result.slice(comma + 1) : reader.result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Read failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 const GENERATION_MIN_NOTES_CHARS = 20;
@@ -464,12 +557,20 @@ function buildFormulationPatientDetailsForCritic(
 
 type VoiceCriticBadgeKind = "criticApplied" | "fallbackToDraft" | "criticDisabled";
 
+type CollateralDocumentProcessingStatus = {
+  id: string;
+  filename: string;
+  status: "processed" | "failed" | "unsupported" | "pending";
+  detail?: string;
+};
+
 type VoiceCriticStreamMeta = {
   criticApplied: boolean;
   fallbackToDraft: boolean;
   criticDisabled: boolean;
   model: string;
   truncationWarning: string | null;
+  documentProcessing?: CollateralDocumentProcessingStatus[];
 };
 
 function applyVoiceCriticBadgeFromMeta(
@@ -576,6 +677,7 @@ async function streamTexlexWithCriticSse(
           model?: string;
           truncationWarning?: string | null;
           truncation_warning?: string;
+          documentProcessing?: CollateralDocumentProcessingStatus[];
         };
         if (parsed.error) throw new Error(parsed.error);
         if (typeof parsed.delta === "string" && parsed.delta.length) {
@@ -595,6 +697,9 @@ async function streamTexlexWithCriticSse(
                 : typeof parsed.truncation_warning === "string"
                   ? parsed.truncation_warning
                   : null,
+            documentProcessing: Array.isArray(parsed.documentProcessing)
+              ? parsed.documentProcessing
+              : undefined,
           };
         }
       } catch (e) {
@@ -941,6 +1046,8 @@ type CollateralDoc = {
   category: string;
   uploadedAt: string;
   content?: string;
+  pdfBase64: string | null;
+  extractionStatus: "pending" | "ready" | "failed";
 };
 
 function newCollateralDocId(): string {
@@ -960,6 +1067,10 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
         typeof o.category === "string" && (DOC_CATEGORIES as readonly string[]).includes(o.category)
           ? o.category
           : DEFAULT_DOC_CATEGORY;
+      const extractionStatus =
+        o.extractionStatus === "ready" || o.extractionStatus === "failed"
+          ? o.extractionStatus
+          : "pending";
       out.push({
         id,
         filename: o.filename,
@@ -967,6 +1078,9 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
         mimeType: o.mimeType,
         category,
         uploadedAt: typeof o.uploadedAt === "string" ? o.uploadedAt : new Date().toISOString(),
+        content: typeof o.content === "string" ? o.content : undefined,
+        pdfBase64: null,
+        extractionStatus,
       });
       continue;
     }
@@ -986,6 +1100,8 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
         category: DEFAULT_DOC_CATEGORY,
         uploadedAt: new Date().toISOString(),
         content,
+        pdfBase64: null,
+        extractionStatus: "pending",
       });
     }
   }
@@ -1053,42 +1169,35 @@ function CollateralDocumentsUpload({
   const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
-  const [extractingFilename, setExtractingFilename] = useState<string | null>(null);
+  const [encodingFilename, setEncodingFilename] = useState<string | null>(null);
 
-  const extractPdfSummary = useCallback(
+  const encodePdfForAi = useCallback(
     async (docId: string, file: File) => {
-      setExtractingFilename(file.name);
-      setUploadNotice(`Extracting from ${file.name}...`);
+      setEncodingFilename(file.name);
+      setUploadNotice(`Preparing ${file.name} for AI summary…`);
       setUploadError(null);
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const response = await fetch("/api/collateral/extract", { method: "POST", body: formData });
-        const data = (await response.json()) as {
-          summary?: string;
-          error?: string;
-          hasUnreliableNumbers?: boolean;
-        };
-        if (!response.ok || !data.summary) {
-          throw new Error(data.error ?? "Could not extract PDF text.");
-        }
+        const pdfBase64 = await readFileAsBase64(file);
         setCollateralDocs((list) =>
-          list.map((doc) => (doc.id === docId ? { ...doc, content: data.summary } : doc))
+          list.map((doc) =>
+            doc.id === docId
+              ? { ...doc, pdfBase64, extractionStatus: "ready" as const }
+              : doc
+          )
         );
-        if (data.hasUnreliableNumbers) {
-          setUploadNotice(
-            `Some scale values from ${file.name} could not be parsed reliably. Please verify or enter manually.`
-          );
-        } else {
-          setUploadNotice(`Extracted summary from ${file.name}`);
-        }
+        setUploadNotice(`📄 ${file.name}: AI summary enabled`);
       } catch (error) {
-        setUploadError(
-          `Could not extract from ${file.name}. Please enter scale data manually.`
+        setCollateralDocs((list) =>
+          list.map((doc) =>
+            doc.id === docId ? { ...doc, pdfBase64: null, extractionStatus: "failed" as const } : doc
+          )
         );
-        console.error("Collateral PDF extraction failed:", error);
+        setUploadError(
+          `Could not read ${file.name} for AI summary. Add a manual summary or re-upload.`
+        );
+        console.error("Collateral PDF encoding failed:", error);
       } finally {
-        setExtractingFilename(null);
+        setEncodingFilename(null);
       }
     },
     [setCollateralDocs]
@@ -1103,7 +1212,7 @@ function CollateralDocumentsUpload({
       if (files.length === 0) return;
 
       let capturedError: string | null = null;
-      const pendingExtractions: Array<{ id: string; file: File }> = [];
+      const pendingPdfReads: Array<{ id: string; file: File }> = [];
       setCollateralDocs((prev) => {
         const additions: CollateralDoc[] = [];
         let firstError: string | null = null;
@@ -1142,9 +1251,11 @@ function CollateralDocumentsUpload({
             mimeType: mime,
             category: DEFAULT_DOC_CATEGORY,
             uploadedAt: new Date().toISOString(),
+            pdfBase64: null,
+            extractionStatus: "pending",
           });
           if (mime === "application/pdf") {
-            pendingExtractions.push({ id, file });
+            pendingPdfReads.push({ id, file });
           }
           count += 1;
           bytes += file.size;
@@ -1155,11 +1266,11 @@ function CollateralDocumentsUpload({
         return [...prev, ...additions];
       });
       if (capturedError) setUploadError(capturedError);
-      for (const pending of pendingExtractions) {
-        void extractPdfSummary(pending.id, pending.file);
+      for (const pending of pendingPdfReads) {
+        void encodePdfForAi(pending.id, pending.file);
       }
     },
-    [extractPdfSummary, setCollateralDocs, touch]
+    [encodePdfForAi, setCollateralDocs, touch]
   );
 
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1178,7 +1289,7 @@ function CollateralDocumentsUpload({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Upload supporting reports and forms. PDF scale uploads are summarised for collateral generation; other file types keep metadata only in this draft.
+        Upload supporting reports and forms. PDFs are sent to Claude for AI summarisation during collateral generation. JPG, PNG, HEIC, and DOCX uploads are listed for manual summary only until a future release.
       </p>
 
       <input
@@ -1263,8 +1374,9 @@ function CollateralDocumentsUpload({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatFileSize(doc.size)} · {getFileTypeLabel(doc.mimeType)}
-                  {extractingFilename === doc.filename ? " · Extracting…" : null}
+                  {encodingFilename === doc.filename ? " · Preparing…" : null}
                 </p>
+                <p className="text-xs text-muted-foreground">{collateralAiStatusLabel(doc)}</p>
               </div>
               <select
                 className={cn(inputClass, "h-8 max-w-[min(100%,18rem)] shrink-0 py-0 text-xs sm:max-w-[22rem]")}
@@ -2128,9 +2240,17 @@ export default function TexlexReportPage() {
 
   const runCollateralSummaryStream = useCallback(async (): Promise<string | null> => {
     const sectionId = "collateral-summary";
-    const collateralContent = collateralDocs.length ? buildCollateralContentForApi(collateralDocs) : "";
+    const collateralContent = collateralDocs.length
+      ? buildCollateralManifestForApi(collateralDocs)
+      : "";
+    const pdfPayload = buildCollateralPdfPayload(collateralDocs);
+    const hasReadyPdfs = pdfPayload.collateralPdfDocuments.length > 0;
     const masterInput = rawNotes.trim();
-    if (!collateralContent.trim() && masterInput.length < GENERATION_MIN_NOTES_CHARS) {
+    if (
+      !collateralContent.trim() &&
+      !hasReadyPdfs &&
+      masterInput.length < GENERATION_MIN_NOTES_CHARS
+    ) {
       setSectionGenErrors((p) => ({
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
@@ -2142,8 +2262,10 @@ export default function TexlexReportPage() {
         ? masterInput
         : collateralContent.trim().length >= GENERATION_MIN_NOTES_CHARS
           ? collateralContent
-          : "";
-    if (contextNotes.length < GENERATION_MIN_NOTES_CHARS) {
+          : hasReadyPdfs
+            ? collateralContent.trim() || "Collateral PDF documents attached for AI review."
+            : "";
+    if (contextNotes.length < GENERATION_MIN_NOTES_CHARS && !hasReadyPdfs) {
       setSectionGenErrors((p) => ({
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
@@ -2178,6 +2300,7 @@ export default function TexlexReportPage() {
           yearLevel: patientDetails.yearLevel,
           rawNotes: contextNotes,
           collateralContent,
+          ...pdfPayload,
           ...buildVoiceCriticPayloadExtras(patientDetails, criteria, effectiveConclusion),
         },
         (delta) => setCollateralSummary((prev) => prev + delta),
@@ -2185,6 +2308,22 @@ export default function TexlexReportPage() {
           setCollateralSummary(finalContent);
           setSectionVoiceCriticBadge(sectionId, meta);
           logVoiceCriticComplete("Collateral summary", meta);
+          if (meta.documentProcessing?.length) {
+            const unsupported = meta.documentProcessing.filter((d) => d.status === "unsupported");
+            const failed = meta.documentProcessing.filter((d) => d.status === "failed");
+            if (unsupported.length || failed.length) {
+              const parts: string[] = [];
+              if (unsupported.length) {
+                parts.push(
+                  `${unsupported.length} file(s) not yet supported for AI summary (JPG/PNG/HEIC/DOCX)`
+                );
+              }
+              if (failed.length) {
+                parts.push(`${failed.length} PDF(s) could not be read by the model`);
+              }
+              console.info("[Texlex] Collateral document processing:", meta.documentProcessing);
+            }
+          }
         },
         controller.signal
       );
@@ -2822,7 +2961,7 @@ export default function TexlexReportPage() {
       patientDetails,
       cliniko,
       rawNotes,
-      collateralDocs,
+      collateralDocs: serialiseCollateralDocsForStorage(collateralDocs),
       criteria,
       presentingConcernsRaw,
       presentingConcerns,

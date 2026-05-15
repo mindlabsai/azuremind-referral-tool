@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { anthropic, MODELS } from "@/lib/anthropic-client";
+import { anthropic } from "@/lib/anthropic-client";
 import {
   createCollateralPass1Message,
   type CollateralDocumentProcessingStatus,
@@ -71,40 +71,56 @@ export function createCollateralSummaryStreamResponse(
             }
           }
         } else {
-          const { message, processedPdfs, failedPdfs } = await createCollateralPass1Message(
-            anthropic,
-            {
-              model: pass1Model,
-              maxTokens,
-              systemPrompt: input.systemPrompt,
-              userPromptText: input.userPromptText,
-              pdfs: input.pdfs,
+          try {
+            const { message, processedPdfs, failedPdfs } = await createCollateralPass1Message(
+              anthropic,
+              {
+                model: pass1Model,
+                maxTokens,
+                systemPrompt: input.systemPrompt,
+                userPromptText: input.userPromptText,
+                pdfs: input.pdfs,
+              }
+            );
+
+            for (const pdf of processedPdfs) {
+              documentProcessing.push({
+                id: pdf.id,
+                filename: pdf.filename,
+                status: "processed",
+              });
             }
-          );
+            for (const f of failedPdfs) {
+              documentProcessing.push({
+                id: f.id,
+                filename: f.filename,
+                status: "failed",
+                detail: f.detail,
+              });
+            }
 
-          for (const pdf of processedPdfs) {
-            documentProcessing.push({
-              id: pdf.id,
-              filename: pdf.filename,
-              status: "processed",
-            });
-          }
-          for (const f of failedPdfs) {
-            documentProcessing.push({
-              id: f.id,
-              filename: f.filename,
-              status: "failed",
-              detail: f.detail,
-            });
-          }
+            pass1Draft = message.content
+              .filter((block) => block.type === "text")
+              .map((block) => (block as { type: "text"; text: string }).text)
+              .join("");
 
-          pass1Draft =
-            message.content
-              .filter((block): block is Anthropic.TextBlock => block.type === "text")
-              .map((block) => block.text)
-              .join("") ?? "";
-
-          if (pass1Draft) {
+            if (pass1Draft) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ delta: pass1Draft })}\n\n`)
+              );
+            }
+          } catch (pdfErr) {
+            const detail = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
+            for (const pdf of input.pdfs) {
+              documentProcessing.push({
+                id: pdf.id,
+                filename: pdf.filename,
+                status: "failed",
+                detail,
+              });
+            }
+            const names = input.pdfs.map((p) => p.filename).join(", ");
+            pass1Draft = `Formal collateral documentation was uploaded (${names}) but the files could not be retrieved for AI summarisation at the time of generation. The current clinical formulation is informed by parent interview, direct observation, and assessment findings. Collateral review is recommended when readable copies become available, and clinicians may paste manual summaries for unsupported file types (JPG, PNG, HEIC, DOCX).`;
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ delta: pass1Draft })}\n\n`)
             );
