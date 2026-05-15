@@ -196,6 +196,18 @@ a {
   --sidebar-ring: oklch(0.708 0 0);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  --bg-page: #F7F7F4;
+  --bg-surface: #FFFFFF;
+  --bg-input: #FAFAF6;
+  --teal-fill: #E1F5EE;
+  --teal-line: #1D9E75;
+  --teal-text: #0F6E56;
+  --text-1: #1A1A1A;
+  --text-2: #4A4A47;
+  --text-3: #6B6B68;
+  --text-4: #8A8A87;
+  --rule: rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .dark {
