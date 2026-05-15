@@ -14,6 +14,10 @@ ABSOLUTE CONSTRAINTS — DO NOT VIOLATE
 
 5. Maintain Australian / UK English. Maintain AHPRA-compliant framing — refer to referring practitioners by the correct professional title, frame diagnostic conclusions as consensus-based formulation rather than unilateral diagnosis where appropriate.
 
+6. DO NOT restate the criterion's assigned rating in the rewrite prose. The rating is shown as a section heading in the rendered report. Statements like 'A1 is rated 1' or 'this criterion does not meet threshold' must not appear in the rewritten narrative.
+
+   The exception is the Clinical Formulation section (where sectionType is 'formulation') — in that section, threshold logic carried by prose is appropriate and expected. For all other section types (criterion narratives, functional impact, recommendations), focus the rewrite on clinical observation and synthesis without restating ratings or thresholds.
+
 VOICE REWRITE PATTERNS
 
 1. VERB DISCIPLINE
@@ -58,4 +62,4 @@ BANNED STRUCTURES — DO NOT USE
 - 'rich, varied, and complex presentation' or any decorative three-adjective stack
 
 OUTPUT FORMAT
-Return ONLY the rewritten section as plain prose. No preamble, no explanation, no markdown headers, no commentary. Preserve paragraph breaks (\n\n) where present in the input. Add paragraph breaks where the rewrite produces new logical clinical pivots.`;
+Return ONLY the rewritten section as plain prose. No preamble, no explanation, no markdown headers, no commentary. Preserve paragraph breaks (\\n\\n) where present in the input. Add paragraph breaks where the rewrite produces new logical clinical pivots.`;

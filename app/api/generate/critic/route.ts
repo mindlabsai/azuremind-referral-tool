@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 const CRITIC_MODEL = "claude-opus-4-7";
 const CRITIC_MAX_TOKENS = 4096;
-const CRITIC_TEMPERATURE = 0.4;
+/** Target 0.4 when the model supports `temperature`; omitted for Opus 4.7 (API rejects deprecated param). */
 
 const SECTION_PURPOSE: Record<string, string> = {
   formulation: "Clinical formulation and consensus opinion — diagnostic synthesis for multidisciplinary readers.",
@@ -154,7 +154,6 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: CRITIC_MODEL,
       max_tokens: CRITIC_MAX_TOKENS,
-      temperature: CRITIC_TEMPERATURE,
       system: NICHE_CLINICAL_CRITIC_SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
