@@ -155,11 +155,11 @@ export function TexlexReportHeader({
           <p className="text-lg font-semibold tracking-tight text-foreground">Texlex</p>
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <div className="flex flex-col items-end gap-0.5">
+        <div className="flex shrink-0 items-center justify-end gap-3">
+          <div className="flex flex-col items-end gap-1">
             <span
               className={cn(
-                "text-sm text-muted-foreground",
+                "text-xs text-[var(--text-3)]",
                 saveFailed && "font-medium text-destructive",
                 editing && !saveFailed && "text-foreground"
               )}
