@@ -1,24 +1,26 @@
 import { NextRequest } from "next/server";
-import { anthropic, MODELS } from "@/lib/anthropic-client";
 import {
   FUNCTIONAL_IMPACT_SYSTEM_PROMPT,
   buildFunctionalImpactUserPrompt,
   type FunctionalImpactVariables,
 } from "@/lib/prompts/functional-impact-template";
+import { resolveTexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
+import { createTexlexStreamResponseWithVoiceCritic } from "@/lib/voice/texlex-stream-with-voice-critic";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-/** PASS 10w-3: long-form prose; keep at ≥4096 and isolated from short-field generators. */
 const FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS = 4096;
 
-function preview(text: string, length = 500): string {
-  return text.slice(0, length);
-}
+type FunctionalImpactRequestBody = FunctionalImpactVariables & {
+  patientDetails?: Record<string, unknown>;
+  diagnosticConclusion?: string;
+  ratingsAssigned?: Record<string, unknown>;
+};
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as FunctionalImpactVariables;
+    const body = (await req.json()) as FunctionalImpactRequestBody;
 
     if (!body.rawNotes || body.rawNotes.trim().length < 20) {
       return new Response(
@@ -35,71 +37,24 @@ export async function POST(req: NextRequest) {
     }
 
     const userPrompt = buildFunctionalImpactUserPrompt(body);
-    console.log(
-      `FUNCTIONAL_IMPACT: prompt input received: ${userPrompt.length} chars`,
-      preview(userPrompt)
-    );
+    const conclusion = resolveTexlexDiagnosticConclusion(body.diagnosticConclusion);
+    const patientDetails =
+      body.patientDetails && typeof body.patientDetails === "object" ? body.patientDetails : {};
+    const ratingsAssigned =
+      body.ratingsAssigned && typeof body.ratingsAssigned === "object" ? body.ratingsAssigned : {};
 
-    const stream = await anthropic.messages.create({
-      model: MODELS.OPUS,
-      max_tokens: FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS,
-      stream: true,
-      system: [
-        {
-          type: "text",
-          text: FUNCTIONAL_IMPACT_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [{ role: "user", content: userPrompt }],
-    });
-
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      async start(controller) {
-        let assembled = "";
-        try {
-          for await (const event of stream) {
-            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-              assembled += event.delta.text;
-              const data = JSON.stringify({ delta: event.delta.text });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-            }
-            if (event.type === "message_delta" && event.delta.stop_reason) {
-              const data = JSON.stringify({ done: true, stop_reason: event.delta.stop_reason });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-            }
-            if (event.type === "message_stop") {
-              controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-            }
-          }
-          console.log(
-            `FUNCTIONAL_IMPACT: model response received: ${assembled.length} chars`,
-            preview(assembled)
-          );
-          console.log(
-            `FUNCTIONAL_IMPACT: returning to renderer: ${assembled.length} chars`,
-            preview(assembled)
-          );
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-          controller.close();
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Stream error";
-          console.log(
-            `FUNCTIONAL_IMPACT: model response received: ${assembled.length} chars`,
-            preview(assembled)
-          );
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`));
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
+    return createTexlexStreamResponseWithVoiceCritic({
+      req,
+      logLabel: "Functional Impact",
+      criticSectionType: "functional_impact",
+      maxTokens: FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS,
+      systemPrompt: FUNCTIONAL_IMPACT_SYSTEM_PROMPT,
+      userPrompt,
+      caseContext: {
+        patientDetails,
+        rawNotes: body.rawNotes,
+        diagnosticConclusion: conclusion,
+        ratingsAssigned,
       },
     });
   } catch (error) {

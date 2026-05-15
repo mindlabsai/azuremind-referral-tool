@@ -106,8 +106,8 @@ export const TEXLEX_SECTION_MODELS = {
   educationalHistory: "Claude Opus 4.7",
   emotionalBehaviouralSensory: "Claude Opus 4.7",
   collateralSummary: "Claude Sonnet 4.6",
-  dsmCriterion: "Claude Opus 4.7",
-  functionalImpactSummary: { generation: "Claude Opus 4.7", refinement: "Claude Opus 4.7" },
+  functionalImpactSummary: { generation: "Claude Sonnet 4.6", refinement: "Claude Opus 4.7" },
   clinicalFormulation: { generation: "Claude Sonnet 4.6", refinement: "Claude Opus 4.7" },
-  recommendations: { generation: "Claude Opus 4.7", refinement: "Claude Opus 4.7" },
+  recommendations: { generation: "Claude Sonnet 4.6", refinement: "Claude Opus 4.7" },
+  dsmCriterion: { generation: "Claude Sonnet 4.6", refinement: "Claude Opus 4.7" },
 } as const;

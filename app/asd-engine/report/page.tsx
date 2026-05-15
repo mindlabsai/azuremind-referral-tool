@@ -462,9 +462,9 @@ function buildFormulationPatientDetailsForCritic(
   };
 }
 
-type FormulationVoiceBadgeKind = "criticApplied" | "fallbackToDraft" | "criticDisabled" | null;
+type VoiceCriticBadgeKind = "criticApplied" | "fallbackToDraft" | "criticDisabled";
 
-type FormulationStreamMeta = {
+type VoiceCriticStreamMeta = {
   criticApplied: boolean;
   fallbackToDraft: boolean;
   criticDisabled: boolean;
@@ -472,15 +472,59 @@ type FormulationStreamMeta = {
   truncationWarning: string | null;
 };
 
-async function streamFormulationSse(
+function applyVoiceCriticBadgeFromMeta(
+  meta: VoiceCriticStreamMeta,
+  setBadge: (kind: VoiceCriticBadgeKind | null) => void
+): void {
+  if (meta.criticDisabled) setBadge("criticDisabled");
+  else if (meta.criticApplied && !meta.fallbackToDraft) setBadge("criticApplied");
+  else if (meta.fallbackToDraft) setBadge("fallbackToDraft");
+  else setBadge(null);
+}
+
+function VoiceCriticBadge({ kind }: { kind: VoiceCriticBadgeKind | null }) {
+  if (!kind) return null;
+  if (kind === "criticApplied") {
+    return (
+      <span className="w-full basis-full text-xs text-muted-foreground">
+        Generation: Claude Sonnet 4.6 → Voice critic: Claude Opus 4.7
+      </span>
+    );
+  }
+  if (kind === "fallbackToDraft") {
+    return (
+      <span className="w-full basis-full text-xs text-muted-foreground">
+        Generation: Claude Sonnet 4.6 (voice critic unavailable — single pass)
+      </span>
+    );
+  }
+  return (
+    <span className="w-full basis-full text-xs text-muted-foreground">
+      Generation: Claude Sonnet 4.6
+    </span>
+  );
+}
+
+function logVoiceCriticComplete(sectionLabel: string, meta: VoiceCriticStreamMeta): void {
+  console.info(`[Texlex] ${sectionLabel} generation complete`, {
+    criticApplied: meta.criticApplied,
+    fallbackToDraft: meta.fallbackToDraft,
+    criticDisabled: meta.criticDisabled,
+    model: meta.model,
+    truncationWarning: meta.truncationWarning,
+  });
+}
+
+async function streamTexlexWithCriticSse(
+  url: string,
   body: unknown,
   onDelta: (text: string) => void,
-  onComplete: (meta: FormulationStreamMeta, finalContent: string) => void,
+  onComplete: (meta: VoiceCriticStreamMeta, finalContent: string) => void,
   abortSignal: AbortSignal
 ): Promise<string> {
   let assembled = "";
   let finalContent = "";
-  const response = await fetch("/api/generate/formulation", {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -502,7 +546,7 @@ async function streamFormulationSse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let meta: FormulationStreamMeta | null = null;
+  let meta: VoiceCriticStreamMeta | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -778,11 +822,34 @@ async function streamTexlexSse(
   return assembled;
 }
 
+function buildVoiceCriticPayloadExtras(
+  patientDetails: PatientDetails,
+  criteriaState: Record<CriterionCode, CriterionState>,
+  diagnosticConclusion: TexlexDiagnosticConclusion,
+  criterionCode?: CriterionCode
+): {
+  patientDetails: Record<string, string>;
+  diagnosticConclusion: TexlexDiagnosticConclusion;
+  ratingsAssigned: Record<string, number | null>;
+} {
+  const chronologicalAge = computeChronologicalAge(patientDetails.dob);
+  const ratingsAssigned = criterionCode
+    ? { [criterionCode]: criteriaState[criterionCode]?.rating ?? null }
+    : buildRatingsAssignedSnapshot(criteriaState);
+  return {
+    patientDetails: buildFormulationPatientDetailsForCritic(patientDetails, chronologicalAge),
+    diagnosticConclusion,
+    ratingsAssigned,
+  };
+}
+
 function buildCriterionApiBody(
   code: CriterionCode,
   patientDetails: PatientDetails,
   rawNotesForModel: string,
-  markersText: string
+  markersText: string,
+  criteriaState: Record<CriterionCode, CriterionState>,
+  diagnosticConclusion: TexlexDiagnosticConclusion
 ): Record<string, unknown> {
   const base = {
     clientName: patientDetails.clientName,
@@ -790,6 +857,7 @@ function buildCriterionApiBody(
     chronologicalAge: computeChronologicalAge(patientDetails.dob),
     yearLevel: patientDetails.yearLevel,
     rawNotes: rawNotesForModel,
+    ...buildVoiceCriticPayloadExtras(patientDetails, criteriaState, diagnosticConclusion, code),
   };
   switch (code) {
     case "A1":
@@ -1585,7 +1653,9 @@ function CriterionCard({
           <div>
             <h3 className="text-base font-semibold">{criterion.title}</h3>
             <p className="mt-2 text-[15px] leading-[1.55] text-muted-foreground">{criterion.description}</p>
-            <SectionModelHint modelName={TEXLEX_SECTION_MODELS.dsmCriterion} />
+            <SectionModelHint
+              modelName={`${TEXLEX_SECTION_MODELS.dsmCriterion.generation} · ${TEXLEX_SECTION_MODELS.dsmCriterion.refinement}`}
+            />
           </div>
           <Badge variant="secondary" className="shrink-0">
             {c.markerCount} markers
@@ -1642,9 +1712,10 @@ function CriterionCard({
           />
           <SectionCharWordCount text={c.indicators} />
         </label>
-        <GenerateRegenerateRow
+        <GenerateRegenerateRowDual
           sectionId={`criterion-${code}`}
-          modelName={TEXLEX_SECTION_MODELS.dsmCriterion}
+          generationModel={TEXLEX_SECTION_MODELS.dsmCriterion.generation}
+          refinementModel={TEXLEX_SECTION_MODELS.dsmCriterion.refinement}
           onGenerate={criterionGenerate?.onGenerate}
           onRegenerate={criterionGenerate?.onRegenerate}
           generateDisabled={criterionGenerate?.generateDisabled}
@@ -1702,10 +1773,25 @@ export default function TexlexReportPage() {
 
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [sectionGenErrors, setSectionGenErrors] = useState<Partial<Record<string, string>>>({});
-  const [formulationVoiceBadge, setFormulationVoiceBadge] =
-    useState<FormulationVoiceBadgeKind>(null);
+  const [voiceCriticBadgeBySection, setVoiceCriticBadgeBySection] = useState<
+    Partial<Record<string, VoiceCriticBadgeKind>>
+  >({});
   const [formulationTruncationWarning, setFormulationTruncationWarning] = useState<string | null>(
     null
+  );
+
+  const setSectionVoiceCriticBadge = useCallback(
+    (sectionId: string, meta: VoiceCriticStreamMeta) => {
+      setVoiceCriticBadgeBySection((prev) => {
+        const next = { ...prev };
+        if (meta.criticDisabled) next[sectionId] = "criticDisabled";
+        else if (meta.criticApplied && !meta.fallbackToDraft) next[sectionId] = "criticApplied";
+        else if (meta.fallbackToDraft) next[sectionId] = "fallbackToDraft";
+        else delete next[sectionId];
+        return next;
+      });
+    },
+    []
   );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
@@ -1768,13 +1854,26 @@ export default function TexlexReportPage() {
       });
 
       const markersText = buildCriterionMarkersPayload(pipeline.markers, code);
-      const body = buildCriterionApiBody(code, patientDetails, effectiveRaw, markersText);
+      const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+      const body = buildCriterionApiBody(
+        code,
+        patientDetails,
+        effectiveRaw,
+        markersText,
+        criteria,
+        effectiveConclusion
+      );
 
       setCriteria((prev) => ({ ...prev, [code]: { ...prev[code], indicators: "" } }));
+      setVoiceCriticBadgeBySection((prev) => {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      });
 
       let generated = "";
       try {
-        generated = await streamTexlexSse(
+        generated = await streamTexlexWithCriticSse(
           `/api/generate/${code.toLowerCase()}`,
           body,
           (delta) => {
@@ -1782,6 +1881,14 @@ export default function TexlexReportPage() {
               ...prev,
               [code]: { ...prev[code], indicators: prev[code].indicators + delta },
             }));
+          },
+          (meta, finalContent) => {
+            setCriteria((prev) => ({
+              ...prev,
+              [code]: { ...prev[code], indicators: finalContent },
+            }));
+            setSectionVoiceCriticBadge(sectionId, meta);
+            logVoiceCriticComplete(`Criterion ${code}`, meta);
           },
           controller.signal
         );
@@ -1834,7 +1941,7 @@ export default function TexlexReportPage() {
       }
       return generated;
     },
-    [criteria, diagnosticConclusion, patientDetails, pipeline.markers, rawNotes]
+    [criteria, diagnosticConclusion, patientDetails, pipeline.markers, rawNotes, setSectionVoiceCriticBadge]
   );
 
   const handleGenerateCriterion = useCallback(
@@ -2132,13 +2239,20 @@ export default function TexlexReportPage() {
         return n;
       });
       setFunctionalImpactSummary("");
+      setVoiceCriticBadgeBySection((prev) => {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      });
       const criteriaState = buildCriteriaStateBlock(source.criteria);
       const backgroundText = buildBackgroundTextBlock(source.background);
+      const effectiveConclusion = resolveTexlexDiagnosticConclusion(source.diagnosticConclusion);
+      const chronologicalAge = computeChronologicalAge(patientDetails.dob);
       const payload = {
         clientName: patientDetails.clientName,
         clientFirstName: clientFirstName(patientDetails.clientName),
         pronouns: patientDetails.pronouns,
-        chronologicalAge: computeChronologicalAge(patientDetails.dob),
+        chronologicalAge,
         yearLevel: patientDetails.yearLevel,
         school: patientDetails.school,
         rawNotes: masterInput,
@@ -2147,6 +2261,7 @@ export default function TexlexReportPage() {
         criteriaState,
         collateralSummary: source.collateralSummary.trim(),
         clinicalFormulation: source.clinicalFormulation.trim(),
+        ...buildVoiceCriticPayloadExtras(patientDetails, source.criteria, effectiveConclusion),
       };
       const payloadPreview = JSON.stringify(payload);
       console.log(
@@ -2154,10 +2269,15 @@ export default function TexlexReportPage() {
         payloadPreview.slice(0, 500)
       );
       try {
-        const generated = await streamTexlexSse(
+        const generated = await streamTexlexWithCriticSse(
           "/api/generate/functional-impact",
           payload,
           (delta) => setFunctionalImpactSummary((prev) => prev + delta),
+          (meta, finalContent) => {
+            setFunctionalImpactSummary(finalContent);
+            setSectionVoiceCriticBadge(sectionId, meta);
+            logVoiceCriticComplete("Functional Impact", meta);
+          },
           controller.signal
         );
         console.log(
@@ -2194,7 +2314,17 @@ export default function TexlexReportPage() {
         }
       }
     },
-    [background, clinicalFormulation, collateralSummary, criteria, patientDetails, presentingConcerns, rawNotes]
+    [
+      background,
+      clinicalFormulation,
+      collateralSummary,
+      criteria,
+      diagnosticConclusion,
+      patientDetails,
+      presentingConcerns,
+      rawNotes,
+      setSectionVoiceCriticBadge,
+    ]
   );
 
   const handleGenerateFunctionalImpact = useCallback(() => {
@@ -2249,12 +2379,17 @@ export default function TexlexReportPage() {
       return n;
     });
     setClinicalFormulation("");
-    setFormulationVoiceBadge(null);
+    setVoiceCriticBadgeBySection((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
     setFormulationTruncationWarning(null);
     const criteriaState = buildCriteriaStateBlock(source.criteria);
     const chronologicalAge = computeChronologicalAge(patientDetails.dob);
     try {
-      const generated = await streamFormulationSse(
+      const generated = await streamTexlexWithCriticSse(
+        "/api/generate/formulation",
         {
           clientName: patientDetails.clientName,
           pronouns: patientDetails.pronouns,
@@ -2276,17 +2411,9 @@ export default function TexlexReportPage() {
         (delta) => setClinicalFormulation((prev) => prev + delta),
         (meta, finalContent) => {
           setClinicalFormulation(finalContent);
-          if (meta.criticDisabled) setFormulationVoiceBadge("criticDisabled");
-          else if (meta.criticApplied && !meta.fallbackToDraft) setFormulationVoiceBadge("criticApplied");
-          else if (meta.fallbackToDraft) setFormulationVoiceBadge("fallbackToDraft");
+          setSectionVoiceCriticBadge(sectionId, meta);
           setFormulationTruncationWarning(meta.truncationWarning);
-          console.info("[Texlex] Formulation generation complete", {
-            criticApplied: meta.criticApplied,
-            fallbackToDraft: meta.fallbackToDraft,
-            criticDisabled: meta.criticDisabled,
-            model: meta.model,
-            truncationWarning: meta.truncationWarning,
-          });
+          logVoiceCriticComplete("Formulation", meta);
         },
         controller.signal
       );
@@ -2309,7 +2436,18 @@ export default function TexlexReportPage() {
       }
     }
   },
-    [background, collateralSummary, criteria, diagnosticConclusion, functionalImpactSummary, patientDetails, pipeline.levelOfSupport, presentingConcerns, rawNotes]
+    [
+      background,
+      collateralSummary,
+      criteria,
+      diagnosticConclusion,
+      functionalImpactSummary,
+      patientDetails,
+      pipeline.levelOfSupport,
+      presentingConcerns,
+      rawNotes,
+      setSectionVoiceCriticBadge,
+    ]
   );
 
   const handleGenerateFormulation = useCallback(() => {
@@ -2347,14 +2485,21 @@ export default function TexlexReportPage() {
       return n;
     });
     setRecommendations("");
+    setVoiceCriticBadgeBySection((prev) => {
+      const next = { ...prev };
+      delete next[sectionId];
+      return next;
+    });
     const criteriaState = buildCriteriaStateBlock(criteria);
+    const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+    const chronologicalAge = computeChronologicalAge(patientDetails.dob);
     try {
-      await streamTexlexSse(
+      await streamTexlexWithCriticSse(
         "/api/generate/recommendations",
         {
           clientName: patientDetails.clientName,
           pronouns: patientDetails.pronouns,
-          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          chronologicalAge,
           yearLevel: patientDetails.yearLevel,
           referringPractitioner: patientDetails.referringPractitioner,
           referringPractitionerType: patientDetails.referringPractitionerType,
@@ -2363,8 +2508,14 @@ export default function TexlexReportPage() {
           criteriaState,
           formulation: clinicalFormulation.trim(),
           functionalImpactSummary: functionalImpactSummary.trim(),
+          ...buildVoiceCriticPayloadExtras(patientDetails, criteria, effectiveConclusion),
         },
         (delta) => setRecommendations((prev) => prev + delta),
+        (meta, finalContent) => {
+          setRecommendations(finalContent);
+          setSectionVoiceCriticBadge(sectionId, meta);
+          logVoiceCriticComplete("Recommendations", meta);
+        },
         controller.signal
       );
     } catch (err) {
@@ -2383,7 +2534,15 @@ export default function TexlexReportPage() {
         streamAbortRef.current = null;
       }
     }
-  }, [clinicalFormulation, criteria, functionalImpactSummary, patientDetails, rawNotes]);
+  }, [
+    clinicalFormulation,
+    criteria,
+    diagnosticConclusion,
+    functionalImpactSummary,
+    patientDetails,
+    rawNotes,
+    setSectionVoiceCriticBadge,
+  ]);
 
   const handleGenerateRecommendations = useCallback(() => {
     const sectionId = "recommendations";
@@ -2514,6 +2673,7 @@ export default function TexlexReportPage() {
         ) : undefined,
         bottomSlot: (
           <>
+            <VoiceCriticBadge kind={voiceCriticBadgeBySection[sid] ?? null} />
             {sectionGenErrors[sid] ? (
               <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
                 {sectionGenErrors[sid]}
@@ -2529,7 +2689,14 @@ export default function TexlexReportPage() {
         ),
       };
     },
-    [a1MatrixRow, generatingSectionId, handleGenerateCriterion, handleRegenerateCriterion, sectionGenErrors]
+    [
+      a1MatrixRow,
+      generatingSectionId,
+      handleGenerateCriterion,
+      handleRegenerateCriterion,
+      sectionGenErrors,
+      voiceCriticBadgeBySection,
+    ]
   );
 
   useEffect(() => {
@@ -3858,11 +4025,14 @@ export default function TexlexReportPage() {
                       ) : undefined
                     }
                     bottomSlot={
-                      sectionGenErrors["functional-impact-summary"] ? (
-                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
-                          {sectionGenErrors["functional-impact-summary"]}
-                        </p>
-                      ) : null
+                      <>
+                        <VoiceCriticBadge kind={voiceCriticBadgeBySection["functional-impact-summary"] ?? null} />
+                        {sectionGenErrors["functional-impact-summary"] ? (
+                          <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                            {sectionGenErrors["functional-impact-summary"]}
+                          </p>
+                        ) : null}
+                      </>
                     }
                   />
                   <div className="mt-4 whitespace-pre-wrap rounded-lg border border-border/60 bg-muted/20 p-4 text-[15px] leading-[1.55] text-muted-foreground">
@@ -3923,19 +4093,7 @@ export default function TexlexReportPage() {
                     }
                     bottomSlot={
                       <>
-                        {formulationVoiceBadge === "criticApplied" ? (
-                          <span className="w-full basis-full text-xs text-muted-foreground">
-                            Generation: Claude Sonnet 4.6 → Voice critic: Claude Opus 4.7
-                          </span>
-                        ) : formulationVoiceBadge === "fallbackToDraft" ? (
-                          <span className="w-full basis-full text-xs text-muted-foreground">
-                            Generation: Claude Sonnet 4.6 (voice critic unavailable — single pass)
-                          </span>
-                        ) : formulationVoiceBadge === "criticDisabled" ? (
-                          <span className="w-full basis-full text-xs text-muted-foreground">
-                            Generation: Claude Sonnet 4.6
-                          </span>
-                        ) : null}
+                        <VoiceCriticBadge kind={voiceCriticBadgeBySection["clinical-formulation"] ?? null} />
                         {formulationTruncationWarning ? (
                           <p className="mt-1 w-full basis-full text-xs text-muted-foreground" role="status">
                             {formulationTruncationWarning}
@@ -3988,11 +4146,14 @@ export default function TexlexReportPage() {
                       ) : undefined
                     }
                     bottomSlot={
-                      sectionGenErrors["recommendations"] ? (
-                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
-                          {sectionGenErrors["recommendations"]}
-                        </p>
-                      ) : null
+                      <>
+                        <VoiceCriticBadge kind={voiceCriticBadgeBySection["recommendations"] ?? null} />
+                        {sectionGenErrors["recommendations"] ? (
+                          <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                            {sectionGenErrors["recommendations"]}
+                          </p>
+                        ) : null}
+                      </>
                     }
                   />
                 </CardContent>
