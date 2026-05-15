@@ -12,12 +12,72 @@ import { assessFormulationCompleteness } from "@/lib/texlex-formulation-complete
 /** PASS 10w-3: long clinical formulation (multi-paragraph); keep isolated from other generators' budgets. */
 const FORMULATION_MAX_OUTPUT_TOKENS = 4096;
 
+const FORMULATION_PASS1_MODEL = MODELS.SONNET;
+const FORMULATION_CRITIC_MODEL = "claude-opus-4-7";
+
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
+
+type CriticApiResponse = {
+  rewrittenContent: string;
+  modelUsed: string;
+  criticPassed: boolean;
+  fallbackToDraft: boolean;
+  error: string | null;
+};
+
+type FormulationRequestBody = Partial<FormulationVariables> & {
+  patientDetails?: Record<string, unknown>;
+  ratingsAssigned?: Record<string, unknown>;
+};
+
+function isVoiceCriticEnabled(): boolean {
+  return process.env.TEXLEX_VOICE_CRITIC_ENABLED !== "false";
+}
+
+function internalApiOrigin(req: NextRequest): string {
+  if (process.env.TEXLEX_INTERNAL_BASE_URL) return process.env.TEXLEX_INTERNAL_BASE_URL.replace(/\/$/, "");
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return req.nextUrl.origin;
+}
+
+async function invokeFormulationCritic(
+  req: NextRequest,
+  pass1Draft: string,
+  caseContext: {
+    patientDetails: Record<string, unknown>;
+    rawNotes: string;
+    diagnosticConclusion: string;
+    ratingsAssigned: Record<string, unknown>;
+  }
+): Promise<CriticApiResponse> {
+  const origin = internalApiOrigin(req);
+  const res = await fetch(`${origin}/api/generate/critic`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sectionType: "formulation",
+      draftContent: pass1Draft,
+      caseContext,
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 400);
+    console.error("[Texlex] Formulation critic HTTP error:", res.status, detail);
+    return {
+      rewrittenContent: pass1Draft,
+      modelUsed: FORMULATION_CRITIC_MODEL,
+      criticPassed: false,
+      fallbackToDraft: true,
+      error: `Critic API call failed: HTTP ${res.status}`,
+    };
+  }
+  return (await res.json()) as CriticApiResponse;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Partial<FormulationVariables>;
+    const body = (await req.json()) as FormulationRequestBody;
 
     if (!body.rawNotes || body.rawNotes.trim().length < 20) {
       return new Response(
@@ -65,9 +125,13 @@ export async function POST(req: NextRequest) {
     };
 
     const userPrompt = buildFormulationUserPrompt(vars);
+    const patientDetails =
+      body.patientDetails && typeof body.patientDetails === "object" ? body.patientDetails : {};
+    const ratingsAssigned =
+      body.ratingsAssigned && typeof body.ratingsAssigned === "object" ? body.ratingsAssigned : {};
 
     const stream = await anthropic.messages.create({
-      model: MODELS.OPUS,
+      model: FORMULATION_PASS1_MODEL,
       max_tokens: FORMULATION_MAX_OUTPUT_TOKENS,
       stream: true,
       system: [
@@ -83,12 +147,12 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
-        let assembled = "";
+        let pass1Draft = "";
         let stopReason: string | undefined;
         try {
           for await (const event of stream) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-              assembled += event.delta.text;
+              pass1Draft += event.delta.text;
               const data = JSON.stringify({ delta: event.delta.text });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
@@ -97,12 +161,60 @@ export async function POST(req: NextRequest) {
               const data = JSON.stringify({ done: true, stop_reason: event.delta.stop_reason });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
-            // Do not send [DONE] here — wait until after completeness check so clients can read truncation_warning first.
           }
-          const { truncation_warning } = assessFormulationCompleteness(assembled, stopReason);
-          if (truncation_warning) {
+
+          let finalContent = pass1Draft;
+          let criticApplied = false;
+          let fallbackToDraft = false;
+          let criticDisabled = false;
+          let model: string = FORMULATION_PASS1_MODEL;
+
+          if (!isVoiceCriticEnabled()) {
+            criticDisabled = true;
+            console.info("[Texlex] Formulation voice critic disabled (TEXLEX_VOICE_CRITIC_ENABLED=false)");
+          } else {
+            console.info("[Texlex] Formulation Pass 1 complete; invoking voice critic (Opus)…");
+            const critic = await invokeFormulationCritic(req, pass1Draft, {
+              patientDetails,
+              rawNotes: vars.rawNotes,
+              diagnosticConclusion: conclusion,
+              ratingsAssigned,
+            });
+            if (critic.criticPassed && !critic.fallbackToDraft) {
+              finalContent = critic.rewrittenContent;
+              criticApplied = true;
+              model = FORMULATION_CRITIC_MODEL;
+              console.info("[Texlex] Formulation voice critic applied successfully.");
+            } else {
+              fallbackToDraft = true;
+              console.warn(
+                "[Texlex] Formulation voice critic fallback to Pass 1 draft:",
+                critic.error ?? "criticPassed=false or fallbackToDraft=true"
+              );
+            }
+          }
+
+          const { truncation_warning: truncationWarning } = assessFormulationCompleteness(
+            finalContent,
+            stopReason
+          );
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                content: finalContent,
+                replaceContent: finalContent !== pass1Draft,
+                criticApplied,
+                fallbackToDraft,
+                criticDisabled,
+                model,
+                truncationWarning: truncationWarning ?? null,
+              })}\n\n`
+            )
+          );
+          if (truncationWarning) {
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ truncation_warning })}\n\n`)
+              encoder.encode(`data: ${JSON.stringify({ truncation_warning: truncationWarning })}\n\n`)
             );
           }
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));

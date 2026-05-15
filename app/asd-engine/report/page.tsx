@@ -439,6 +439,131 @@ function buildCriteriaStateBlock(criteriaState: Record<CriterionCode, CriterionS
   return parts.join("\n\n");
 }
 
+function buildRatingsAssignedSnapshot(
+  criteriaState: Record<CriterionCode, CriterionState>
+): Record<string, number | null> {
+  return Object.fromEntries(
+    CRITERION_CODES.map((code) => [code, criteriaState[code]?.rating ?? null])
+  );
+}
+
+function buildFormulationPatientDetailsForCritic(
+  patientDetails: PatientDetails,
+  chronologicalAge: string
+): Record<string, string> {
+  return {
+    clientName: patientDetails.clientName,
+    pronouns: patientDetails.pronouns,
+    chronologicalAge,
+    yearLevel: patientDetails.yearLevel,
+    school: patientDetails.school,
+    referringPractitioner: patientDetails.referringPractitioner,
+    referringPractitionerType: patientDetails.referringPractitionerType,
+  };
+}
+
+type FormulationVoiceBadgeKind = "criticApplied" | "fallbackToDraft" | "criticDisabled" | null;
+
+type FormulationStreamMeta = {
+  criticApplied: boolean;
+  fallbackToDraft: boolean;
+  criticDisabled: boolean;
+  model: string;
+  truncationWarning: string | null;
+};
+
+async function streamFormulationSse(
+  body: unknown,
+  onDelta: (text: string) => void,
+  onComplete: (meta: FormulationStreamMeta, finalContent: string) => void,
+  abortSignal: AbortSignal
+): Promise<string> {
+  let assembled = "";
+  let finalContent = "";
+  const response = await fetch("/api/generate/formulation", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: abortSignal,
+  });
+
+  if (!response.ok || !response.body) {
+    const errorText = await response.text();
+    let detail = errorText.slice(0, 800);
+    try {
+      const j = JSON.parse(errorText) as { error?: string };
+      if (typeof j.error === "string") detail = j.error;
+    } catch {
+      /* keep raw body */
+    }
+    throw new Error(`Generation failed: ${detail}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let meta: FormulationStreamMeta | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") {
+        const content = finalContent || assembled;
+        if (meta) onComplete(meta, content);
+        return content;
+      }
+      try {
+        const parsed = JSON.parse(data) as {
+          delta?: string;
+          error?: string;
+          content?: string;
+          replaceContent?: boolean;
+          criticApplied?: boolean;
+          fallbackToDraft?: boolean;
+          criticDisabled?: boolean;
+          model?: string;
+          truncationWarning?: string | null;
+          truncation_warning?: string;
+        };
+        if (parsed.error) throw new Error(parsed.error);
+        if (typeof parsed.delta === "string" && parsed.delta.length) {
+          assembled += parsed.delta;
+          onDelta(parsed.delta);
+        }
+        if (typeof parsed.content === "string") {
+          finalContent = parsed.content;
+          meta = {
+            criticApplied: Boolean(parsed.criticApplied),
+            fallbackToDraft: Boolean(parsed.fallbackToDraft),
+            criticDisabled: Boolean(parsed.criticDisabled),
+            model: typeof parsed.model === "string" ? parsed.model : "claude-sonnet-4-6",
+            truncationWarning:
+              typeof parsed.truncationWarning === "string"
+                ? parsed.truncationWarning
+                : typeof parsed.truncation_warning === "string"
+                  ? parsed.truncation_warning
+                  : null,
+          };
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) continue;
+        throw e;
+      }
+    }
+  }
+  const content = finalContent || assembled;
+  if (meta) onComplete(meta, content);
+  return content;
+}
+
 function criteriaSnapshotForFormulationLock(
   criteriaState: Record<CriterionCode, CriterionState>
 ): Record<string, FormulationCriterionSnapshot> {
@@ -1577,6 +1702,11 @@ export default function TexlexReportPage() {
 
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [sectionGenErrors, setSectionGenErrors] = useState<Partial<Record<string, string>>>({});
+  const [formulationVoiceBadge, setFormulationVoiceBadge] =
+    useState<FormulationVoiceBadgeKind>(null);
+  const [formulationTruncationWarning, setFormulationTruncationWarning] = useState<string | null>(
+    null
+  );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
 
@@ -2119,14 +2249,16 @@ export default function TexlexReportPage() {
       return n;
     });
     setClinicalFormulation("");
+    setFormulationVoiceBadge(null);
+    setFormulationTruncationWarning(null);
     const criteriaState = buildCriteriaStateBlock(source.criteria);
+    const chronologicalAge = computeChronologicalAge(patientDetails.dob);
     try {
-      const generated = await streamTexlexSse(
-        "/api/generate/formulation",
+      const generated = await streamFormulationSse(
         {
           clientName: patientDetails.clientName,
           pronouns: patientDetails.pronouns,
-          chronologicalAge: computeChronologicalAge(patientDetails.dob),
+          chronologicalAge,
           yearLevel: patientDetails.yearLevel,
           referringPractitioner: patientDetails.referringPractitioner,
           referringPractitionerType: patientDetails.referringPractitionerType,
@@ -2138,8 +2270,24 @@ export default function TexlexReportPage() {
           diagnosticConclusion: effectiveConclusion,
           lockedFormulationOpening: lockedOpening,
           overallLevel: pipeline.levelOfSupport?.overallLevel ?? null,
+          patientDetails: buildFormulationPatientDetailsForCritic(patientDetails, chronologicalAge),
+          ratingsAssigned: buildRatingsAssignedSnapshot(source.criteria),
         },
         (delta) => setClinicalFormulation((prev) => prev + delta),
+        (meta, finalContent) => {
+          setClinicalFormulation(finalContent);
+          if (meta.criticDisabled) setFormulationVoiceBadge("criticDisabled");
+          else if (meta.criticApplied && !meta.fallbackToDraft) setFormulationVoiceBadge("criticApplied");
+          else if (meta.fallbackToDraft) setFormulationVoiceBadge("fallbackToDraft");
+          setFormulationTruncationWarning(meta.truncationWarning);
+          console.info("[Texlex] Formulation generation complete", {
+            criticApplied: meta.criticApplied,
+            fallbackToDraft: meta.fallbackToDraft,
+            criticDisabled: meta.criticDisabled,
+            model: meta.model,
+            truncationWarning: meta.truncationWarning,
+          });
+        },
         controller.signal
       );
       return generated;
@@ -3774,11 +3922,31 @@ export default function TexlexReportPage() {
                       ) : undefined
                     }
                     bottomSlot={
-                      sectionGenErrors["clinical-formulation"] ? (
-                        <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
-                          {sectionGenErrors["clinical-formulation"]}
-                        </p>
-                      ) : null
+                      <>
+                        {formulationVoiceBadge === "criticApplied" ? (
+                          <span className="w-full basis-full text-xs text-muted-foreground">
+                            Generation: Claude Sonnet 4.6 → Voice critic: Claude Opus 4.7
+                          </span>
+                        ) : formulationVoiceBadge === "fallbackToDraft" ? (
+                          <span className="w-full basis-full text-xs text-muted-foreground">
+                            Generation: Claude Sonnet 4.6 (voice critic unavailable — single pass)
+                          </span>
+                        ) : formulationVoiceBadge === "criticDisabled" ? (
+                          <span className="w-full basis-full text-xs text-muted-foreground">
+                            Generation: Claude Sonnet 4.6
+                          </span>
+                        ) : null}
+                        {formulationTruncationWarning ? (
+                          <p className="mt-1 w-full basis-full text-xs text-muted-foreground" role="status">
+                            {formulationTruncationWarning}
+                          </p>
+                        ) : null}
+                        {sectionGenErrors["clinical-formulation"] ? (
+                          <p className="mt-2 w-full basis-full text-sm text-destructive" role="alert">
+                            {sectionGenErrors["clinical-formulation"]}
+                          </p>
+                        ) : null}
+                      </>
                     }
                   />
                 </CardContent>

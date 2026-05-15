@@ -1,9 +1,6 @@
 import { clientFirstName } from "@/app/asd-engine/report/pdf/utils";
 import type { TexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
-import {
-  CLINICAL_RECENCY_GATE_FORMULATION,
-  REFERRER_TYPE_HONESTY,
-} from "./clinical-recency-referrer-blocks";
+import { CLINICAL_RECENCY_GATE_FORMULATION } from "./clinical-recency-referrer-blocks";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
 
 const FORMULATION_CRITERION_CODES = ["A1", "A2", "A3", "B1", "B2", "B3", "B4"] as const;
@@ -97,9 +94,9 @@ Required components in order:
 4. Co-occurring conditions noted from raw notes (ADHD, language delay, anxiety, learning difficulties)
 - "[Client] additionally presents with [condition], with [appropriate specialist] review required to confirm diagnosis."
 
-5. Referral / next-step statement
-- Where this pathway requires developmental paediatric diagnostic confirmation, state that clearly — but do not claim the referring practitioner is a paediatrician unless patient details say so.
-- Loop communication of findings to the referring practitioner using the correct title from the Referrer Type field (see user-message rules). Formal diagnostic confirmation may involve paediatric or other specialist review as clinically appropriate.
+5. Clinical review and pathway statement (clinical only — no referring practitioner)
+- Where this pathway requires developmental paediatric or other specialist diagnostic confirmation, state that need in general clinical terms only.
+- Do NOT name the referring practitioner, infer their specialty, or state that findings have been or will be communicated to anyone. Do NOT describe who receives this report. That administrative content belongs exclusively in Recommendations.
 
 6. Closing integrative paragraph — REQUIRED final element
 Conclude the formulation with a single integrative paragraph (4–6 sentences) that:
@@ -159,7 +156,7 @@ export interface FormulationVariables {
 export function buildFormulationUserPrompt(vars: FormulationVariables): string {
   const locked = vars.lockedFormulationOpening?.trim();
   const lockBlock = locked
-    ? `CLINICAL LOCK — MANDATORY OPENING (verbatim first sentence)\n\nThe first sentence of your output MUST be exactly the following (character-for-character, including punctuation and spacing). Do not paraphrase.\n\n${locked}\n\nAfter this sentence, continue with the remainder of the Clinical Formulation per the structure rules (assessment context, criterion synthesis, co-occurring conditions, referral, integrative close). Do not contradict the locked opening anywhere in the section. Sentence 2 onward may include methodology and pathway context.\n\n---\n\n`
+    ? `CLINICAL LOCK — MANDATORY OPENING (verbatim first sentence)\n\nThe first sentence of your output MUST be exactly the following (character-for-character, including punctuation and spacing). Do not paraphrase.\n\n${locked}\n\nAfter this sentence, continue with the remainder of the Clinical Formulation per the structure rules (assessment context, criterion synthesis, co-occurring conditions, clinical review pathway, integrative close). Do not contradict the locked opening anywhere in the section. Sentence 2 onward may include methodology and pathway context. Do not mention the referring practitioner.\n\n---\n\n`
     : "";
 
   const freeOpeningInstruction = locked
@@ -187,8 +184,6 @@ Pronouns: ${vars.pronouns || "[not specified]"}
 Chronological age: ${vars.chronologicalAge || "[not specified]"}
 Year level: ${vars.yearLevel || "[not specified]"}
 Current school / early childhood setting (from intake): ${vars.school?.trim() || "[not specified]"}
-Referring practitioner name: ${vars.referringPractitioner || "[not specified]"}
-Referring practitioner type (use this for title — do not infer specialty): ${vars.referringPractitionerType?.trim() || "[not specified]"}
 
 # CRITERION OUTPUTS
 
@@ -209,10 +204,6 @@ ${vars.rawNotes || "[no raw notes provided]"}
 # EVIDENCE RECENCY (MANDATORY)
 
 ${CLINICAL_RECENCY_GATE_FORMULATION}
-
-# REFERRING PRACTITIONER (MANDATORY)
-
-${REFERRER_TYPE_HONESTY}
 
 # WRITE THE CLINICAL FORMULATION AND CONSENSUS OPINION NOW
 

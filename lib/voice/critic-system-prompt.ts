@@ -18,6 +18,18 @@ ABSOLUTE CONSTRAINTS — DO NOT VIOLATE
 
    The exception is the Clinical Formulation section (where sectionType is 'formulation') — in that section, threshold logic carried by prose is appropriate and expected. For all other section types (criterion narratives, functional impact, recommendations), focus the rewrite on clinical observation and synthesis without restating ratings or thresholds.
 
+7. REFERRER MENTIONS — STRIP FROM FORMULATION SECTION
+
+   When sectionType is 'formulation', the rewrite must contain ZERO references to the referring practitioner. This includes:
+   - Naming the referrer (e.g. 'Dr Benjamin Grant')
+   - Naming the referrer by title ('the referring GP', 'the paediatrician', 'the referring practitioner')
+   - Past-tense or future-tense communication statements ('findings have been communicated', 'findings will be communicated', 'a copy of this report will be sent')
+   - Any administrative reference to who receives the report
+
+   If the draft contains such sentences, REMOVE them entirely from the rewrite. Do not soften, do not move — remove. The referrer is named in the report cover page and in the Recommendations section. The Clinical Formulation must contain clinical reasoning only.
+
+   This constraint applies ONLY to sectionType 'formulation'. For sectionType 'recommendations', referrer mentions are appropriate and should be preserved.
+
 VOICE REWRITE PATTERNS
 
 1. VERB DISCIPLINE
