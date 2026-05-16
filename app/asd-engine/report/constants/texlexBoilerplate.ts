@@ -77,6 +77,21 @@ export const TEXLEX_CRITERIA = {
     description:
       "This criterion considers sensory sensitivities, sensory avoidance, sensory-seeking behaviours, unusual sensory interests, altered sensory responses, and differences in sensory processing or sensory regulation across environments.",
   },
+  C: {
+    title: "C. Onset in Early Developmental Period",
+    description:
+      "Symptoms must be present in the early developmental period (but may not become fully manifest until social demands exceed limited capacities, or may be masked by learned strategies in later life).",
+  },
+  D: {
+    title: "D. Clinically Significant Impairment",
+    description:
+      "Symptoms cause clinically significant impairment in social, occupational, or other important areas of current functioning.",
+  },
+  E: {
+    title: "E. Not Better Explained by Intellectual Disability or Global Developmental Delay",
+    description:
+      "These disturbances are not better explained by intellectual disability (intellectual developmental disorder) or global developmental delay.",
+  },
 } as const;
 
 export const TEXLEX_LIMITATIONS = `This report reflects the information available at the time of assessment and should be interpreted within the broader developmental and clinical context of the client.

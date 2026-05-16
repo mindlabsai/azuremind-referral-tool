@@ -174,7 +174,7 @@ function formatParentsCarers(parent1: string, parent2: string): string {
   return a || b;
 }
 
-const CRITERION_CODES = ["A1", "A2", "A3", "B1", "B2", "B3", "B4"] as const;
+const CRITERION_CODES = ["A1", "A2", "A3", "B1", "B2", "B3", "B4", "C", "D", "E"] as const;
 export type CriterionCode = (typeof CRITERION_CODES)[number];
 
 export type CriterionState = {
