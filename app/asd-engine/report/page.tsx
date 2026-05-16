@@ -885,43 +885,6 @@ function buildPdfRenderDraftFromSanitized(
   };
 }
 
-/** Diagnostics only: walk draft data and log numeric values that react-pdf may reject. */
-function logSuspiciousNumericValuesInCleanDraft(value: unknown, path = "cleanDraft"): void {
-  if (value === null || value === undefined) return;
-  const t = typeof value;
-  if (t === "number") {
-    const n = value as number;
-    if (!Number.isFinite(n)) {
-      console.warn(`[DIAG] suspicious number at ${path} =`, n);
-      return;
-    }
-    if (n < -1e15 || n > 1e15) {
-      console.warn(`[DIAG] suspicious number at ${path} =`, n);
-    }
-    return;
-  }
-  if (t === "bigint") {
-    console.warn(`[DIAG] bigint at ${path} =`, value);
-    return;
-  }
-  if (t === "string" || t === "boolean" || t === "symbol" || t === "function") return;
-  if (Array.isArray(value)) {
-    value.forEach((item, i) => {
-      logSuspiciousNumericValuesInCleanDraft(item, `${path}[${i}]`);
-    });
-    return;
-  }
-  if (t === "object") {
-    if (value instanceof Date) return;
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      logSuspiciousNumericValuesInCleanDraft(
-        (value as Record<string, unknown>)[key],
-        `${path}.${key}`
-      );
-    }
-  }
-}
-
 function cloneBackgroundState(background: BackgroundState): BackgroundState {
   return { ...background };
 }
@@ -3370,13 +3333,6 @@ export default function TexlexReportPage() {
       let signatureSrc = await resolveTexlexSignatureSrc();
       let blob: Blob;
       try {
-        try {
-          console.log("[DIAG] cleanDraft for PDF:", JSON.stringify(cleanDraft, null, 2));
-        } catch (stringifyErr) {
-          console.log("[DIAG] cleanDraft JSON.stringify failed:", stringifyErr);
-          console.log("[DIAG] cleanDraft (raw):", cleanDraft);
-        }
-        logSuspiciousNumericValuesInCleanDraft(cleanDraft);
         blob = await pdf(
           <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
         ).toBlob();
