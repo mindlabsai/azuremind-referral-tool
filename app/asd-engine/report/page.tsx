@@ -3050,8 +3050,10 @@ export default function TexlexReportPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    const activeKey = getStorageKey(cliniko?.patientId ?? null, patientDetails.clientName);
     try {
       localStorage.removeItem(STORAGE_KEY);
+      if (activeKey) localStorage.removeItem(activeKey);
     } catch {
       /* ignore */
     }
@@ -3088,7 +3090,7 @@ export default function TexlexReportPage() {
       setNewReportToast(false);
       newReportToastTimerRef.current = null;
     }, 2000);
-  }, []);
+  }, [cliniko, patientDetails]);
 
   const handleNewReportClick = useCallback(() => {
     if (pdfDownloading) return;
@@ -3114,9 +3116,14 @@ export default function TexlexReportPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    const activeKey = getStorageKey(
+      persistPayload.cliniko?.patientId ?? null,
+      persistPayload.patientDetails.clientName
+    );
+    if (!activeKey) return;
     try {
       const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(activeKey, JSON.stringify(payload));
       setLastSavedAt(payload.lastSaved);
       setSaveFailed(false);
       setSaveToast(true);
@@ -3230,11 +3237,22 @@ export default function TexlexReportPage() {
 
   useEffect(() => {
     if (!hydrated) return;
+    const activeKey = getStorageKey(
+      persistPayload.cliniko?.patientId ?? null,
+      persistPayload.patientDetails.clientName
+    );
+    if (!activeKey) {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      return;
+    }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       try {
         const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        localStorage.setItem(activeKey, JSON.stringify(payload));
         setLastSavedAt(payload.lastSaved);
         setSaveFailed(false);
       } catch {
