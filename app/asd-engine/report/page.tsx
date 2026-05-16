@@ -885,6 +885,43 @@ function buildPdfRenderDraftFromSanitized(
   };
 }
 
+/** Diagnostics only: walk draft data and log numeric values that react-pdf may reject. */
+function logSuspiciousNumericValuesInCleanDraft(value: unknown, path = "cleanDraft"): void {
+  if (value === null || value === undefined) return;
+  const t = typeof value;
+  if (t === "number") {
+    const n = value as number;
+    if (!Number.isFinite(n)) {
+      console.warn(`[DIAG] suspicious number at ${path} =`, n);
+      return;
+    }
+    if (n < -1e15 || n > 1e15) {
+      console.warn(`[DIAG] suspicious number at ${path} =`, n);
+    }
+    return;
+  }
+  if (t === "bigint") {
+    console.warn(`[DIAG] bigint at ${path} =`, value);
+    return;
+  }
+  if (t === "string" || t === "boolean" || t === "symbol" || t === "function") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => {
+      logSuspiciousNumericValuesInCleanDraft(item, `${path}[${i}]`);
+    });
+    return;
+  }
+  if (t === "object") {
+    if (value instanceof Date) return;
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      logSuspiciousNumericValuesInCleanDraft(
+        (value as Record<string, unknown>)[key],
+        `${path}.${key}`
+      );
+    }
+  }
+}
+
 function cloneBackgroundState(background: BackgroundState): BackgroundState {
   return { ...background };
 }
@@ -1532,6 +1569,52 @@ function initialCriteria(): Record<CriterionCode, CriterionState> {
   };
 }
 
+function omitLastSaved(p: TexlexReportDraftV1): Omit<TexlexReportDraftV1, "lastSaved"> {
+  const { lastSaved: _ls, ...rest } = p;
+  return rest;
+}
+
+/** Normalise a stored/partial draft to the same shape as `omitLastSaved(persistPayload)` for equality checks. */
+function buildComparableDraftFromStorage(data: Partial<TexlexReportDraftV1>): Omit<TexlexReportDraftV1, "lastSaved"> {
+  let criteriaMerged = initialCriteria();
+  if (data.criteria) {
+    for (const code of CRITERION_CODES) {
+      const patch = data.criteria[code];
+      if (patch) {
+        criteriaMerged = {
+          ...criteriaMerged,
+          [code]: normalizeCriterionState({ ...criteriaMerged[code], ...patch, code }),
+        };
+      }
+    }
+  }
+
+  return {
+    patientDetails: data.patientDetails ? migratePatientDetails(data.patientDetails) : emptyPatientDetails(),
+    cliniko: data.cliniko ?? null,
+    rawNotes: typeof data.rawNotes === "string" ? data.rawNotes : "",
+    collateralDocs: Array.isArray(data.collateralDocs)
+      ? serialiseCollateralDocsForStorage(migrateCollateralDocsFromStorage(data.collateralDocs))
+      : [],
+    criteria: criteriaMerged,
+    presentingConcernsRaw: typeof data.presentingConcernsRaw === "string" ? data.presentingConcernsRaw : "",
+    presentingConcerns: typeof data.presentingConcerns === "string" ? data.presentingConcerns : "",
+    background: data.background ? migrateBackgroundFromStorage(data.background) : emptyBackgroundState(),
+    collateralSummary: typeof data.collateralSummary === "string" ? data.collateralSummary : "",
+    functionalImpactSummary: typeof data.functionalImpactSummary === "string" ? data.functionalImpactSummary : "",
+    clinicalFormulation: typeof data.clinicalFormulation === "string" ? data.clinicalFormulation : "",
+    recommendations: typeof data.recommendations === "string" ? data.recommendations : "",
+    limitationsText:
+      typeof data.limitationsText === "string" ? data.limitationsText : TEXLEX_LIMITATIONS,
+    diagnosticConclusion:
+      data.diagnosticConclusion === "meets" ||
+      data.diagnosticConclusion === "does_not_meet" ||
+      data.diagnosticConclusion === "inconclusive"
+        ? data.diagnosticConclusion
+        : "inconclusive",
+  };
+}
+
 function defaultDraft(): Omit<TexlexReportDraftV1, "lastSaved"> {
   return {
     patientDetails: emptyPatientDetails(),
@@ -1891,6 +1974,12 @@ export default function TexlexReportPage() {
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [newReportToast, setNewReportToast] = useState(false);
   const [clinikoIntakeResetKey, setClinikoIntakeResetKey] = useState(0);
+  const [draftResumePrompt, setDraftResumePrompt] = useState<{
+    patientLabel: string;
+    lastSavedLabel: string;
+    stored: Partial<TexlexReportDraftV1>;
+    activeKey: string;
+  } | null>(null);
 
   const saveTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const saveToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
@@ -1923,6 +2012,36 @@ export default function TexlexReportPage() {
   );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
+  const processedDraftResumeKeyRef = useRef<string | null>(null);
+
+  const applyLocalDraftData = useCallback((data: Partial<TexlexReportDraftV1>) => {
+    if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
+    if (data.cliniko) setCliniko(data.cliniko);
+    if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
+    if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
+    if (data.criteria) {
+      setCriteria((c) => {
+        const next = { ...c };
+        for (const code of CRITERION_CODES) {
+          const patch = data.criteria?.[code];
+          if (patch) next[code] = normalizeCriterionState({ ...next[code], ...patch, code });
+        }
+        return next;
+      });
+    }
+    if (typeof data.presentingConcernsRaw === "string") setPresentingConcernsRaw(data.presentingConcernsRaw);
+    if (typeof data.presentingConcerns === "string") setPresentingConcerns(data.presentingConcerns);
+    if (data.background) setBackground(() => migrateBackgroundFromStorage(data.background));
+    if (typeof data.collateralSummary === "string") setCollateralSummary(data.collateralSummary);
+    if (typeof data.functionalImpactSummary === "string") setFunctionalImpactSummary(data.functionalImpactSummary);
+    if (typeof data.clinicalFormulation === "string") setClinicalFormulation(data.clinicalFormulation);
+    if (typeof data.recommendations === "string") setRecommendations(data.recommendations);
+    if (typeof data.limitationsText === "string") setLimitationsText(data.limitationsText);
+    if (data.diagnosticConclusion === "meets" || data.diagnosticConclusion === "does_not_meet" || data.diagnosticConclusion === "inconclusive") {
+      setDiagnosticConclusion(data.diagnosticConclusion);
+    }
+    if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
+  }, []);
 
   const a1MatrixRow = useMemo(() => {
     const m = pipeline.dsmMatrix as unknown;
@@ -2910,43 +3029,21 @@ export default function TexlexReportPage() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        setHydrated(true);
-        return;
+      const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
+        applyLocalDraftData(data);
+        try {
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
+        } catch {
+          /* ignore */
+        }
       }
-      const data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
-      if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
-      if (data.cliniko) setCliniko(data.cliniko);
-      if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
-      if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
-      if (data.criteria) {
-        setCriteria((c) => {
-          const next = { ...c };
-          for (const code of CRITERION_CODES) {
-            const patch = data.criteria?.[code];
-            if (patch) next[code] = normalizeCriterionState({ ...next[code], ...patch, code });
-          }
-          return next;
-        });
-      }
-      if (typeof data.presentingConcernsRaw === "string") setPresentingConcernsRaw(data.presentingConcernsRaw);
-      if (typeof data.presentingConcerns === "string") setPresentingConcerns(data.presentingConcerns);
-      if (data.background) setBackground(() => migrateBackgroundFromStorage(data.background));
-      if (typeof data.collateralSummary === "string") setCollateralSummary(data.collateralSummary);
-      if (typeof data.functionalImpactSummary === "string") setFunctionalImpactSummary(data.functionalImpactSummary);
-      if (typeof data.clinicalFormulation === "string") setClinicalFormulation(data.clinicalFormulation);
-      if (typeof data.recommendations === "string") setRecommendations(data.recommendations);
-      if (typeof data.limitationsText === "string") setLimitationsText(data.limitationsText);
-      if (data.diagnosticConclusion === "meets" || data.diagnosticConclusion === "does_not_meet" || data.diagnosticConclusion === "inconclusive") {
-        setDiagnosticConclusion(data.diagnosticConclusion);
-      }
-      if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
     } catch {
       /* ignore corrupt storage */
     }
     setHydrated(true);
-  }, []);
+  }, [applyLocalDraftData]);
 
   useEffect(() => {
     const conclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
@@ -3043,6 +3140,77 @@ export default function TexlexReportPage() {
     ]
   );
 
+  useEffect(() => {
+    if (!hydrated) return;
+    const activeKey = getStorageKey(cliniko?.patientId ?? null, patientDetails.clientName);
+    if (draftResumePrompt && draftResumePrompt.activeKey !== activeKey) {
+      setDraftResumePrompt(null);
+    }
+    if (!activeKey) {
+      processedDraftResumeKeyRef.current = null;
+      setDraftResumePrompt(null);
+      return;
+    }
+    if (draftResumePrompt?.activeKey === activeKey) return;
+    if (processedDraftResumeKeyRef.current === activeKey) return;
+
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(activeKey);
+    } catch {
+      return;
+    }
+    if (!raw) {
+      return;
+    }
+
+    let data: Partial<TexlexReportDraftV1>;
+    try {
+      data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
+    } catch {
+      processedDraftResumeKeyRef.current = activeKey;
+      return;
+    }
+
+    if (draftIsEffectivelyEmpty) {
+      applyLocalDraftData(data);
+      if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
+      processedDraftResumeKeyRef.current = activeKey;
+      return;
+    }
+
+    try {
+      const storedComparable = buildComparableDraftFromStorage(data);
+      const currentComparable = omitLastSaved(persistPayload);
+      if (JSON.stringify(storedComparable) === JSON.stringify(currentComparable)) {
+        processedDraftResumeKeyRef.current = activeKey;
+        return;
+      }
+    } catch {
+      processedDraftResumeKeyRef.current = activeKey;
+      return;
+    }
+
+    const patientLabel =
+      patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
+    const lastSavedLabel =
+      typeof data.lastSaved === "string" ? formatSavedAgo(data.lastSaved, Date.now()) : "unknown time";
+
+    setDraftResumePrompt((prev) => {
+      if (prev?.activeKey === activeKey) return prev;
+      return { patientLabel, lastSavedLabel, stored: data, activeKey };
+    });
+  }, [
+    hydrated,
+    cliniko?.patientId,
+    cliniko?.connectedName,
+    patientDetails.clientName,
+    draftIsEffectivelyEmpty,
+    persistPayload,
+    applyLocalDraftData,
+    draftResumePrompt,
+  ]);
+
   const startNewReport = useCallback(() => {
     streamAbortRef.current?.abort();
     genSessionRef.current += 1;
@@ -3057,6 +3225,9 @@ export default function TexlexReportPage() {
     } catch {
       /* ignore */
     }
+
+    setDraftResumePrompt(null);
+    processedDraftResumeKeyRef.current = null;
 
     const fresh = defaultDraft();
     setPatientDetails(patientDetailsAfterNewReport());
@@ -3199,6 +3370,13 @@ export default function TexlexReportPage() {
       let signatureSrc = await resolveTexlexSignatureSrc();
       let blob: Blob;
       try {
+        try {
+          console.log("[DIAG] cleanDraft for PDF:", JSON.stringify(cleanDraft, null, 2));
+        } catch (stringifyErr) {
+          console.log("[DIAG] cleanDraft JSON.stringify failed:", stringifyErr);
+          console.log("[DIAG] cleanDraft (raw):", cleanDraft);
+        }
+        logSuspiciousNumericValuesInCleanDraft(cleanDraft);
         blob = await pdf(
           <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
         ).toBlob();
@@ -3310,6 +3488,45 @@ export default function TexlexReportPage() {
           </>
         }
       />
+
+      {draftResumePrompt ? (
+        <div
+          className="border-b border-amber-300/60 bg-amber-50 px-5 py-3 dark:border-amber-800/60 dark:bg-amber-950/30"
+          role="dialog"
+          aria-label="Resume draft"
+        >
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-foreground">
+              Resume previous draft for {draftResumePrompt.patientLabel}? Last saved {draftResumePrompt.lastSavedLabel}.
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                onClick={() => {
+                  applyLocalDraftData(draftResumePrompt.stored);
+                  processedDraftResumeKeyRef.current = draftResumePrompt.activeKey;
+                  setDraftResumePrompt(null);
+                }}
+              >
+                Resume
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  processedDraftResumeKeyRef.current = draftResumePrompt.activeKey;
+                  setDraftResumePrompt(null);
+                }}
+              >
+                Discard
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mx-auto flex max-w-[1600px] gap-6 bg-[var(--bg-page)] px-5 py-8">
         <TexlexReportSidebarNav />
