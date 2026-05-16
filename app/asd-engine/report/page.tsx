@@ -76,6 +76,31 @@ import {
 } from "./pdf/utils";
 
 const STORAGE_KEY = "texlex-report-draft-v1";
+const STORAGE_KEY_PREFIX = "texlex-draft";
+const LEGACY_STORAGE_KEY = "texlex-report-draft-v1";
+
+function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+function getStorageKey(
+  clinikoId: string | null | undefined,
+  clientName: string | null | undefined
+): string | null {
+  if (clinikoId) {
+    return `${STORAGE_KEY_PREFIX}-cliniko-${clinikoId}`;
+  }
+  if (clientName && clientName.trim().length > 0) {
+    return `${STORAGE_KEY_PREFIX}-manual-${slugifyName(clientName)}`;
+  }
+  return null;
+}
+
 const AUTO_SAVE_DEBOUNCE_MS = 2000;
 const METADATA_INPUT_MAX_LENGTH = 500;
 
