@@ -747,6 +747,30 @@ async function streamTexlexWithCriticSse(
   return content;
 }
 
+// Fallback: derive DSM-5-TR support levels from clinician-set criterion ratings
+// when the engine (deriveLevelOfSupport) returns determinable: false.
+// Per DSM-5-TR: Level A = max(A1, A2, A3); Level B = max(B1..B4).
+function deriveLevelsFromCriterionRatings(
+  criteriaState: Record<CriterionCode, CriterionState>
+): { levelA: number | null; levelB: number | null; determinable: boolean } {
+  const aCodes: CriterionCode[] = ["A1", "A2", "A3"] as CriterionCode[];
+  const bCodes: CriterionCode[] = ["B1", "B2", "B3", "B4"] as CriterionCode[];
+  const readRating = (code: CriterionCode): number | null => {
+    const r = criteriaState[code]?.rating;
+    if (typeof r === "number" && r >= 1 && r <= 3) return r;
+    return null;
+  };
+  const aRatings = aCodes.map(readRating).filter((v): v is number => v != null);
+  const bRatings = bCodes.map(readRating).filter((v): v is number => v != null);
+  // Require at least one rated criterion in each domain
+  if (aRatings.length === 0 || bRatings.length === 0) {
+    return { levelA: null, levelB: null, determinable: false };
+  }
+  const levelA = Math.max(...aRatings);
+  const levelB = Math.max(...bRatings);
+  return { levelA, levelB, determinable: true };
+}
+
 function criteriaSnapshotForFormulationLock(
   criteriaState: Record<CriterionCode, CriterionState>
 ): Record<string, FormulationCriterionSnapshot> {
@@ -2640,11 +2664,29 @@ export default function TexlexReportPage() {
     };
     const effectiveConclusion = resolveTexlexDiagnosticConclusion(source.diagnosticConclusion);
     const criteriaLock = criteriaSnapshotForFormulationLock(source.criteria);
+    const los = pipeline.levelOfSupport;
+    // Use engine when determinable; otherwise fall back to clinician-set criterion ratings.
+    const engineDetermined = Boolean(los?.determinable) && los?.levelA != null && los?.levelB != null;
+    const fallback = engineDetermined ? null : deriveLevelsFromCriterionRatings(source.criteria);
+    const resolvedLevelA = engineDetermined ? (los?.levelA ?? null) : (fallback?.levelA ?? null);
+    const resolvedLevelB = engineDetermined ? (los?.levelB ?? null) : (fallback?.levelB ?? null);
+    const resolvedDeterminable = engineDetermined || Boolean(fallback?.determinable);
+
+    if (effectiveConclusion === "meets" && (!resolvedDeterminable || resolvedLevelA == null || resolvedLevelB == null)) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]:
+          "Cannot generate formulation: diagnostic conclusion is 'meets' but Level A and/or Level B cannot be determined. Set criterion ratings (rating 1–3) for at least one A criterion and one B criterion.",
+      }));
+      return null;
+    }
     const lockedOpening = buildLockedFormulationOpening({
       conclusion: effectiveConclusion,
       clientName: patientDetails.clientName,
       criteria: criteriaLock,
-      overallLevel: pipeline.levelOfSupport?.overallLevel ?? null,
+      levelA: resolvedLevelA,
+      levelB: resolvedLevelB,
+      determinable: resolvedDeterminable,
     });
     streamAbortRef.current?.abort();
     const controller = new AbortController();
@@ -2682,7 +2724,12 @@ export default function TexlexReportPage() {
           functionalImpactSummary: functionalImpactSummary.trim(),
           diagnosticConclusion: effectiveConclusion,
           lockedFormulationOpening: lockedOpening,
-          overallLevel: pipeline.levelOfSupport?.overallLevel ?? null,
+          overallLevel: resolvedDeterminable && resolvedLevelA != null && resolvedLevelB != null
+            ? Math.max(resolvedLevelA, resolvedLevelB)
+            : (pipeline.levelOfSupport?.overallLevel ?? null),
+          levelA: resolvedLevelA,
+          levelB: resolvedLevelB,
+          determinable: resolvedDeterminable,
           patientDetails: buildFormulationPatientDetailsForCritic(patientDetails, chronologicalAge),
           ratingsAssigned: buildRatingsAssignedSnapshot(source.criteria),
         },

@@ -94,6 +94,25 @@ export async function POST(req: NextRequest) {
     }
 
     const conclusion = resolveTexlexDiagnosticConclusion(body.diagnosticConclusion);
+    const reqLevelA =
+      typeof body.levelA === "number" && Number.isFinite(body.levelA) ? body.levelA : null;
+    const reqLevelB =
+      typeof body.levelB === "number" && Number.isFinite(body.levelB) ? body.levelB : null;
+    const reqDeterminable =
+      typeof body.determinable === "boolean"
+        ? body.determinable
+        : reqLevelA != null && reqLevelB != null;
+
+    if (conclusion === "meets" && (!reqDeterminable || reqLevelA == null || reqLevelB == null)) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Cannot generate formulation: diagnostic conclusion is 'meets' but Level A and/or Level B are not determined. Complete criterion ratings first.",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     let locked =
       typeof body.lockedFormulationOpening === "string" ? body.lockedFormulationOpening.trim() : "";
     if (!locked) {
@@ -101,10 +120,9 @@ export async function POST(req: NextRequest) {
         conclusion,
         clientName: body.clientName ?? "",
         criteria: {},
-        overallLevel:
-          typeof body.overallLevel === "number" && Number.isFinite(body.overallLevel)
-            ? body.overallLevel
-            : null,
+        levelA: reqLevelA,
+        levelB: reqLevelB,
+        determinable: reqDeterminable,
       });
     }
 

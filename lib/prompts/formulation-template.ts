@@ -35,24 +35,52 @@ function buildEmergingDomainsPhrase(criteria: Record<string, FormulationCriterio
 }
 
 const LEVEL_SUPPORT_PHRASE: Record<1 | 2 | 3, string> = {
-  1: "a need for support across social communication and restricted, repetitive behaviour domains",
-  2: "a need for substantial support across social communication and restricted, repetitive behaviour domains",
-  3: "a need for very substantial support across social communication and restricted, repetitive behaviour domains",
+  1: "requiring support",
+  2: "requiring substantial support",
+  3: "requiring very substantial support",
 };
+
+function levelPhrase(level: number): string {
+  if (level === 1 || level === 2 || level === 3) return LEVEL_SUPPORT_PHRASE[level];
+  throw new Error(
+    `buildLockedFormulationOpening: invalid level value ${level}. Expected 1, 2, or 3.`
+  );
+}
+
+export class FormulationLevelMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FormulationLevelMissingError";
+  }
+}
 
 export function buildLockedFormulationOpening(args: {
   conclusion: TexlexDiagnosticConclusion;
   clientName: string;
   criteria: Record<string, FormulationCriterionSnapshot>;
-  overallLevel: number | null;
+  levelA: number | null;
+  levelB: number | null;
+  determinable: boolean;
 }): string {
   const name = clientFirstName(args.clientName.trim()) || "The client";
   const fullName = args.clientName.trim() || name;
 
   if (args.conclusion === "meets") {
-    const level = args.overallLevel === 2 || args.overallLevel === 3 ? args.overallLevel : 1;
-    const phrase = LEVEL_SUPPORT_PHRASE[level];
-    return `${fullName} meets DSM-5-TR criteria for Autism Spectrum Disorder, with a presentation best characterised within the Level ${level} range, reflecting ${phrase}.`;
+    if (!args.determinable || args.levelA == null || args.levelB == null) {
+      throw new FormulationLevelMissingError(
+        "Cannot build 'meets' formulation opening without determined Level A and Level B. " +
+          "Complete criterion ratings before generating the clinical formulation."
+      );
+    }
+    const levelA = args.levelA;
+    const levelB = args.levelB;
+    const phraseA = levelPhrase(levelA);
+    const phraseB = levelPhrase(levelB);
+
+    if (levelA === levelB) {
+      return `${fullName} meets DSM-5-TR criteria for Autism Spectrum Disorder, Level ${levelA} across both diagnostic domains — social communication and social interaction (${phraseA}), and restricted and repetite patterns of behaviour, interests, or activities (${phraseB}).`;
+    }
+    return `${fullName} meets DSM-5-TR criteria for Autism Spectrum Disorder, with a domain-specific support profile: social communication and social interaction at Level ${levelA} (${phraseA}), and restricted and repetitive patterns of behaviour, interests, or activities at Level ${levelB} (${phraseB}).`;
   }
 
   if (args.conclusion === "does_not_meet") {
@@ -151,6 +179,12 @@ export interface FormulationVariables {
   lockedFormulationOpening: string;
   /** Optional: used by the API if `lockedFormulationOpening` is omitted (legacy callers). */
   overallLevel?: number | null;
+  /** DSM-5-TR Criterion A level of support (1/2/3). Required when conclusion is "meets". */
+  levelA?: number | null;
+  /** DSM-5-TR Criterion B level of support (1/2/3). Required when conclusion is "meets". */
+  levelB?: number | null;
+  /** Whether the engine determined both A and B levels. Required when conclusion is "meets". */
+  determinable?: boolean;
 }
 
 export function buildFormulationUserPrompt(vars: FormulationVariables): string {
