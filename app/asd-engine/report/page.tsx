@@ -52,6 +52,7 @@ import {
   TEXLEX_CRITERIA,
   TEXLEX_CRITERION_A_HEADER,
   TEXLEX_CRITERION_B_HEADER,
+  TEXLEX_CRITERION_C_HEADER,
   TEXLEX_DSM_INTRO,
   TEXLEX_HEADER,
   TEXLEX_LIMITATIONS,
@@ -1520,6 +1521,7 @@ export type TexlexReportDraftV1 = {
 
 const A_CRITERION_CODES = ["A1", "A2", "A3"] as const satisfies readonly CriterionCode[];
 const B_CRITERION_CODES = ["B1", "B2", "B3", "B4"] as const satisfies readonly CriterionCode[];
+const C_CRITERION_CODES = ["C", "D", "E"] as const satisfies readonly CriterionCode[];
 
 function emptyCriterion(code: CriterionCode): CriterionState {
   return {
@@ -2877,9 +2879,9 @@ export default function TexlexReportPage() {
       const collateralGenerated = await runCollateralSummaryStream();
       if (collateralGenerated) snapshot.collateralSummary = collateralGenerated;
 
-      for (const code of CRITERION_CODES) {
+      const applyCriterionNarrative = async (code: CriterionCode) => {
         const narrative = await startCriterionGeneration(code);
-        if (!narrative) continue;
+        if (!narrative) return;
         const resolvedSuggested = capSuggestedRatingForDiagnosticConclusion(
           mergeCriterionSuggestedRating(code, narrative, snapshot.criteria[code].suggestedRating),
           snapshot.diagnosticConclusion,
@@ -2891,15 +2893,23 @@ export default function TexlexReportPage() {
           suggestedRating: resolvedSuggested,
           rating: snapshot.criteria[code].rating ?? resolvedSuggested,
         };
-      }
+      };
 
-      const formulationGenerated = await runFormulationStream(snapshot);
-      if (formulationGenerated) snapshot.clinicalFormulation = formulationGenerated;
+      for (const code of [...A_CRITERION_CODES, ...B_CRITERION_CODES]) {
+        await applyCriterionNarrative(code);
+      }
 
       const functionalImpactGenerated = await runFunctionalImpactStream(snapshot);
       if (!functionalImpactGenerated) {
         throw new Error("Functional impact generation did not return prose");
       }
+
+      for (const code of C_CRITERION_CODES) {
+        await applyCriterionNarrative(code);
+      }
+
+      const formulationGenerated = await runFormulationStream(snapshot);
+      if (formulationGenerated) snapshot.clinicalFormulation = formulationGenerated;
 
       await runRecommendationsStream();
     } catch (err) {
@@ -4282,6 +4292,25 @@ export default function TexlexReportPage() {
                 <p className="text-sm leading-relaxed text-muted-foreground">{TEXLEX_CRITERION_B_HEADER.description}</p>
               </div>
               {B_CRITERION_CODES.map((code) => (
+                <CriterionCard
+                  key={code}
+                  code={code}
+                  criterion={TEXLEX_CRITERIA[code]}
+                  c={criteria[code]}
+                  inputClass={inputClass}
+                  touch={touch}
+                  setCriteria={setCriteria}
+                  criterionGenerate={getCriterionGenerateProps(code)}
+                />
+              ))}
+
+              <div className="space-y-2 rounded-xl border border-border/60 bg-muted/10 p-4">
+                <h3 className="text-base font-semibold text-foreground">{TEXLEX_CRITERION_C_HEADER.title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {TEXLEX_CRITERION_C_HEADER.description}
+                </p>
+              </div>
+              {C_CRITERION_CODES.map((code) => (
                 <CriterionCard
                   key={code}
                   code={code}

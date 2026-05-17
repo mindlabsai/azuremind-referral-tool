@@ -41,6 +41,12 @@ export const TEXLEX_CRITERION_B_HEADER = {
     "Restricted and repetitive patterns of behaviour, interests and sensory regulation, currently and/or by developmental history, as reflected in the following areas:",
 };
 
+export const TEXLEX_CRITERION_C_HEADER = {
+  title: "C. Onset in Early Developmental Period and Additional Diagnostic Criteria",
+  description:
+    "The following sections address DSM-5-TR criteria C (onset in the early developmental period), D (clinically significant impairment), and E (not better explained by intellectual disability or global developmental delay).",
+};
+
 export const TEXLEX_CRITERIA = {
   A1: {
     title: "A1. Social-Emotional Reciprocity",
