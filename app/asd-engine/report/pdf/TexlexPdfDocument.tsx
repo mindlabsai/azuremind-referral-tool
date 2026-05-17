@@ -15,6 +15,7 @@ import { Limitations } from "./sections/Limitations";
 import { PresentingConcerns } from "./sections/PresentingConcerns";
 import { Recommendations } from "./sections/Recommendations";
 import { SectionBHeading } from "./sections/SectionBHeading";
+import { SectionCHeading } from "./sections/SectionCHeading";
 import { Signature } from "./sections/Signature";
 import { styles } from "./styles";
 import type { TexlexPdfDraft } from "./types";
@@ -47,6 +48,10 @@ export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDoc
         <CriterionBlock code="B2" criterion={draft.criteria.B2} />
         <CriterionBlock code="B3" criterion={draft.criteria.B3} />
         <CriterionBlock code="B4" criterion={draft.criteria.B4} />
+        <SectionCHeading />
+        <CriterionBlock code="C" criterion={draft.criteria.C} />
+        <CriterionBlock code="D" criterion={draft.criteria.D} />
+        <CriterionBlock code="E" criterion={draft.criteria.E} />
         <FunctionalImpact content={draft.functionalImpactSummary} />
         <Formulation content={draft.clinicalFormulation} />
         <Recommendations content={draft.recommendations} />

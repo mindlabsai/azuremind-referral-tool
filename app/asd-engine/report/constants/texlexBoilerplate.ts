@@ -41,6 +41,12 @@ export const TEXLEX_CRITERION_B_HEADER = {
     "Restricted and repetitive patterns of behaviour, interests and sensory regulation, currently and/or by developmental history, as reflected in the following areas:",
 };
 
+export const TEXLEX_CRITERION_C_HEADER = {
+  title: "C. Onset in Early Developmental Period and Additional Diagnostic Criteria",
+  description:
+    "The following sections address DSM-5-TR criteria C (onset in the early developmental period), D (clinically significant impairment), and E (not better explained by intellectual disability or global developmental delay).",
+};
+
 export const TEXLEX_CRITERIA = {
   A1: {
     title: "A1. Social-Emotional Reciprocity",
@@ -76,6 +82,21 @@ export const TEXLEX_CRITERIA = {
     title: "B4. Sensory Differences and Sensory Regulation",
     description:
       "This criterion considers sensory sensitivities, sensory avoidance, sensory-seeking behaviours, unusual sensory interests, altered sensory responses, and differences in sensory processing or sensory regulation across environments.",
+  },
+  C: {
+    title: "C. Onset in Early Developmental Period",
+    description:
+      "Symptoms must be present in the early developmental period (but may not become fully manifest until social demands exceed limited capacities, or may be masked by learned strategies in later life).",
+  },
+  D: {
+    title: "D. Clinically Significant Impairment",
+    description:
+      "Symptoms cause clinically significant impairment in social, occupational, or other important areas of current functioning.",
+  },
+  E: {
+    title: "E. Not Better Explained by Intellectual Disability or Global Developmental Delay",
+    description:
+      "These disturbances are not better explained by intellectual disability (intellectual developmental disorder) or global developmental delay.",
   },
 } as const;
 
