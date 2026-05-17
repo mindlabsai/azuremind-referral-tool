@@ -29,7 +29,6 @@ export type TexlexPdfDocumentProps = {
 export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDocumentProps) {
   return (
     <Document>
-      {/* Cover (no footer): identity + assessment context + consent. Body starts at Presenting Concerns. */}
       <Page size="A4" wrap={false} style={styles.page}>
         <Header draft={draft} logoSrc={logoSrc} />
         <AssessmentContext />

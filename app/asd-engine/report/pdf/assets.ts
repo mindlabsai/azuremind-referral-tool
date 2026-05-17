@@ -1,4 +1,4 @@
-export const TEXLEX_LOGO_PATH = "/logo-azure-mind.jpg";
+export const TEXLEX_LOGO_PATH = "/logo-azure-mind.png";
 export const TEXLEX_SIGNATURE_PATH = "/signature-vishal.png";
 
 export function resolveTexlexPublicAsset(path: string, origin?: string): string {
