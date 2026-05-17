@@ -1012,6 +1012,13 @@ function buildCriterionApiBody(
       return { ...base, b3Markers: markersText };
     case "B4":
       return { ...base, b4Markers: markersText };
+    // CDE: placeholder routing — will be wired to dedicated routes in Phase 2
+    case "C":
+      return { ...base, cMarkers: markersText };
+    case "D":
+      return { ...base, dMarkers: markersText };
+    case "E":
+      return { ...base, eMarkers: markersText };
     default: {
       const _exhaustive: never = code;
       return _exhaustive;
@@ -1529,6 +1536,9 @@ function initialCriteria(): Record<CriterionCode, CriterionState> {
     B2: emptyCriterion("B2"),
     B3: emptyCriterion("B3"),
     B4: emptyCriterion("B4"),
+    C: emptyCriterion("C"),
+    D: emptyCriterion("D"),
+    E: emptyCriterion("E"),
   };
 }
 
