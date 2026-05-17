@@ -987,7 +987,9 @@ function buildCriterionApiBody(
   rawNotesForModel: string,
   markersText: string,
   criteriaState: Record<CriterionCode, CriterionState>,
-  diagnosticConclusion: TexlexDiagnosticConclusion
+  diagnosticConclusion: TexlexDiagnosticConclusion,
+  background: BackgroundState,
+  functionalImpactSummary: string
 ): Record<string, unknown> {
   const base = {
     clientName: patientDetails.clientName,
@@ -1012,11 +1014,14 @@ function buildCriterionApiBody(
       return { ...base, b3Markers: markersText };
     case "B4":
       return { ...base, b4Markers: markersText };
-    // CDE: placeholder routing — will be wired to dedicated routes in Phase 2
     case "C":
-      return { ...base, cMarkers: markersText };
+      return { ...base, cMarkers: markersText, background: buildBackgroundTextBlock(background) };
     case "D":
-      return { ...base, dMarkers: markersText };
+      return {
+        ...base,
+        dMarkers: markersText,
+        functionalImpactSummary: functionalImpactSummary.trim(),
+      };
     case "E":
       return { ...base, eMarkers: markersText };
     default: {
@@ -2081,7 +2086,9 @@ export default function TexlexReportPage() {
         effectiveRaw,
         markersText,
         criteria,
-        effectiveConclusion
+        effectiveConclusion,
+        background,
+        functionalImpactSummary
       );
 
       setCriteria((prev) => ({ ...prev, [code]: { ...prev[code], indicators: "" } }));
@@ -2161,7 +2168,16 @@ export default function TexlexReportPage() {
       }
       return generated;
     },
-    [criteria, diagnosticConclusion, patientDetails, pipeline.markers, rawNotes, setSectionVoiceCriticBadge]
+    [
+      background,
+      criteria,
+      diagnosticConclusion,
+      functionalImpactSummary,
+      patientDetails,
+      pipeline.markers,
+      rawNotes,
+      setSectionVoiceCriticBadge,
+    ]
   );
 
   const handleGenerateCriterion = useCallback(
