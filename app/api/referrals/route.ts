@@ -43,6 +43,8 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const createdAt = new Date();
+    const nextFollowUpAt = new Date(createdAt.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
 
     let clinikoPatientId: string | null = null;
 
@@ -85,6 +87,10 @@ export async function POST(req: Request) {
           send_status: body.send_status ?? "sent",
           notes: body.notes ?? null,
           cliniko_patient_id: clinikoPatientId,
+          follow_up_stage: 0,
+          next_follow_up_at: nextFollowUpAt,
+          status: "active",
+          opted_out: false,
         },
       ])
       .select()
