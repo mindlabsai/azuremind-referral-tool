@@ -114,6 +114,20 @@ type ClinikoApiPatient = {
   custom_fields?: ClinikoCustomFieldsPayload | null;
 };
 
+export type ClinikoPatientAppointment = {
+  id: string;
+  starts_at: string | null;
+  cancelled_at: string | null;
+  archived_at: string | null;
+};
+
+type ClinikoApiIndividualAppointment = {
+  id: string | number;
+  starts_at?: string | null;
+  cancelled_at?: string | null;
+  archived_at?: string | null;
+};
+
 let customFieldDefinitionsCache: ClinikoCustomFieldDef[] | null = null;
 let customFieldSectionToken: string | null = null;
 let customFieldLookupByKey: Partial<Record<ClinikoCustomFieldKey, ClinikoCustomFieldDef>> = {};
@@ -420,6 +434,39 @@ export async function clinikoGetPatient(id: string): Promise<ClinikoPatientFull>
   const mapped = mapPatientFull(patient);
   console.log(`[cliniko] clinikoGetPatient(${id}) done (${Date.now() - started}ms)`);
   return mapped;
+}
+
+export async function clinikoGetPatientAppointments(
+  patientId: string
+): Promise<{ appointments: ClinikoPatientAppointment[]; hasUpcomingBooking: boolean }> {
+  const started = Date.now();
+  console.log(`[cliniko] clinikoGetPatientAppointments(${patientId}) start`);
+  const response = await clinikoFetch(
+    `/individual_appointments?per_page=100&q[]=${encodeURIComponent(`patient_id:=${patientId}`)}`
+  );
+  const body = (await response.json()) as {
+    individual_appointments?: ClinikoApiIndividualAppointment[];
+  };
+  const appointments = (body.individual_appointments ?? []).map((appointment) => ({
+    id: String(appointment.id),
+    starts_at: appointment.starts_at ?? null,
+    cancelled_at: appointment.cancelled_at ?? null,
+    archived_at: appointment.archived_at ?? null,
+  }));
+
+  const now = Date.now();
+  const hasUpcomingBooking = appointments.some((appointment) => {
+    if (!appointment.starts_at) return false;
+    if (appointment.cancelled_at) return false;
+    if (appointment.archived_at) return false;
+    const startsAt = new Date(appointment.starts_at).getTime();
+    return Number.isFinite(startsAt) && startsAt > now;
+  });
+
+  console.log(
+    `[cliniko] clinikoGetPatientAppointments(${patientId}) found ${appointments.length}, upcoming=${hasUpcomingBooking} (${Date.now() - started}ms)`
+  );
+  return { appointments, hasUpcomingBooking };
 }
 
 export async function clinikoCreatePatient(

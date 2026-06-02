@@ -54,6 +54,10 @@ type ReferralApiRow = {
   sent_sms?: boolean | null;
   send_status?: string | null;
   notes?: string | null;
+  follow_up_stage?: number | null;
+  next_follow_up_at?: string | null;
+  status?: string | null;
+  opted_out?: boolean | null;
 };
 
 function mapReferralApiRowToSentEntry(row: ReferralApiRow): SentEntry | null {
