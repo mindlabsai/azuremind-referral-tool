@@ -422,6 +422,53 @@ export async function clinikoGetPatient(id: string): Promise<ClinikoPatientFull>
   return mapped;
 }
 
+export async function clinikoCreatePatient(
+  standardFields: Partial<ClinikoStandardFields>
+): Promise<ClinikoPatient> {
+  const started = Date.now();
+  console.log(`[cliniko] clinikoCreatePatient start`);
+  const payload: Record<string, unknown> = { ...standardFields };
+  if (standardFields.phone) {
+    payload.patient_phone_numbers = [{ number: standardFields.phone, phone_type: "Mobile" }];
+    delete payload.phone;
+  }
+  const response = await clinikoFetch(`/patients`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const patient = (await response.json()) as ClinikoApiPatient;
+  console.log(`[cliniko] clinikoCreatePatient done id=${patient.id} (${Date.now() - started}ms)`);
+  return mapPatientSummary(patient);
+}
+
+export async function clinikoFindOrCreatePatient(
+  details: { firstName: string; lastName: string; dateOfBirth?: string } & Partial<ClinikoStandardFields>
+): Promise<{ patient: ClinikoPatient; created: boolean }> {
+  const { firstName, lastName, dateOfBirth, ...rest } = details;
+
+  const candidates = await clinikoSearchPatients(`${firstName} ${lastName}`.trim());
+  const norm = (s: string) => s.trim().toLowerCase();
+  const match = candidates.find(
+    (p) =>
+      norm(p.first_name) === norm(firstName) &&
+      norm(p.last_name) === norm(lastName) &&
+      (!dateOfBirth || !p.date_of_birth || p.date_of_birth === dateOfBirth)
+  );
+
+  if (match) {
+    console.log(`[cliniko] clinikoFindOrCreatePatient reuse id=${match.id}`);
+    return { patient: match, created: false };
+  }
+
+  const patient = await clinikoCreatePatient({
+    first_name: firstName,
+    last_name: lastName,
+    ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
+    ...rest,
+  });
+  return { patient, created: true };
+}
+
 export async function clinikoUpdatePatient(
   patientId: string,
   standardFields: Partial<ClinikoStandardFields>

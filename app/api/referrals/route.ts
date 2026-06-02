@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { clinikoFindOrCreatePatient, clinikoUpdateCustomFields } from "@/lib/cliniko";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,44 +38,69 @@ export async function GET() {
       { status: 500 }
     );
   }
-}export async function POST(req: Request) {
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    let clinikoPatientId: string | null = null;
+
     try {
-      const body = await req.json();
-  
-      const { data, error } = await supabase
-        .from("referrals")
-        .insert([
-          {
-            child_first_name: body.child_first_name ?? null,
-            child_last_name: body.child_last_name ?? null,
-            child_dob: body.child_dob || null,
-            parent_first_name: body.parent_first_name ?? null,
-            parent_last_name: body.parent_last_name ?? null,
-            parent_email: body.parent_email ?? null,
-            parent_mobile: body.parent_mobile ?? null,
-            assessment_type: body.assessment_type ?? null,
-            booking_link: body.booking_link ?? null,
-            clinic_phone: body.clinic_phone ?? null,
-            sent_email: body.sent_email ?? false,
-            sent_sms: body.sent_sms ?? false,
-            send_status: body.send_status ?? "sent",
-            notes: body.notes ?? null,
-          },
-        ])
-        .select()
-        .single();
-  
-      if (error) {
-        console.error("Supabase insert error:", error);
-        return Response.json({ success: false, error: error.message }, { status: 500 });
-      }
-  
-      return Response.json({ success: true, data });
-    } catch (e) {
-      console.error("POST /api/referrals error:", e);
-      return Response.json(
-        { success: false, error: e instanceof Error ? e.message : String(e) },
-        { status: 500 }
-      );
+      const { patient } = await clinikoFindOrCreatePatient({
+        firstName: body.child_first_name ?? "",
+        lastName: body.child_last_name ?? "",
+        dateOfBirth: body.child_dob ?? undefined,
+      });
+
+      clinikoPatientId = patient.id;
+
+      await clinikoUpdateCustomFields(patient.id, {
+        parent1FirstName: body.parent_first_name ?? "",
+        parent1LastName: body.parent_last_name ?? "",
+        assessmentType: body.assessment_type ?? "",
+      });
+    } catch (clinikoError) {
+      console.error("Cliniko sync failed for referral enquiry:", clinikoError);
     }
-  }// force vercel route rebuild
+
+    const { data, error } = await supabase
+      .from("referrals")
+      .insert([
+        {
+          child_first_name: body.child_first_name ?? null,
+          child_last_name: body.child_last_name ?? null,
+          child_dob: body.child_dob || null,
+          parent_first_name: body.parent_first_name ?? null,
+          parent_last_name: body.parent_last_name ?? null,
+          parent_email: body.parent_email ?? null,
+          parent_mobile: body.parent_mobile ?? null,
+          assessment_type: body.assessment_type ?? null,
+          booking_link: body.booking_link ?? null,
+          clinic_phone: body.clinic_phone ?? null,
+          sent_email: body.sent_email ?? false,
+          sent_sms: body.sent_sms ?? false,
+          send_status: body.send_status ?? "sent",
+          notes: body.notes ?? null,
+          cliniko_patient_id: clinikoPatientId,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase insert error:", error);
+      return Response.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    return Response.json({ success: true, data, clinikoPatientId });
+  } catch (e) {
+    console.error("POST /api/referrals error:", e);
+    return Response.json(
+      { success: false, error: e instanceof Error ? e.message : String(e) },
+      { status: 500 }
+    );
+  }
+}
+
+// force vercel route rebuild
