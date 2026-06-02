@@ -51,6 +51,8 @@ export async function POST(req: Request) {
         firstName: body.child_first_name ?? "",
         lastName: body.child_last_name ?? "",
         dateOfBirth: body.child_dob ?? undefined,
+        email: body.parent_email ?? "",
+        phone: body.parent_mobile ?? "",
       });
 
       clinikoPatientId = patient.id;
