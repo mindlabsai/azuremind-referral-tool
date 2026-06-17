@@ -608,3 +608,58 @@ export function formatClinikoAddress(address: ClinikoAddress): string {
   const locality = [address.city, address.state, address.post_code].map((part) => part.trim()).filter(Boolean);
   return [street, locality.join(" ")].filter(Boolean).join(", ");
 }
+
+// ─── Patient attachments (report files) ───────────────────────────
+export async function clinikoUploadPatientAttachment(
+  patientId: string,
+  filename: string,
+  content: string | Buffer,
+  contentType: string,
+  description = ""
+): Promise<{ id: string }> {
+  const presignRes = await clinikoFetch(`/patients/${patientId}/attachment_presigned_post`);
+  const presign = (await presignRes.json()) as { url: string; fields: Record<string, string> };
+
+  const form = new FormData();
+  for (const [k, v] of Object.entries(presign.fields)) form.append(k, v);
+  form.append("file", new Blob([typeof content === "string" ? content : new Uint8Array(content)], { type: contentType }), filename);
+
+  const s3Res = await fetch(presign.url, { method: "POST", body: form });
+  if (!s3Res.ok && s3Res.status !== 201 && s3Res.status !== 204) {
+    throw new Error(`S3 upload failed (${s3Res.status})`);
+  }
+
+  const uploadUrl = `${presign.url.replace(/\/$/, "")}/${presign.fields.key}`;
+  const createRes = await clinikoFetch(`/patient_attachments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patient_id: patientId, filename, description, upload_url: uploadUrl }),
+  });
+  const created = (await createRes.json()) as { id: string | number };
+  return { id: String(created.id) };
+}
+
+export async function clinikoGetLatestStateAttachment(
+  patientId: string
+): Promise<{ id: string; filename: string; contentUrl: string } | null> {
+  const res = await clinikoFetch(
+    `/patients/${patientId}/patient_attachments?per_page=50&sort=created_at:desc`
+  );
+  const body = (await res.json()) as {
+    patient_attachments?: Array<{
+      id: string | number;
+      filename?: string;
+      processing_completed?: boolean;
+      content?: { links?: { self?: string } };
+    }>;
+  };
+  const match = (body.patient_attachments ?? []).find(
+    (a) => a.processing_completed && a.filename?.startsWith("texlex-state-")
+  );
+  if (!match) return null;
+  return {
+    id: String(match.id),
+    filename: match.filename ?? "",
+    contentUrl: match.content?.links?.self ?? "",
+  };
+}

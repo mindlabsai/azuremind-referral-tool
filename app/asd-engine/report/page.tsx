@@ -3207,6 +3207,19 @@ export default function TexlexReportPage() {
       return;
     }
     if (!raw) {
+      const fallbackPatientId = cliniko?.patientId;
+      if (fallbackPatientId) {
+        processedDraftResumeKeyRef.current = activeKey;
+        void (async () => {
+          const remote = await fetchReportStateFromSupabase(fallbackPatientId);
+          if (!remote) return;
+          const patientLabel =
+            patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
+          const lastSavedLabel =
+            typeof remote.lastSaved === "string" ? formatSavedAgo(remote.lastSaved, Date.now()) : "saved in Cliniko/cloud";
+          setDraftResumePrompt((prev) => (prev?.activeKey === activeKey ? prev : { patientLabel, lastSavedLabel, stored: remote, activeKey }));
+        })();
+      }
       return;
     }
 
@@ -3342,6 +3355,7 @@ export default function TexlexReportPage() {
       const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
       localStorage.setItem(activeKey, JSON.stringify(payload));
       setLastSavedAt(payload.lastSaved);
+      void uploadStateToCliniko(payload);
       setSaveFailed(false);
       setSaveToast(true);
       if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
@@ -4623,4 +4637,34 @@ export default function TexlexReportPage() {
       />
     </div>
   );
+}
+
+// ─── Cliniko durable state save ───────────────────────────────────
+async function uploadStateToCliniko(payload: TexlexReportDraftV1): Promise<void> {
+  const patientId = payload.cliniko?.patientId;
+  if (!patientId) return;
+  try {
+    await fetch("/api/report-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patientId, state: payload }),
+    });
+  } catch (err) {
+    console.error("[texlex] Supabase state save failed (local save unaffected):", err);
+  }
+}
+
+// ─── Resume-from-Supabase fallback ────────────────────────────────
+async function fetchReportStateFromSupabase(
+  patientId: string
+): Promise<Partial<TexlexReportDraftV1> | null> {
+  try {
+    const res = await fetch(`/api/report-state?patientId=${encodeURIComponent(patientId)}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { success: boolean; state?: unknown };
+    if (!data.success || !data.state) return null;
+    return data.state as Partial<TexlexReportDraftV1>;
+  } catch {
+    return null;
+  }
 }
