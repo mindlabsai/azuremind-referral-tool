@@ -3447,6 +3447,32 @@ export default function TexlexReportPage() {
       anchor.download = `${stem}-Texlex-Report.pdf`;
       anchor.click();
       URL.revokeObjectURL(url);
+      const finalisePatientId = cliniko?.patientId;
+      if (finalisePatientId) {
+        try {
+          const buf = await blob.arrayBuffer();
+          let binary = "";
+          const bytes = new Uint8Array(buf);
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+          const base64 = btoa(binary);
+          const dateStamp = new Date().toISOString().slice(0, 10);
+          await fetch("/api/cliniko/files", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              patientId: finalisePatientId,
+              filename: `${stem}-ASD-Report-${dateStamp}.pdf`,
+              content: base64,
+              contentType: "application/pdf",
+              encoding: "base64",
+              description: "Texlex finalised report",
+            }),
+          });
+          setClinikoSyncNotice("Report saved to Cliniko");
+        } catch (uploadErr) {
+          console.error("Cliniko PDF upload failed (download succeeded):", uploadErr);
+        }
+      }
     } catch (error) {
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");

@@ -78,7 +78,7 @@ export function buildLockedFormulationOpening(args: {
     const phraseB = levelPhrase(levelB);
 
     if (levelA === levelB) {
-      return `${fullName} meets DSM-5-TR criteria for Autism Spectrum Disorder, Level ${levelA} across both diagnostic domains — social communication and social interaction (${phraseA}), and restricted and repetite patterns of behaviour, interests, or activities (${phraseB}).`;
+      return `${fullName} meets DSM-5-TR criteria for Autism Spectrum Disorder, Level ${levelA} across both diagnostic domains: social communication and social interaction (${phraseA}), and restricted and repetitive patterns of behaviour, interests, or activities (${phraseB}).`;
     }
     return `${fullName} meets DSM-5-TR criteria for Autism Spectrum Disorder, with a domain-specific support profile: social communication and social interaction at Level ${levelA} (${phraseA}), and restricted and repetitive patterns of behaviour, interests, or activities at Level ${levelB} (${phraseB}).`;
   }
