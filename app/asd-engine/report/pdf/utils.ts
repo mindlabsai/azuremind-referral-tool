@@ -60,7 +60,11 @@ export function resolveCriterionDisplayRating(
 export function clientFirstName(clientName: string): string {
   const trimmed = clientName.trim();
   if (!trimmed) return "";
-  return trimmed.split(/\s+/)[0] ?? "";
+  const HONORIFICS = new Set(["miss","master","mstr","mr","mrs","ms","mx","dr","miss.","master.","mstr.","mr.","mrs.","ms.","mx.","dr."]);
+  const tokens = trimmed.split(/\s+/);
+  let i = 0;
+  while (i < tokens.length && HONORIFICS.has(tokens[i]!.toLowerCase())) i++;
+  return (tokens[i] ?? tokens[0]) ?? "";
 }
 
 export type DetailPlaceholderKind = "notProvided" | "na" | "dash";
