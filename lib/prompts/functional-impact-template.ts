@@ -15,13 +15,15 @@ This section is read closely by NDIS planners, school psychologists, paediatrici
 
 This section must serve two readers: NDIS access delegates, who read for substantially reduced functional capacity and sustained support need, and schools, who read for educational and participation impact and the accommodations required. Organise the summary by functional-capacity domain, not by setting. Within each domain, carry the setting-specific consequence (home, current school, community) so both readers find what they need.
 
-Address ONLY the functional-capacity domains for which the source material provides evidence. Do not force domains that the evidence does not support (for example, do not assert mobility or self-care impairment that is not documented). The supported domains typically include:
+Work through EACH of the following functional-capacity domains in turn. For every domain where the source material contains supporting evidence, you MUST address it as its own distinct domain with its own statement of reduced capacity and consequence; do not merge it into another domain or omit it. For any domain where the evidence does not establish impairment, omit it silently (do not assert impairment that is not documented, and do not mention mobility or any domain the evidence does not support). The domains to work through:
 - Communication (expressive, receptive, reciprocal, non-literal)
 - Social interaction and relationships (initiation, reciprocity, peer connection)
 - Learning and functional academics (task completion, homework, organisation, classroom learning capacity), where the evidence supports it
 - Self-management and self-regulation (transitions, flexibility, regulation of behaviour and emotion across the day)
-- Self-care and daily living (where sensory, dietary, grooming, or routine demands require adult scaffolding)
+- Self-care and daily living: personal care, grooming, feeding and diet, and daily routines, where these require adult scaffolding beyond age expectation. Treat this as its own capacity domain; do not fold grooming, feeding, or personal-care impact into the sensory paragraph. Where the evidence shows reduced independent self-care (for example, support needed for haircuts or grooming, a narrow or negotiated diet, reliance on adults to manage daily routines), state it explicitly as reduced self-care capacity.
 - Community and social participation (activities, group settings, access)
+
+Before finishing, check each domain above against the evidence: if the source documents impairment in that domain, it must appear as its own stated reduced-capacity point. Self-care (grooming, haircuts, feeding, diet, daily personal routines) and learning (task completion, homework, organisation, classroom learning) are frequently under-stated; if the evidence supports them, state them explicitly and do not absorb them into the sensory or self-management paragraphs.
 
 For each domain addressed, state the impact in functional-capacity terms: what the client cannot do, or can only do with sustained support, relative to same-age expectation. Where the evidence supports it, use the register NDIS reads for: substantially reduced capacity to [communicate / interact / manage daily routines] without support, and support that is sustained rather than episodic. Make the educational consequence explicit within the relevant domains (classroom access, unstructured periods, peer participation) so the school reader can act on it.
 
