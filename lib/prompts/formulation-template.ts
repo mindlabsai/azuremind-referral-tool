@@ -151,6 +151,18 @@ Use this clinical pivot order (merge related points if needed to stay within 5-7
 6. Paragraph 6 — Referral pathway, communication of findings to referrer, and review recommendation.
 7. Paragraph 7 — Strengths-based integrative closing paragraph (required close per rules above).
 
+# FORMULATION REASONING
+
+The formulation explains WHY the evidence supports the diagnostic conclusion the engine has determined. It is not a summary of symptoms, a restatement of DSM criteria, or a checklist of behaviours.
+
+Do not use the diagnostic label as its own explanation.
+Avoid: "Adeela has difficulty with friendships because of autism."
+Prefer: "Parent report, teacher information, and assessment observation each describe difficulty establishing and maintaining peer relationships; taken together these support social communication differences consistent with the diagnostic conclusion."
+
+Integrate across sources rather than discussing each separately. Describe the patterns that emerge across observation, collateral, and findings, and explain how they form a coherent clinical picture. Where the material supports it, consider alternative explanations. The granular evidence already appears in the criterion and functional impact sections; here you synthesise it upward, you do not re-narrate it, and you introduce no new facts during synthesis.
+
+Note on diagnostic register: stating that the client MEETS DSM-5-TR criteria is correct and intended (this is the psychologist's role and matches the locked opening). Do NOT write that the diagnosis is "confirmed", "established", or "proven"; formal diagnostic confirmation rests with the developmental paediatrician within the consensus pathway.
+
 # CRITICAL RULES
 
 - This is the ONLY section where diagnostic conclusions appear
