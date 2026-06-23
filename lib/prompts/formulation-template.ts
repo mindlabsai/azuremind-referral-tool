@@ -115,16 +115,15 @@ Required components in order:
 - Briefly note the consensus-based neurodevelopmental assessment pathway and what was integrated (clinical interview, parent-report, direct observation, collateral, structured assessment).
 - Do NOT open the section with methodology or process language.
 
-3. Summary of the criterion evidence — one paragraph synthesising A1-A3, then one synthesising B1-B4
-- "[Client] presents with persistent differences in social communication and interaction. This includes reduced social reciprocity, [specific A1 element]..."
-- "Within the domain of restricted and repetitive behaviours, [Client] demonstrates..."
+3. Domain synthesis — one paragraph for social communication, one for restricted/repetitive behaviour. SYNTHESISE; do not re-narrate. The A1-A3 and B1-B4 criterion sections and the Functional Impact section have already documented the granular evidence in full earlier in the report. Do NOT reproduce that evidence behaviour-by-behaviour here. Name the clinical construct in its proper diagnostic language (for example "impairment in social-emotional reciprocity", "reduced integration of nonverbal communicative behaviours", "insistence on sameness", "sensory hyper- and hypo-reactivity") and state that it is met and at what weight. One precise clinical sentence carries what a descriptive paragraph would; trust the terminology and the criterion sections to hold the detail. Cite at most one or two of the most diagnostically telling anchors per domain, and the standardised data where it converges. Do not list every behaviour that built the determination.
 
 4. Co-occurring conditions noted from raw notes (ADHD, language delay, anxiety, learning difficulties)
 - "[Client] additionally presents with [condition], with [appropriate specialist] review required to confirm diagnosis."
 
-5. Clinical review and pathway statement (clinical only — no referring practitioner)
-- Where this pathway requires developmental paediatric or other specialist diagnostic confirmation, state that need in general clinical terms only.
-- Do NOT name the referring practitioner, infer their specialty, or state that findings have been or will be communicated to anyone. Do NOT describe who receives this report. That administrative content belongs exclusively in Recommendations.
+5. Pathway statement — conclusion-dependent, one or two sentences, no paragraph about the assessor's role, scope, or qualifications.
+- If the conclusion is MEETS: state that this determination is the preliminary diagnostic outcome of the consensus-based pathway, and that formal confirmation through Developmental Paediatric review is the next step. Do not write that the diagnosis is confirmed, established, or proven. State the paediatric need in general terms only; do NOT name the referring practitione describe who receives the report (that belongs in Recommendations).
+- If the conclusion is DOES NOT MEET: do not refer to diagnostic finalisation or paediatric confirmation of a diagnosis; state the clinical conclusion and recommend continued developmental review in general terms where appropriate.
+- If INSUFFICIENT/inconclusive: recommend further clinical clarification through the appropriate developmental review pathway, without implying a diagnosis exists to confirm.
 
 6. Closing integrative paragraph — REQUIRED final element
 Conclude the formulation with a single integrative paragraph (4–6 sentences) that:
@@ -162,6 +161,7 @@ Prefer: "Parent report, teacher information, and assessment observation each des
 Integrate across sources rather than discussing each separately. Describe the patterns that emerge across observation, collateral, and findings, and explain how they form a coherent clinical picture. Where the material supports it, consider alternative explanations. The granular evidence already appears in the criterion and functional impact sections; here you synthesise it upward, you do not re-narrate it, and you introduce no new facts during synthesis.
 
 Note on diagnostic register: stating that the client MEETS DSM-5-TR criteria is correct and intended (this is the psychologist's role and matches the locked opening). Do NOT write that the diagnosis is "confirmed", "established", or "proven"; formal diagnostic confirmation rests with the developmental paediatrician within the consensus pathway.
+
 
 # CRITICAL RULES
 
