@@ -3341,7 +3341,7 @@ export default function TexlexReportPage() {
     setNewReportModalOpen(false);
   }, [clinikoSyncInProgress, startNewReport]);
 
-  const saveDraftNow = useCallback(() => {
+  const saveDraftNow = useCallback(async () => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -3355,7 +3355,11 @@ export default function TexlexReportPage() {
       const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
       localStorage.setItem(activeKey, JSON.stringify(payload));
       setLastSavedAt(payload.lastSaved);
-      void uploadStateToCliniko(payload);
+      const uploaded = await uploadStateToCliniko(payload);
+      if (!uploaded) {
+        setSaveFailed(true);
+        return;
+      }
       setSaveFailed(false);
       setSaveToast(true);
       if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
@@ -4666,18 +4670,21 @@ export default function TexlexReportPage() {
 }
 
 // ─── Cliniko durable state save ───────────────────────────────────
-async function uploadStateToCliniko(payload: TexlexReportDraftV1): Promise<void> {
+async function uploadStateToCliniko(payload: TexlexReportDraftV1): Promise<boolean> {
   const patientId = payload.cliniko?.patientId;
-  if (!patientId) return;
+  if (!patientId) return false;
   try {
-    await fetch("/api/report-state", {
+    const res = await fetch("/api/report-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ patientId, state: payload }),
     });
+    if (!res.ok) return false;
+    return true;
   } catch (err) {
     console.error("[texlex] Supabase state save failed (local save unaffected):", err);
   }
+    return false;
 }
 
 // ─── Resume-from-Supabase fallback ────────────────────────────────
