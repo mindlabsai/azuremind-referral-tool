@@ -42,8 +42,8 @@ Address as relevant from raw notes and criterion content:
 9. NDIS pathway (where indicated)
 - "NDIS application support to access funded supports including [domain]."
 
-10. Follow-up
-- "Review with the assessing psychologist in [timeframe] to monitor progress and review support adequacy."
+10. Follow-up (ONLY where the clinical notes indicate a review or ongoing monitoring is planned)
+- Do not include a routine review recommendation by default. Include this item only if the raw notes explicitly indicate that a review or re-assessment is planned. When included, phrase as: "Review with the assessing psychologist in [timeframe] to monitor progress and review support adequacy."
 
 # STRUCTURE
 
