@@ -617,8 +617,10 @@ export async function clinikoUploadPatientAttachment(
   contentType: string,
   description = ""
 ): Promise<{ id: string }> {
+  console.log("[cliniko] upload input", { filename, contentType, contentKind: typeof content, isBuffer: Buffer.isBuffer(content), byteLen: typeof content === "string" ? content.length : content?.length, head: typeof content === "string" ? content.slice(0,16) : Buffer.from(content.slice(0,8)).toString("hex") });
   const presignRes = await clinikoFetch(`/patients/${patientId}/attachment_presigned_post`);
   const presign = (await presignRes.json()) as { url: string; fields: Record<string, string> };
+  console.log("[cliniko] presign", JSON.stringify(presign, null, 2));
 
   const form = new FormData();
   for (const [k, v] of Object.entries(presign.fields)) form.append(k, v);
