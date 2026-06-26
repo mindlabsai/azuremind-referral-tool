@@ -31,6 +31,7 @@ import {
   sanitiseExtractedNumber,
   sanitiseForPdf,
   stripScientificNotationGarbageFromText,
+  stripDashes,
 } from "@/lib/texlex-pdf-sanitize";
 import {
   buildLockedFormulationOpening,
@@ -695,7 +696,7 @@ async function streamTexlexWithCriticSse(
       if (!line.startsWith("data: ")) continue;
       const data = line.slice(6).trim();
       if (data === "[DONE]") {
-        const content = finalContent || assembled;
+        const content = stripDashes(finalContent || assembled);
         if (meta) onComplete(meta, content);
         return content;
       }
@@ -742,7 +743,7 @@ async function streamTexlexWithCriticSse(
       }
     }
   }
-  const content = finalContent || assembled;
+  const content = stripDashes(finalContent || assembled);
   if (meta) onComplete(meta, content);
   return content;
 }

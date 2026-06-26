@@ -199,3 +199,14 @@ export function sanitiseForPdf<T>(draft: T): T {
   }
   return out;
 }
+
+export function stripDashes(text: unknown): string {
+  if (typeof text !== "string") return "";
+  let out = text;
+  out = out.replace(/(\d)\s*[–—]\s*([A-Za-z]?\d)/g, "$1 to $2");
+  out = out.replace(/\s*[—–]\s*/g, ", ");
+  out = out.replace(/,\s*([,.;:)])/g, "$1");
+  out = out.replace(/[ \t]{2,}/g, " ");
+  out = out.replace(/^\s*,\s*/, "");
+  return out;
+}
