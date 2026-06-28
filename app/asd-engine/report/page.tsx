@@ -4207,7 +4207,7 @@ export default function TexlexReportPage() {
                 const rawKey = backgroundRawKey(key);
                 const subsectionValue = background[key];
                 const showPreview =
-                  key === "emotionalBehaviouralSensory" || !isTexlexSubsectionEmpty(subsectionValue);
+                  key === "emotionalBehaviouralSensory" && isTexlexSubsectionEmpty(subsectionValue);
                 const previewText =
                   key === "emotionalBehaviouralSensory" && isTexlexSubsectionEmpty(subsectionValue)
                     ? BACKGROUND_EMOTIONAL_EMPTY_FALLBACK
