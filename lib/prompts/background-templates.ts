@@ -42,6 +42,8 @@ Content scope:
 
 Open with the most salient developmental finding. If milestones were typical, state this clearly: "[Client] met early developmental milestones within typical ranges across motor, language, and social domains."
 
+Do NOT restate pregnancy, antenatal, birth, or newborn details. Those are covered in Pregnancy and Birth. Begin from developmental milestones onward.
+
 Do NOT include educational placement detail or current academic concerns — those belong in Educational History.`;
 
 export const BACKGROUND_EDUCATIONAL_HISTORY_SYSTEM_PROMPT = `${BACKGROUND_BASE}
