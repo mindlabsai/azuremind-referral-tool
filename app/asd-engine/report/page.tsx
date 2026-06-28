@@ -3443,7 +3443,7 @@ export default function TexlexReportPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${stem}-Texlex-Report.pdf`;
+      anchor.download = `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`;
       anchor.click();
       URL.revokeObjectURL(url);
       const finalisePatientId = cliniko?.patientId;
@@ -3460,7 +3460,7 @@ export default function TexlexReportPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               patientId: finalisePatientId,
-              filename: `${stem}-ASD-Report-${dateStamp}.pdf`,
+              filename: `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`,
               content: base64,
               contentType: "application/pdf",
               encoding: "base64",
