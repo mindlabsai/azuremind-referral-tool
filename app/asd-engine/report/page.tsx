@@ -1248,8 +1248,7 @@ function CollateralDocumentsUpload({
       setUploadNotice(`Preparing ${file.name} for AI summary…`);
       setUploadError(null);
       try {
-        const pdfBase64 = await readFileAsBase64(file);
-        setCollateralDocs((list) =>
+        const pdfBase64 = await readFileAsBase64(file);         setCollateralDocs((list) =>
           list.map((doc) =>
             doc.id === docId
               ? { ...doc, pdfBase64, extractionStatus: "ready" as const }
@@ -1282,61 +1281,56 @@ function CollateralDocumentsUpload({
       const files = fileList.filter((f) => f.size > 0 || f.name);
       if (files.length === 0) return;
 
-      let capturedError: string | null = null;
+      const additions: CollateralDoc[] = [];
       const pendingPdfReads: Array<{ id: string; file: File }> = [];
-      setCollateralDocs((prev) => {
-        const additions: CollateralDoc[] = [];
-        let firstError: string | null = null;
-        let count = prev.length;
-        let bytes = sumCollateralBytes(prev);
+      let firstError: string | null = null;
+      const setErr = (msg: string) => {
+        if (!firstError) firstError = msg;
+      };
 
-        const setErr = (msg: string) => {
-          if (!firstError) firstError = msg;
-        };
-
-        for (const file of files) {
-          const mime = resolveCollateralMime(file);
-          if (!mime) {
-            setErr(
-              "This file type is not supported. Use PDF, JPG, PNG, HEIC, HEIF, DOC, or DOCX."
-            );
-            continue;
-          }
-          if (file.size > COLLATERAL_MAX_FILE_BYTES) {
-            setErr("Each file must be 25 MB or smaller.");
-            continue;
-          }
-          if (count >= COLLATERAL_MAX_FILES) {
-            setErr("You can attach at most 20 collateral files.");
-            break;
-          }
-          if (bytes + file.size > COLLATERAL_MAX_TOTAL_BYTES) {
-            setErr("Total upload size cannot exceed 100 MB across all files.");
-            break;
-          }
-          const id = newCollateralDocId();
-          additions.push({
-            id,
-            filename: file.name,
-            size: file.size,
-            mimeType: mime,
-            category: DEFAULT_DOC_CATEGORY,
-            uploadedAt: new Date().toISOString(),
-            pdfBase64: null,
-            extractionStatus: "pending",
-          });
-          if (mime === "application/pdf") {
-            pendingPdfReads.push({ id, file });
-          }
-          count += 1;
-          bytes += file.size;
+      let count = 0;
+      let bytes = 0;
+      for (const file of files) {
+        const mime = resolveCollateralMime(file);
+        if (!mime) {
+          setErr("This file type is not supported. Use PDF, JPG, PNG, HEIC, HEIF, DOC, or DOCX.");
+          continue;
         }
+        if (file.size > COLLATERAL_MAX_FILE_BYTES) {
+          setErr("Each file must be 25 MB or smaller.");
+          continue;
+        }
+        if (count >= COLLATERAL_MAX_FILES) {
+          setErr("You can attach at most 20 collateral files.");
+          break;
+        }
+        if (bytes + file.size > COLLATERAL_MAX_TOTAL_BYTES) {
+          setErr("Total upload size cannot exceed 100 MB across all files.");
+          break;
+        }
+        const id = newCollateralDocId();
+        additions.push({
+          id,
+          filename: file.name,
+          size: file.size,
+          mimeType: mime,
+          category: DEFAULT_DOC_CATEGORY,
+          uploadedAt: new Date().toISOString(),
+          pdfBase64: null,
+          extractionStatus: "pending",
+        });
+        if (mime === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          pendingPdfReads.push({ id, file });
+        }
+        count += 1;
+        bytes += file.size;
+      }
 
-        capturedError = firstError;
-        if (additions.length === 0) return prev;
-        return [...prev, ...additions];
-      });
-      if (capturedError) setUploadError(capturedError);
+      if (firstError) setUploadError(firstError);
+      if (additions.length === 0) return;
+
+      setCollateralDocs((prev) => [...prev, ...additions]);
+
       for (const pending of pendingPdfReads) {
         void encodePdfForAi(pending.id, pending.file);
       }
