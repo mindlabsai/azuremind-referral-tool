@@ -631,7 +631,8 @@ export async function clinikoUploadPatientAttachment(
     throw new Error(`S3 upload failed (${s3Res.status})`);
   }
 
-  const uploadUrl = `${presign.url.replace(/\/$/, "")}/${presign.fields.key}`;
+  const resolvedKey = presign.fields.key.replace("${filename}", encodeURIComponent(filename));
+  const uploadUrl = `${presign.url.replace(/\/$/, "")}/${resolvedKey}`;
   const createRes = await clinikoFetch(`/patient_attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
