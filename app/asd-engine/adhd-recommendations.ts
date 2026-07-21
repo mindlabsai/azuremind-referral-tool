@@ -1,9 +1,8 @@
 // ADHD recommendation expander.
-// STRICT COMPILER: expands only the clinician's shorthand recs, adds nothing, EXCEPT
-// the risk safety rec which is auto-added when risk is present.
+// STRICT COMPILER: expands only the clinician's shorthand recs, adds nothing else.
 // Age-tailored: the same shorthand expands differently per developmental band.
-// Ordering: ratification (paed / child psychiatrist) is Rec 1, UNLESS risk is present,
-// in which case GP/safety planning is Rec 1 and ratification moves to Rec 2.
+// Unrecognised shorthand is emitted as the clinician's own text (not invented).
+// Exactly N non-empty shorthand items → exactly N output paragraphs.
 
 export type AgeBand = "0-5" | "6-11" | "12+";
 
@@ -13,23 +12,35 @@ export function ageBand(ageYears: number): AgeBand {
   return "12+";
 }
 
+/**
+ * Parse clinician shorthand into discrete items.
+ * Splits on commas, semicolons, or newlines. Does not invent items.
+ */
+export function parseRecommendationShorthand(raw: string): string[] {
+  return raw
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 // Each shorthand key maps to a per-band expansion.
+// Keep each expansion to ONE recommendation intent. No bolted-on batteries, timelines, or extra referrals.
 const EXPANSIONS: Record<string, Record<AgeBand, string>> = {
   "psych executive functioning": {
     "0-5":
-      "Referral to a psychologist for support targeting emotional regulation, routine and transition management, and the development of early self-regulation through play-based intervention and parent coaching.",
+      "Referral to a psychologist for support targeting emotional regulation, routine and transition management, and early self-regulation through play-based intervention and parent coaching.",
     "6-11":
-      "Referral to a psychologist for support with emerging organisation, task initiation and completion, emotional regulation, and the development of age-appropriate self-management strategies, with parent and school collaboration.",
+      "Referral to a psychologist for support with organisation, task initiation and completion, emotional regulation, and age-appropriate self-management strategies, with parent and school collaboration.",
     "12+":
-      "Referral to a psychologist for support with executive functioning including organisation, planning, time and workload management, and self-monitoring, alongside strategies to support independence in secondary schooling.",
+      "Referral to a psychologist for support with executive functioning including organisation, planning, time and workload management, and self-monitoring to support independence in secondary schooling.",
   },
   "psych anxiety": {
     "0-5":
-      "Referral to a psychologist experienced in early childhood for support with anxiety, focusing on co-regulation, predictable routines, and graded exposure to feared situations at a developmentally appropriate level.",
+      "Referral to a psychologist experienced in early childhood for support with anxiety, focusing on co-regulation, predictable routines, and graded exposure at a developmentally appropriate level.",
     "6-11":
       "Referral to a psychologist for evidence-based intervention for anxiety, including graded exposure and cognitive strategies adapted to the child's developmental level, with parent and school involvement.",
     "12+":
-      "Referral to a psychologist for evidence-based intervention for anxiety, including cognitive-behavioural strategies, and where relevant support around school engagement and re-integration.",
+      "Referral to a psychologist for evidence-based intervention for anxiety, including cognitive-behavioural strategies appropriate to adolescence.",
   },
   "psych emotional regulation": {
     "0-5":
@@ -59,17 +70,17 @@ const EXPANSIONS: Record<string, Record<AgeBand, string>> = {
     "0-5":
       "Occupational therapy assessment of fine motor and pre-writing skills with play-based intervention.",
     "6-11":
-      "Occupational therapy assessment and intervention targeting handwriting, fine motor skills, and classroom participation.",
+      "Occupational therapy assessment and intervention targeting handwriting and fine motor skills for classroom participation.",
     "12+":
       "Occupational therapy assessment targeting fine motor and written-output demands where these affect schooling.",
   },
   "speech pragmatics": {
     "0-5":
-      "Speech pathology input targeting early social communication, including turn-taking and functional language, carried across home and early-education settings.",
+      "Speech pathology input targeting early social communication, including turn-taking and functional language.",
     "6-11":
-      "Speech pathology input targeting pragmatic and social communication, including conversational skills, with goals carried across home and school.",
+      "Speech pathology input targeting pragmatic and social communication, including conversational skills.",
     "12+":
-      "Speech pathology input targeting pragmatic and social communication relevant to adolescent social and academic contexts.",
+      "Speech pathology input targeting pragmatic and social communication relevant to adolescent contexts.",
   },
   "speech expressive": {
     "0-5":
@@ -79,69 +90,62 @@ const EXPANSIONS: Record<string, Record<AgeBand, string>> = {
     "12+":
       "Speech pathology assessment targeting expressive language where it affects communication and schooling.",
   },
+  "speech pathology": {
+    "0-5":
+      "Speech pathology assessment and intervention as clinically indicated for the child's speech and language profile.",
+    "6-11":
+      "Speech pathology assessment and intervention as clinically indicated for the child's speech and language profile.",
+    "12+":
+      "Speech pathology assessment and intervention as clinically indicated for the adolescent's speech and language profile.",
+  },
   "school support": {
     "0-5":
-      "Early-childhood educator support within the current setting, including structured routines, transition warnings, and individualised scaffolding during group activities.",
+      "Educator support within the current setting, including structured routines, transition warnings, and individualised scaffolding during group activities.",
     "6-11":
-      "School-based support including classroom accommodations, structured routines, movement and attention supports, and a collaborative plan with educators.",
+      "School-based support including classroom accommodations, structured routines, and movement and attention supports, in collaboration with educators.",
     "12+":
-      "Secondary-school support including classroom and assessment accommodations, executive-function scaffolding, and a collaborative re-engagement and learning plan.",
+      "Secondary-school support including classroom and assessment accommodations and executive-function scaffolding, in collaboration with educators.",
   },
   "cognitive educational assessment": {
     "0-5":
-      "Cognitive and developmental assessment to clarify the learning profile as the child enters formal schooling.",
+      "Cognitive and developmental assessment to clarify the learning profile.",
     "6-11":
-      "Formal cognitive and academic-achievement assessment (e.g. WISC-V with WIAT or equivalent) to establish or exclude a Specific Learning Disorder contributing to the presentation.",
+      "Formal cognitive and academic-achievement assessment to establish or exclude a Specific Learning Disorder contributing to the presentation.",
     "12+":
-      "Formal cognitive and academic-achievement assessment to establish or exclude a Specific Learning Disorder and to inform educational planning and accommodations.",
+      "Formal cognitive and academic-achievement assessment to establish or exclude a Specific Learning Disorder and to inform educational planning.",
   },
 };
 
-// Ratification text. medicationWanted appends the medication clause.
-function ratificationRec(ageBand: AgeBand, medicationWanted: boolean): string {
-  const base =
-    "Review by a developmental paediatrician or child psychiatrist to ratify the preliminary diagnostic formulation through the consensus pathway.";
-  if (!medicationWanted) return base;
-  const medByBand: Record<AgeBand, string> = {
-    "0-5":
-      " Any consideration of pharmacological treatment sits with the paediatrician or psychiatrist and is generally approached cautiously at this age.",
-    "6-11":
-      " Should pharmacological treatment be considered, this sits with the paediatrician or psychiatrist.",
-    "12+":
-      " Should pharmacological treatment be considered, this sits with the paediatrician or psychiatrist, with discussion appropriate to an adolescent.",
-  };
-  return base + medByBand[ageBand];
-}
-
-const riskRec =
-  "Priority GP review for mood and disclosed risk, with safety planning. Consider psychiatric input. This should occur ahead of, and independent of, the diagnostic process.";
-
 export type RecInput = {
-  shorthand: string[];     // e.g. ["psych executive functioning", "school support"]
+  shorthand: string[]; // e.g. ["psych executive functioning", "school support"]
   ageYears: number;
-  riskPresent: boolean;
-  medicationWanted: boolean;
+  /** Retained for callers; no longer auto-injects risk or ratification text. */
+  riskPresent?: boolean;
+  medicationWanted?: boolean;
 };
 
+/**
+ * Expand only the clinician's shorthand items, in order.
+ * Exactly N input items → exactly N output paragraphs. Nothing added.
+ * Does not invent WIAT timelines, extra referrals, or monitoring intervals.
+ */
 export function expandRecommendations(input: RecInput): string[] {
   const band = ageBand(input.ageYears);
   const out: string[] = [];
 
-  // Ordering: risk first if present, then ratification; otherwise ratification first.
-  if (input.riskPresent) {
-    out.push(riskRec);
-    out.push(ratificationRec(band, input.medicationWanted));
-  } else {
-    out.push(ratificationRec(band, input.medicationWanted));
-  }
-
-  // Then expand the clinician's shorthand recs, in the order given.
   for (const key of input.shorthand) {
-    const norm = key.trim().toLowerCase();
+    const trimmed = key.trim();
+    if (!trimmed) continue;
+    const norm = trimmed.toLowerCase();
     const exp = EXPANSIONS[norm];
-    if (exp) out.push(exp[band]);
-    else out.push(`[Unrecognised recommendation shorthand: "${key}" — expand manually]`);
+    // Known shorthand → age-banded prose for that single intent.
+    // Unknown → clinician's own wording, unchanged (still one item).
+    out.push(exp ? exp[band] : trimmed);
   }
 
   return out;
+}
+
+export function formatExpandedRecommendations(items: string[]): string {
+  return items.map((text, i) => `${i + 1}. ${text}`).join("\n\n");
 }

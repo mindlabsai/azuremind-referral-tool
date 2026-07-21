@@ -1,11 +1,18 @@
 import type { TexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
+import {
+  formatDemographicsLock,
+  TEXLEX_NO_FABRICATION_RULE,
+  type DemographicsLockInput,
+} from "./factual-integrity";
 
 export const COLLATERAL_SUMMARY_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
 
 # THIS SECTION — COLLATERAL RATING SCALES AND REPORTS
 
 This section summarises uploaded screening instruments, allied health reports, and educational feedback (e.g. ASRS, Conners, Vanderbilt, speech pathology reports, school reports, paediatric letters). It is non-diagnostic.
+
+${TEXLEX_NO_FABRICATION_RULE}
 
 # COLLATERAL RATING SCALES AND REPORTS — CLINICAL PRINCIPLE
 
@@ -66,7 +73,7 @@ If no collateral documents have been uploaded or pasted, output:
 - Diagnostic synthesis language in closing sentences
 - Generic openers like "Various documents were reviewed."`;
 
-export interface CollateralSummaryVariables {
+export interface CollateralSummaryVariables extends DemographicsLockInput {
   clientName: string;
   pronouns: string;
   chronologicalAge: string;
@@ -90,12 +97,9 @@ Draft the Collateral Rating Scales and Reports section synthesising the document
 
 ${conclusion}
 
-# CLIENT CONTEXT
+${formatDemographicsLock(vars)}
 
-Client name: ${vars.clientName || "[not provided]"}
-Pronouns: ${vars.pronouns || "[not specified]"}
-Chronological age: ${vars.chronologicalAge || "[not specified]"}
-Year level: ${vars.yearLevel || "[not specified]"}
+${TEXLEX_NO_FABRICATION_RULE}
 
 # COLLATERAL DOCUMENT CONTENT (PRIMARY SOURCE FOR THIS SECTION)
 

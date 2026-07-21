@@ -1,4 +1,9 @@
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
+import {
+  formatDemographicsLock,
+  TEXLEX_NO_FABRICATION_RULE,
+  type DemographicsLockInput,
+} from "./factual-integrity";
 
 const BACKGROUND_BASE = `${TEXLEX_SHARED_VOICE}
 
@@ -12,7 +17,9 @@ Length: 100-300 words per subsection, depending on the density of available info
 
 # SECTION-FIDELITY — STRICT
 
-The RAW CLINICAL NOTES in the user prompt are scoped to the subsection named in the user task only. Draft strictly within that subsection's defined scope. Do not import DSM criterion observations, material that belongs to other Background subsections, or presenting-concerns narrative unless it appears explicitly in those notes.`;
+The RAW CLINICAL NOTES in the user prompt are scoped to the subsection named in the user task only. Draft strictly within that subsection's defined scope. Do not import DSM criterion observations, material that belongs to other Background subsections, or presenting-concerns narrative unless it appears explicitly in those notes.
+
+${TEXLEX_NO_FABRICATION_RULE}`;
 
 export const BACKGROUND_PREGNANCY_BIRTH_SYSTEM_PROMPT = `${BACKGROUND_BASE}
 
@@ -83,7 +90,7 @@ This is the integrative subsection — it bridges to the DSM criteria that follo
 
 Do NOT pre-empt diagnostic conclusions. Stay descriptive.`;
 
-export interface BackgroundVariables {
+export interface BackgroundVariables extends DemographicsLockInput {
   clientName: string;
   pronouns: string;
   chronologicalAge: string;
@@ -96,12 +103,9 @@ export function buildBackgroundUserPrompt(vars: BackgroundVariables, subsection:
 
 Draft the Background — ${subsection} subsection.
 
-# CLIENT CONTEXT
+${formatDemographicsLock(vars)}
 
-Client name: ${vars.clientName || "[not provided]"}
-Pronouns: ${vars.pronouns || "[not specified]"}
-Chronological age: ${vars.chronologicalAge || "[not specified]"}
-Year level: ${vars.yearLevel || "[not specified]"}
+${TEXLEX_NO_FABRICATION_RULE}
 
 # RAW CLINICAL NOTES
 

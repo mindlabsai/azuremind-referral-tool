@@ -1,4 +1,9 @@
 import { TEXLEX_SHARED_VOICE } from "./shared-voice";
+import {
+  formatDemographicsLock,
+  TEXLEX_NO_FABRICATION_RULE,
+  type DemographicsLockInput,
+} from "./factual-integrity";
 
 export const PRESENTING_CONCERNS_SYSTEM_PROMPT = `${TEXLEX_SHARED_VOICE}
 
@@ -15,6 +20,8 @@ Draw on raw notes to describe:
 - Current functional concerns (home, school, social, emotional regulation)
 - Family history relevant to neurodevelopmental presentation (ASD/ADHD/language delay in family)
 - The client's own perspective if reported in raw notes
+
+When naming who attended, use only the clinician-selected attending parents and the exact parent names from the demographics lock.
 
 # STRUCTURE
 
@@ -37,9 +44,11 @@ The RAW CLINICAL NOTES in the user prompt are scoped to Presenting Concerns only
 - Lists of concerns ("Parents reported: 1. concern 2. concern...")
 - Diagnostic language at this stage
 
-Stay descriptive and narrative.`;
+Stay descriptive and narrative.
 
-export interface PresentingConcernsVariables {
+${TEXLEX_NO_FABRICATION_RULE}`;
+
+export interface PresentingConcernsVariables extends DemographicsLockInput {
   clientName: string;
   pronouns: string;
   chronologicalAge: string;
@@ -52,12 +61,9 @@ export function buildPresentingConcernsUserPrompt(vars: PresentingConcernsVariab
 
 Draft the Presenting Concerns section.
 
-# CLIENT CONTEXT
+${formatDemographicsLock(vars)}
 
-Client name: ${vars.clientName || "[not provided]"}
-Pronouns: ${vars.pronouns || "[not specified]"}
-Chronological age: ${vars.chronologicalAge || "[not specified]"}
-Year level: ${vars.yearLevel || "[not specified]"}
+${TEXLEX_NO_FABRICATION_RULE}
 
 # RAW CLINICAL NOTES
 

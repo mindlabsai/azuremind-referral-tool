@@ -25,6 +25,11 @@ type ClinikoIntakeCardProps = {
   onTouch: () => void;
   onLoaded: (message: string) => void;
   onError: (message: string) => void;
+  /**
+   * Optional: when Change patient is clicked, run this first (e.g. save + full report reset).
+   * If provided, the caller is responsible for clearing Cliniko linkage / remounting as needed.
+   */
+  onChangePatientRequest?: () => void | Promise<void>;
 };
 
 function formatDobLabel(dob: string | null): string {
@@ -54,6 +59,7 @@ export function ClinikoIntakeCard({
   onTouch,
   onLoaded,
   onError,
+  onChangePatientRequest,
 }: ClinikoIntakeCardProps) {
   const [configured, setConfigured] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -207,7 +213,19 @@ export function ClinikoIntakeCard({
         <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
           <p className="text-sm">
             Connected to Cliniko · {connectedLabel} ·{" "}
-            <button type="button" className="underline-offset-4 hover:underline" onClick={() => setShowSearchCard(true)}>
+            <button
+              type="button"
+              className="underline-offset-4 hover:underline"
+              onClick={() => {
+                void (async () => {
+                  if (onChangePatientRequest) {
+                    await onChangePatientRequest();
+                    return;
+                  }
+                  setShowSearchCard(true);
+                })();
+              }}
+            >
               Change patient
             </button>
           </p>
