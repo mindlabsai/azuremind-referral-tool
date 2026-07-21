@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { ClinikoIntakeCard } from "../../asd-engine/report/components/ClinikoIntakeCard";
@@ -1369,6 +1370,7 @@ export default function AdhdReportPage() {
                 onNewReport={handleNewReportClick}
                 onSaveDraft={() => void saveReport()}
               />
+              <SignOutButton className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60" />
             </div>
           </div>
         </div>

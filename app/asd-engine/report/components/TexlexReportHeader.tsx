@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
 
 const TEXLEX_PRIMARY_BUTTON_CLASS =
@@ -184,6 +185,7 @@ export function TexlexReportHeader({
             onNewReport={onNewReport}
             onSaveDraft={onSaveDraft}
           />
+          <SignOutButton className="inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60" />
         </div>
       </div>
     </header>

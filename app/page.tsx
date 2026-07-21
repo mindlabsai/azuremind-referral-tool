@@ -1,11 +1,8 @@
 "use client";
 
-import type { CSSProperties, FormEvent, ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const PIN = "azuremind";
-
-const AUTH_STORAGE_KEY = "azuremind_referral_engine_auth";
+import { SignOutButton } from "@/components/SignOutButton";
 
 const DEFAULT_BOOKING_LINK =
   "https://azurepsychology-cockburn.au1.cliniko.com/bookings";
@@ -791,11 +788,6 @@ function buildSmsText(fields: {
 
 
 export default function Home() {
-  const [pinInput, setPinInput] = useState("");
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [signingIn, setSigningIn] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-
   const [childFirst, setChildFirst] = useState("");
   const [childLast, setChildLast] = useState("");
   const [childDob, setChildDob] = useState("");
@@ -840,47 +832,6 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
     setTimeout(() => childFirstNameRef.current?.focus(), 250);
   }
-
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined" && localStorage.getItem(AUTH_STORAGE_KEY)) {
-        setUnlocked(true);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const handleUnlock = (e: FormEvent) => {
-    e.preventDefault();
-    if (signingIn) return;
-    setSigningIn(true);
-    window.setTimeout(() => {
-      if (pinInput.trim().toLowerCase() === PIN.toLowerCase()) {
-        try {
-          localStorage.setItem(AUTH_STORAGE_KEY, "1");
-        } catch {
-          /* ignore */
-        }
-        setUnlocked(true);
-        setPinError(null);
-      } else {
-        setPinError("Incorrect password");
-      }
-      setSigningIn(false);
-    }, 120);
-  };
-
-  const signOut = () => {
-    try {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-    setUnlocked(false);
-    setPinInput("");
-    setPinError(null);
-  };
 
   const validateCoreFields = useCallback((): boolean => {
     if (
@@ -1093,9 +1044,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!unlocked) return;
     void loadReferrals();
-  }, [unlocked, loadReferrals]);
+  }, [loadReferrals]);
 
   const intelRangeBounds = useMemo(() => {
     const now = new Date();
@@ -1521,127 +1471,6 @@ export default function Home() {
     marginTop: 2,
   };
 
-  if (!unlocked) {
-    return (
-      <main
-        className="azuremind-app"
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          background: pageBg,
-          padding: 24,
-        }}
-      >
-        <div style={{ ...shell, maxWidth: 420, width: "100%" }}>
-          <header
-            style={{
-              ...headerBar,
-              textAlign: "center",
-              marginBottom: 24,
-              boxShadow: "0 8px 28px rgba(14, 95, 99, 0.18)",
-            }}
-          >
-            <h1
-              style={{
-                fontSize: 24,
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
-                lineHeight: 1.2,
-              }}
-            >
-              Azure Mind
-            </h1>
-            <p
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                opacity: 0.94,
-                marginTop: 8,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-              }}
-            >
-              Referral Engine
-            </p>
-            <p
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                opacity: 0.72,
-                marginTop: 10,
-                letterSpacing: "0.02em",
-              }}
-            >
-              Internal Use Only
-            </p>
-          </header>
-          <form
-            onSubmit={handleUnlock}
-            style={{
-              ...card,
-              marginBottom: 0,
-              boxShadow: "0 4px 24px rgba(15, 23, 42, 0.08)",
-              border: "1px solid rgba(14, 95, 99, 0.08)",
-            }}
-          >
-            <label style={labelFirst} htmlFor="sign-in-password">
-              Password
-            </label>
-            <input
-              id="sign-in-password"
-              type="password"
-              autoComplete="current-password"
-              autoFocus
-              value={pinInput}
-              onChange={(e) => {
-                setPinInput(e.target.value);
-                if (pinError) setPinError(null);
-              }}
-              placeholder="Enter password"
-              aria-invalid={pinError ? true : undefined}
-              style={{
-                ...inputStyle,
-                ...(pinError
-                  ? {
-                      border: "2px solid #DC2626",
-                    }
-                  : {}),
-              }}
-            />
-            {pinError ? (
-              <p
-                style={{
-                  color: "#991B1B",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  marginTop: 10,
-                }}
-              >
-                {pinError}
-              </p>
-            ) : null}
-            <button
-              type="submit"
-              disabled={signingIn}
-              style={{
-                ...btnPrimary,
-                width: "100%",
-                marginTop: 16,
-                opacity: signingIn ? 0.85 : 1,
-                cursor: signingIn ? "wait" : "pointer",
-              }}
-            >
-              {signingIn ? "Signing in..." : "Sign in"}
-            </button>
-          </form>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <div
       className="azuremind-app"
@@ -1668,9 +1497,7 @@ export default function Home() {
               Internal Use Only
             </p>
           </div>
-          <button type="button" style={headerSignOutBtn} onClick={signOut}>
-            Sign out
-          </button>
+          <SignOutButton style={headerSignOutBtn} />
         </header>
 
         <section style={referralIntelPanel}>

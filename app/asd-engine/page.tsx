@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { SignOutButton } from "@/components/SignOutButton";
 import { Brain } from "lucide-react";
 import { EngineAssistant } from "./components/EngineAssistant";
 import { SAMPLE_NOTE } from "./asd-engine-core";
@@ -41,6 +42,7 @@ export default function ASDLiveFormulationEnginePage() {
             <Button type="button" variant="secondary" asChild>
               <Link href="/asd-engine/report">Texlex Live Report Generator</Link>
             </Button>
+            <SignOutButton className="inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-60" />
           </div>
         </div>
 
