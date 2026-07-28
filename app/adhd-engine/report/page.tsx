@@ -1308,8 +1308,8 @@ export default function AdhdReportPage() {
         <div className="flex justify-center px-6 py-3">
           <div className="flex w-full max-w-6xl items-center justify-between">
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">Texlex</h1>
-              <p className="text-[15px] text-muted-foreground">
+              <h1 className="text-2xl font-semibold tracking-tight">Texlex</h1>
+              <p className="text-base text-muted-foreground">
                 {(patientDetails.clientName || "New patient") + " · ADHD assessment"}
               </p>
             </div>

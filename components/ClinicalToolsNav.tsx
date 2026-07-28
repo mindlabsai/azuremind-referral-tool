@@ -29,14 +29,14 @@ export function ClinicalToolsNav() {
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: 8,
-        padding: "8px 16px",
+        gap: 10,
+        padding: "14px 20px",
         borderBottom: "1px solid #e2e8f0",
         background: "#f8fafc",
-        fontSize: 13,
+        fontSize: 16,
       }}
     >
-      <span style={{ color: "#64748b", marginRight: 4, fontWeight: 600 }}>
+      <span style={{ color: "#64748b", marginRight: 6, fontWeight: 600 }}>
         Tools
       </span>
       {LINKS.map((link) => {
@@ -46,12 +46,13 @@ export function ClinicalToolsNav() {
             key={link.href}
             href={link.href}
             style={{
-              padding: "4px 10px",
-              borderRadius: 6,
+              padding: "8px 14px",
+              borderRadius: 8,
               textDecoration: "none",
               color: active ? "#0f172a" : "#334155",
               background: active ? "#e2e8f0" : "transparent",
-              fontWeight: active ? 600 : 500,
+              fontWeight: active ? 700 : 500,
+              boxShadow: active ? "inset 0 0 0 1px #cbd5e1" : "none",
             }}
           >
             {link.label}
