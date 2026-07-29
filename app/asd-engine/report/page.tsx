@@ -45,6 +45,10 @@ import { TexlexReportSidebarNav } from "./components/TexlexReportSidebarNav";
 import { TexlexReportHeader } from "./components/TexlexReportHeader";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import {
+  fetchReportStateForEngine,
+  saveReportStateForEngine,
+} from "@/lib/texlex-report-state";
 import { EngineAssistant } from "../components/EngineAssistant";
 import { useAsdEnginePipeline } from "../asd-engine-core";
 import {
@@ -1520,6 +1524,7 @@ function migrateBackgroundFromStorage(raw: unknown): BackgroundState {
 }
 
 export type TexlexReportDraftV1 = {
+  engine?: "asd";
   patientDetails: PatientDetails;
   cliniko?: ClinikoDraftState | null;
   rawNotes: string;
@@ -3112,6 +3117,7 @@ export default function TexlexReportPage() {
   const persistPayload = useMemo((): TexlexReportDraftV1 => {
     const lastSaved = new Date().toISOString();
     return {
+      engine: "asd",
       patientDetails,
       cliniko,
       rawNotes,
@@ -3204,16 +3210,20 @@ export default function TexlexReportPage() {
     if (!raw) {
       const fallbackPatientId = cliniko?.patientId;
       if (fallbackPatientId) {
-        processedDraftResumeKeyRef.current = activeKey;
         void (async () => {
           const remote = await fetchReportStateFromSupabase(fallbackPatientId);
-          if (!remote) return;
+          if (!remote) {
+            processedDraftResumeKeyRef.current = activeKey;
+            return;
+          }
           const patientLabel =
             patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
           const lastSavedLabel =
             typeof remote.lastSaved === "string" ? formatSavedAgo(remote.lastSaved, Date.now()) : "saved in Cliniko/cloud";
           setDraftResumePrompt((prev) => (prev?.activeKey === activeKey ? prev : { patientLabel, lastSavedLabel, stored: remote, activeKey }));
         })();
+      } else {
+        processedDraftResumeKeyRef.current = activeKey;
       }
       return;
     }
@@ -3226,7 +3236,9 @@ export default function TexlexReportPage() {
       return;
     }
 
-    if (draftIsEffectivelyEmpty) {
+    // Cliniko-linked patients always get an explicit Resume banner when a draft exists.
+    // Silent restore is only for manual (non-Cliniko) empty drafts.
+    if (draftIsEffectivelyEmpty && !cliniko?.patientId) {
       applyLocalDraftData(data);
       if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
       processedDraftResumeKeyRef.current = activeKey;
@@ -4669,17 +4681,11 @@ async function uploadStateToCliniko(payload: TexlexReportDraftV1): Promise<boole
   const patientId = payload.cliniko?.patientId;
   if (!patientId) return false;
   try {
-    const res = await fetch("/api/report-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patientId, state: payload }),
-    });
-    if (!res.ok) return false;
-    return true;
+    return await saveReportStateForEngine("asd", patientId, { ...payload, engine: "asd" });
   } catch (err) {
     console.error("[texlex] Supabase state save failed (local save unaffected):", err);
   }
-    return false;
+  return false;
 }
 
 // ─── Resume-from-Supabase fallback ────────────────────────────────
@@ -4687,11 +4693,12 @@ async function fetchReportStateFromSupabase(
   patientId: string
 ): Promise<Partial<TexlexReportDraftV1> | null> {
   try {
-    const res = await fetch(`/api/report-state?patientId=${encodeURIComponent(patientId)}`);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { success: boolean; state?: unknown };
-    if (!data.success || !data.state) return null;
-    return data.state as Partial<TexlexReportDraftV1>;
+    const remote = await fetchReportStateForEngine<Partial<TexlexReportDraftV1> & { engine?: string }>(
+      "asd",
+      patientId
+    );
+    if (!remote) return null;
+    return remote.state;
   } catch {
     return null;
   }

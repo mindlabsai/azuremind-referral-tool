@@ -173,6 +173,14 @@ export function TexlexReportHeader({
           </div>
           <button
             type="button"
+            className="inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={pdfDownloading}
+            onClick={onSaveDraft}
+          >
+            Save
+          </button>
+          <button
+            type="button"
             className={TEXLEX_PRIMARY_BUTTON_CLASS}
             disabled={pdfDownloading}
             onClick={onDownloadPdf}

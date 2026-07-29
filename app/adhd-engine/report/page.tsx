@@ -17,6 +17,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import {
+  fetchReportStateForEngine,
+  formatDraftSavedAgo,
+  saveReportStateForEngine,
+} from "@/lib/texlex-report-state";
 import { ClinikoIntakeCard } from "../../asd-engine/report/components/ClinikoIntakeCard";
 import {
   CollateralDocumentsUpload,
@@ -499,6 +504,7 @@ function DetailField({
 type AdhdSavedState = {
   engine?: string;
   patientDetails?: Partial<PatientDetails>;
+  cliniko?: ClinikoDraftState | null;
   rawNotes?: string;
   divaState?: DivaState;
   criteriaStates?: Record<string, AdhdCriterionState>;
@@ -516,7 +522,38 @@ type AdhdSavedState = {
   sectionTexts?: Partial<Record<SectionId, string>>;
   sectionText?: Partial<Record<SectionId, string>>;
   collateralDocs?: unknown;
+  lastSaved?: string;
 };
+
+function adhdSavedStateHasResumableContent(state: AdhdSavedState): boolean {
+  if (typeof state.rawNotes === "string" && state.rawNotes.trim()) return true;
+  if (typeof state.formulation === "string" && state.formulation.trim()) return true;
+  if (typeof state.recommendationShorthand === "string" && state.recommendationShorthand.trim()) {
+    return true;
+  }
+  if (typeof state.severityStated === "string" && state.severityStated.trim()) return true;
+  if (typeof state.clinicianStatedFraming === "string" && state.clinicianStatedFraming.trim()) {
+    return true;
+  }
+  if (typeof state.mentalHealthFraming === "string" && state.mentalHealthFraming.trim()) return true;
+  if (state.divaState && state.divaState !== "not-administered") return true;
+  if (state.asdActive || state.mentalHealthGreenLight || state.medicationWanted) return true;
+  if (typeof state.assessmentDate === "string" && state.assessmentDate.trim()) return true;
+  if (state.assessmentModality) return true;
+  if (Array.isArray(state.attendingParents) && state.attendingParents.length > 0) return true;
+  if (
+    state.criteriaStates &&
+    Object.values(state.criteriaStates).some((value) => value && value !== "unset")
+  ) {
+    return true;
+  }
+  const sections = state.sectionTexts ?? state.sectionText;
+  if (sections && Object.values(sections).some((text) => typeof text === "string" && text.trim())) {
+    return true;
+  }
+  if (Array.isArray(state.collateralDocs) && state.collateralDocs.length > 0) return true;
+  return false;
+}
 
 function emptySectionTexts(): Record<SectionId, string> {
   return {
@@ -567,9 +604,16 @@ export default function AdhdReportPage() {
   const [saveFailed, setSaveFailed] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [lastEditAt, setLastEditAt] = useState(0);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
+  const [draftResumePrompt, setDraftResumePrompt] = useState<{
+    patientLabel: string;
+    lastSavedLabel: string;
+    stored: AdhdSavedState;
+    patientId: string;
+  } | null>(null);
 
   const touch = useCallback(() => setLastEditAt(Date.now()), []);
 
@@ -955,24 +999,16 @@ export default function AdhdReportPage() {
     }
     setSaveStatus("saving");
     try {
-      const res = await fetch("/api/report-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patientId, state: buildSaveState() }),
-      });
-      if (!res.ok) {
-        setSaveFailed(true);
-        setSaveStatus("idle");
-        return false;
-      }
-      const data = (await res.json()) as { success?: boolean };
-      if (data.success === false) {
+      const state = buildSaveState();
+      const ok = await saveReportStateForEngine("adhd", patientId, state);
+      if (!ok) {
         setSaveFailed(true);
         setSaveStatus("idle");
         return false;
       }
       setSaveFailed(false);
       setSaveStatus("saved");
+      setLastSavedAt(state.lastSaved);
       return true;
     } catch {
       setSaveFailed(true);
@@ -1022,6 +1058,8 @@ export default function AdhdReportPage() {
     setSaveFailed(false);
     setSaveStatus("idle");
     setLastEditAt(0);
+    setLastSavedAt(null);
+    setDraftResumePrompt(null);
     setClinikoNotice(null);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
@@ -1211,95 +1249,117 @@ export default function AdhdReportPage() {
     }
   }, [buildAdhdPdfDraft, cliniko?.patientId]);
 
-  const resumeFromSaved = useCallback(async (patientId: string) => {
-    try {
-      const res = await fetch(`/api/report-state?patientId=${encodeURIComponent(patientId)}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { success?: boolean; state?: AdhdSavedState | null };
-      if (!data.success || !data.state || data.state.engine !== "adhd") return;
+  const applyAdhdSavedState = useCallback((state: AdhdSavedState) => {
+    // Replace (do not merge) so a prior patient's fields cannot linger under a new name.
+    setPatientDetails({
+      ...patientDetailsAfterNewReport(),
+      ...(state.patientDetails ?? {}),
+      assessmentType: state.patientDetails?.assessmentType || "ADHD",
+      assessor: state.patientDetails?.assessor?.trim() || DEFAULT_ASSESSOR,
+      reportDate: state.patientDetails?.reportDate?.trim() || todayIso(),
+    });
+    setRawNotes(typeof state.rawNotes === "string" ? state.rawNotes : "");
+    setCollateralDocs(
+      state.collateralDocs !== undefined
+        ? migrateCollateralDocsFromStorage(state.collateralDocs)
+        : []
+    );
+    setDivaState(state.divaState ?? "not-administered");
+    setCriteriaStates(state.criteriaStates ?? {});
+    setSeverityStated(typeof state.severityStated === "string" ? state.severityStated : "");
+    setAsdActive(typeof state.asdActive === "boolean" ? state.asdActive : false);
+    setClinicianStatedFraming(
+      typeof state.clinicianStatedFraming === "string" ? state.clinicianStatedFraming : ""
+    );
+    setMentalHealthFraming(
+      typeof state.mentalHealthFraming === "string" ? state.mentalHealthFraming : ""
+    );
+    setMentalHealthGreenLight(
+      typeof state.mentalHealthGreenLight === "boolean" ? state.mentalHealthGreenLight : false
+    );
+    setRecommendationShorthand(
+      typeof state.recommendationShorthand === "string" ? state.recommendationShorthand : ""
+    );
+    setMedicationWanted(typeof state.medicationWanted === "boolean" ? state.medicationWanted : false);
+    setAssessmentDate(typeof state.assessmentDate === "string" ? state.assessmentDate : "");
+    setAssessmentModality(
+      state.assessmentModality === "in-clinic" || state.assessmentModality === "virtual"
+        ? state.assessmentModality
+        : ""
+    );
+    setAttendingParents(
+      Array.isArray(state.attendingParents)
+        ? state.attendingParents.filter(
+            (p): p is AttendingParent => p === "mother" || p === "father"
+          )
+        : []
+    );
+    setFormulation(typeof state.formulation === "string" ? state.formulation : "");
 
-      const state = data.state;
-      // Replace (do not merge) so a prior patient's fields cannot linger under a new name.
-      setPatientDetails({
-        ...patientDetailsAfterNewReport(),
-        ...(state.patientDetails ?? {}),
-        assessmentType: state.patientDetails?.assessmentType || "ADHD",
-        assessor: state.patientDetails?.assessor?.trim() || DEFAULT_ASSESSOR,
-        reportDate: state.patientDetails?.reportDate?.trim() || todayIso(),
-      });
-      setRawNotes(typeof state.rawNotes === "string" ? state.rawNotes : "");
-      setCollateralDocs(
-        state.collateralDocs !== undefined
-          ? migrateCollateralDocsFromStorage(state.collateralDocs)
-          : []
-      );
-      setDivaState(state.divaState ?? "not-administered");
-      setCriteriaStates(state.criteriaStates ?? {});
-      setSeverityStated(typeof state.severityStated === "string" ? state.severityStated : "");
-      setAsdActive(typeof state.asdActive === "boolean" ? state.asdActive : false);
-      setClinicianStatedFraming(
-        typeof state.clinicianStatedFraming === "string" ? state.clinicianStatedFraming : ""
-      );
-      setMentalHealthFraming(
-        typeof state.mentalHealthFraming === "string" ? state.mentalHealthFraming : ""
-      );
-      setMentalHealthGreenLight(
-        typeof state.mentalHealthGreenLight === "boolean" ? state.mentalHealthGreenLight : false
-      );
-      setRecommendationShorthand(
-        typeof state.recommendationShorthand === "string" ? state.recommendationShorthand : ""
-      );
-      setMedicationWanted(typeof state.medicationWanted === "boolean" ? state.medicationWanted : false);
-      setAssessmentDate(typeof state.assessmentDate === "string" ? state.assessmentDate : "");
-      setAssessmentModality(
-        state.assessmentModality === "in-clinic" || state.assessmentModality === "virtual"
-          ? state.assessmentModality
-          : ""
-      );
-      setAttendingParents(
-        Array.isArray(state.attendingParents)
-          ? state.attendingParents.filter(
-              (p): p is AttendingParent => p === "mother" || p === "father"
-            )
-          : []
-      );
-      setFormulation(typeof state.formulation === "string" ? state.formulation : "");
-
-      const savedSections = state.sectionTexts ?? state.sectionText;
-      const nextSections = emptySectionTexts();
-      if (savedSections) {
-        for (const section of SHARED_SECTIONS) {
-          const value = savedSections[section.id];
-          if (typeof value === "string") nextSections[section.id] = value;
-        }
+    const savedSections = state.sectionTexts ?? state.sectionText;
+    const nextSections = emptySectionTexts();
+    if (savedSections) {
+      for (const section of SHARED_SECTIONS) {
+        const value = savedSections[section.id];
+        if (typeof value === "string") nextSections[section.id] = value;
       }
-      setSectionTexts(nextSections);
-
-      setClinikoNotice("Loaded saved report");
-    } catch {
-      /* silent if resume fails */
     }
+    setSectionTexts(nextSections);
+    if (typeof state.lastSaved === "string") setLastSavedAt(state.lastSaved);
+    setSaveFailed(false);
+    setSaveStatus("saved");
   }, []);
 
   useEffect(() => {
     const patientId = cliniko?.patientId;
     if (!patientId) {
       lastHydratedPatientIdRef.current = null;
+      setDraftResumePrompt(null);
       return;
     }
     if (lastHydratedPatientIdRef.current === patientId) return;
-    lastHydratedPatientIdRef.current = patientId;
-    void resumeFromSaved(patientId);
-  }, [cliniko?.patientId, resumeFromSaved]);
+
+    let cancelled = false;
+    void (async () => {
+      const remote = await fetchReportStateForEngine<AdhdSavedState>("adhd", patientId);
+      if (cancelled) return;
+      // Mark hydrated only after the fetch settles so Strict Mode remounts can retry.
+      lastHydratedPatientIdRef.current = patientId;
+      if (!remote) return;
+      if (remote.state.engine && remote.state.engine !== "adhd") return;
+      if (!adhdSavedStateHasResumableContent(remote.state)) return;
+
+      const patientLabel =
+        cliniko?.connectedName?.trim() ||
+        remote.state.patientDetails?.clientName?.trim() ||
+        "this patient";
+      const lastSavedLabel = formatDraftSavedAgo(
+        remote.state.lastSaved ?? remote.updatedAt,
+        Date.now()
+      );
+      setDraftResumePrompt({
+        patientLabel,
+        lastSavedLabel,
+        stored: remote.state,
+        patientId,
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cliniko?.connectedName, cliniko?.patientId]);
 
   const statusLabel = saveFailed
     ? "Save failed"
     : saveStatus === "saving"
       ? "Saving..."
       : saveStatus === "saved"
-        ? "Saved"
+        ? lastSavedAt
+          ? `Saved ${formatDraftSavedAgo(lastSavedAt)}`
+          : "Saved"
         : lastEditAt > 0
-          ? "Saved"
+          ? "Unsaved changes"
           : "";
 
   return (
@@ -1380,6 +1440,42 @@ export default function AdhdReportPage() {
         <div className="flex justify-center px-6 pt-3">
           <div className="w-full max-w-6xl rounded-md bg-amber-50 px-3 py-2 text-[15px] text-amber-900">
             {clinikoNotice}
+          </div>
+        </div>
+      ) : null}
+
+      {draftResumePrompt ? (
+        <div
+          className="border-b border-amber-300/60 bg-amber-50 px-6 py-3 dark:border-amber-800/60 dark:bg-amber-950/30"
+          role="dialog"
+          aria-label="Resume draft"
+        >
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-foreground">
+              Resume previous draft for {draftResumePrompt.patientLabel}? Last saved{" "}
+              {draftResumePrompt.lastSavedLabel}.
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  applyAdhdSavedState(draftResumePrompt.stored);
+                  setDraftResumePrompt(null);
+                  setClinikoNotice(`Resumed draft for ${draftResumePrompt.patientLabel}`);
+                }}
+              >
+                Resume
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setDraftResumePrompt(null)}
+              >
+                Discard
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}
