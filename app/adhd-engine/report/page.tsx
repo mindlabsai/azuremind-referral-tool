@@ -18,6 +18,16 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import {
+  clearEngineActiveDraftPointer,
+  clearLocalEngineDraft,
+  draftMatchesStorageKey,
+  engineLocalDraftKey,
+  formatLocalDraftClockTime,
+  readEngineActiveDraftKey,
+  readLocalEngineDraft,
+  writeLocalEngineDraft,
+} from "@/lib/engine-draft-storage";
+import {
   fetchReportStateForEngine,
   formatDraftSavedAgo,
   saveReportStateForEngine,
@@ -104,6 +114,8 @@ export type PatientDetails = {
 
 const DEFAULT_ASSESSOR =
   "Vishal Maharaj, Registered Psychologist, PSY0001579010, Azure Mind";
+
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
 const INPUT_CLASS =
   "flex h-10 w-full rounded-lg border border-input bg-background px-3 py-1.5 text-base leading-[1.55] shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
@@ -552,6 +564,56 @@ function adhdSavedStateHasResumableContent(state: AdhdSavedState): boolean {
     return true;
   }
   if (Array.isArray(state.collateralDocs) && state.collateralDocs.length > 0) return true;
+  if (state.cliniko?.patientId) return true;
+  const d = state.patientDetails;
+  if (
+    d &&
+    (d.clientName?.trim() ||
+      d.parent1?.trim() ||
+      d.dob?.trim() ||
+      d.school?.trim() ||
+      d.yearLevel?.trim())
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Clinical working content only — ignores Cliniko link and demographics. */
+function adhdHasClinicalWorkingContent(args: {
+  rawNotes: string;
+  collateralDocs: CollateralDoc[];
+  divaState: DivaState;
+  criteriaStates: Record<string, AdhdCriterionState>;
+  severityStated: string;
+  asdActive: boolean;
+  clinicianStatedFraming: string;
+  mentalHealthFraming: string;
+  mentalHealthGreenLight: boolean;
+  recommendationShorthand: string;
+  medicationWanted: boolean;
+  assessmentDate: string;
+  assessmentModality: AssessmentModality;
+  attendingParents: AttendingParent[];
+  formulation: string;
+  sectionTexts: Record<SectionId, string>;
+}): boolean {
+  if (args.rawNotes.trim()) return true;
+  if (args.collateralDocs.length > 0) return true;
+  if (args.divaState !== "not-administered") return true;
+  if (Object.values(args.criteriaStates).some((state) => state && state !== "unset")) return true;
+  if (args.severityStated.trim()) return true;
+  if (args.asdActive) return true;
+  if (args.clinicianStatedFraming.trim()) return true;
+  if (args.mentalHealthFraming.trim()) return true;
+  if (args.mentalHealthGreenLight) return true;
+  if (args.recommendationShorthand.trim()) return true;
+  if (args.medicationWanted) return true;
+  if (args.assessmentDate.trim()) return true;
+  if (args.assessmentModality) return true;
+  if (args.attendingParents.length > 0) return true;
+  if (args.formulation.trim()) return true;
+  if (Object.values(args.sectionTexts).some((text) => text.trim())) return true;
   return false;
 }
 
@@ -605,6 +667,12 @@ export default function AdhdReportPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [lastEditAt, setLastEditAt] = useState(0);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  /** Last successful Supabase confirmed-save — used for beforeunload dirty check. */
+  const [lastCloudSavedAt, setLastCloudSavedAt] = useState<string | null>(null);
+  const [localDraftRestoredNotice, setLocalDraftRestoredNotice] = useState<{
+    lastSaved: string;
+    storageKey: string;
+  } | null>(null);
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
@@ -614,6 +682,9 @@ export default function AdhdReportPage() {
     stored: AdhdSavedState;
     patientId: string;
   } | null>(null);
+  const localDraftHydratedRef = useRef(false);
+  const suppressAutosaveRef = useRef(false);
+  const localDraftKeyRef = useRef(engineLocalDraftKey("adhd", null));
 
   const touch = useCallback(() => setLastEditAt(Date.now()), []);
 
@@ -989,6 +1060,32 @@ export default function AdhdReportPage() {
     ]
   );
 
+  const persistLocalDraftNow = useCallback(
+    (state: ReturnType<typeof buildSaveState> = buildSaveState()) => {
+      const key = engineLocalDraftKey("adhd", state.cliniko?.patientId ?? cliniko?.patientId);
+      // Never write a linked patient's state into the unassigned key, or vice versa.
+      if (!draftMatchesStorageKey("adhd", key, state)) return false;
+      if (!adhdSavedStateHasResumableContent(state)) {
+        return true;
+      }
+      const result = writeLocalEngineDraft("adhd", key, state);
+      if (result.ok) {
+        localDraftKeyRef.current = key;
+        setLastSavedAt(result.lastSaved);
+        setSaveFailed(false);
+        // When work is keyed to a patient, drop the unassigned safety net so remount
+        // cannot restore a stale pre-link draft.
+        if (state.cliniko?.patientId) {
+          clearLocalEngineDraft(engineLocalDraftKey("adhd", null));
+        }
+      } else {
+        setSaveFailed(true);
+      }
+      return result.ok;
+    },
+    [buildSaveState, cliniko?.patientId]
+  );
+
   const saveReport = useCallback(async (): Promise<boolean> => {
     const patientId = cliniko?.patientId;
     if (!patientId) {
@@ -1000,6 +1097,7 @@ export default function AdhdReportPage() {
     setSaveStatus("saving");
     try {
       const state = buildSaveState();
+      persistLocalDraftNow(state);
       const ok = await saveReportStateForEngine("adhd", patientId, state);
       if (!ok) {
         setSaveFailed(true);
@@ -1009,13 +1107,14 @@ export default function AdhdReportPage() {
       setSaveFailed(false);
       setSaveStatus("saved");
       setLastSavedAt(state.lastSaved);
+      setLastCloudSavedAt(state.lastSaved);
       return true;
     } catch {
       setSaveFailed(true);
       setSaveStatus("idle");
       return false;
     }
-  }, [buildSaveState, cliniko?.patientId]);
+  }, [buildSaveState, cliniko?.patientId, persistLocalDraftNow]);
 
   /** Persist current draft when a Cliniko patient is linked; no-op success if none. */
   const persistDraftBeforeSwitch = useCallback(async (): Promise<boolean> => {
@@ -1027,10 +1126,18 @@ export default function AdhdReportPage() {
    * Complete state reset — every clinical field back to empty/defaults.
    * Assessor and report date are preserved (ASD New Report behaviour).
    */
+  const clearRelevantLocalDraftKeys = useCallback((patientId: string | null | undefined) => {
+    clearLocalEngineDraft(engineLocalDraftKey("adhd", patientId));
+    clearLocalEngineDraft(engineLocalDraftKey("adhd", null));
+    clearEngineActiveDraftPointer("adhd");
+    localDraftKeyRef.current = engineLocalDraftKey("adhd", null);
+  }, []);
+
   const resetAllReportState = useCallback(() => {
     sectionAbortRef.current?.abort();
     sectionAbortRef.current = null;
     lastHydratedPatientIdRef.current = null;
+    suppressAutosaveRef.current = true;
 
     setPatientDetails(patientDetailsAfterNewReport());
     setCliniko(null);
@@ -1059,6 +1166,8 @@ export default function AdhdReportPage() {
     setSaveStatus("idle");
     setLastEditAt(0);
     setLastSavedAt(null);
+    setLastCloudSavedAt(null);
+    setLocalDraftRestoredNotice(null);
     setDraftResumePrompt(null);
     setClinikoNotice(null);
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -1067,6 +1176,7 @@ export default function AdhdReportPage() {
   const startNewReport = useCallback(async () => {
     setWorkflowBusy(true);
     const hadLinkedPatient = Boolean(cliniko?.patientId);
+    const previousPatientId = cliniko?.patientId ?? null;
     try {
       const saved = await persistDraftBeforeSwitch();
       if (!saved) {
@@ -1075,6 +1185,8 @@ export default function AdhdReportPage() {
         );
         return;
       }
+      // Cloud save keeps the prior patient draft; clear local safety-net keys for a clean slate.
+      clearRelevantLocalDraftKeys(previousPatientId);
       resetAllReportState();
       setClinikoNotice(
         hadLinkedPatient
@@ -1084,7 +1196,12 @@ export default function AdhdReportPage() {
     } finally {
       setWorkflowBusy(false);
     }
-  }, [cliniko?.patientId, persistDraftBeforeSwitch, resetAllReportState]);
+  }, [
+    clearRelevantLocalDraftKeys,
+    cliniko?.patientId,
+    persistDraftBeforeSwitch,
+    resetAllReportState,
+  ]);
 
   const handleNewReportClick = useCallback(() => {
     if (pdfDownloading || bulkRunning || workflowBusy) return;
@@ -1122,12 +1239,24 @@ export default function AdhdReportPage() {
         );
         return;
       }
+      // Keep prior patient local draft under adhd:{id}; clear only the unassigned safety net /
+      // active pointer so remount cannot re-open the previous patient after Change patient.
+      persistLocalDraftNow();
+      clearLocalEngineDraft(engineLocalDraftKey("adhd", null));
+      clearEngineActiveDraftPointer("adhd");
       resetAllReportState();
       setClinikoNotice("Draft saved. Select the next Cliniko patient.");
     } finally {
       setWorkflowBusy(false);
     }
-  }, [bulkRunning, pdfDownloading, persistDraftBeforeSwitch, resetAllReportState, workflowBusy]);
+  }, [
+    bulkRunning,
+    pdfDownloading,
+    persistDraftBeforeSwitch,
+    persistLocalDraftNow,
+    resetAllReportState,
+    workflowBusy,
+  ]);
 
   const buildAdhdPdfDraft = useCallback((): AdhdPdfDraft => {
     return {
@@ -1249,7 +1378,7 @@ export default function AdhdReportPage() {
     }
   }, [buildAdhdPdfDraft, cliniko?.patientId]);
 
-  const applyAdhdSavedState = useCallback((state: AdhdSavedState) => {
+  const applyAdhdSavedState = useCallback((state: AdhdSavedState, opts?: { restoreCliniko?: boolean }) => {
     // Replace (do not merge) so a prior patient's fields cannot linger under a new name.
     setPatientDetails({
       ...patientDetailsAfterNewReport(),
@@ -1258,6 +1387,12 @@ export default function AdhdReportPage() {
       assessor: state.patientDetails?.assessor?.trim() || DEFAULT_ASSESSOR,
       reportDate: state.patientDetails?.reportDate?.trim() || todayIso(),
     });
+    if (opts?.restoreCliniko) {
+      setCliniko(state.cliniko ?? null);
+      if (state.cliniko?.patientId) {
+        lastHydratedPatientIdRef.current = state.cliniko.patientId;
+      }
+    }
     setRawNotes(typeof state.rawNotes === "string" ? state.rawNotes : "");
     setCollateralDocs(
       state.collateralDocs !== undefined
@@ -1310,14 +1445,134 @@ export default function AdhdReportPage() {
     setSaveStatus("saved");
   }, []);
 
+  // Silent localStorage restore on mount (navigation / crash safety net).
+  useEffect(() => {
+    if (localDraftHydratedRef.current) return;
+    localDraftHydratedRef.current = true;
+    const activeKey =
+      readEngineActiveDraftKey("adhd") ?? engineLocalDraftKey("adhd", null);
+    const draft = readLocalEngineDraft<AdhdSavedState>(activeKey);
+    if (
+      !draft ||
+      !draftMatchesStorageKey("adhd", activeKey, draft) ||
+      !adhdSavedStateHasResumableContent(draft)
+    ) {
+      return;
+    }
+    suppressAutosaveRef.current = true;
+    applyAdhdSavedState(draft, { restoreCliniko: true });
+    // Local restore is not a Supabase confirmed-save — keep tab-close warning armed.
+    setLastEditAt(Date.now());
+    localDraftKeyRef.current = activeKey;
+    setLocalDraftRestoredNotice({
+      lastSaved: draft.lastSaved ?? new Date().toISOString(),
+      storageKey: activeKey,
+    });
+  }, [applyAdhdSavedState]);
+
+  const persistLocalDraftNowRef = useRef(persistLocalDraftNow);
+  persistLocalDraftNowRef.current = persistLocalDraftNow;
+
+  // Continuous localStorage autosave (debounced). Does not replace Supabase confirmed-save.
+  useEffect(() => {
+    if (!localDraftHydratedRef.current) return;
+    if (suppressAutosaveRef.current) {
+      suppressAutosaveRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      persistLocalDraftNow();
+    }, AUTO_SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [persistLocalDraftNow]);
+
+  // Flush pending edits on unmount (SPA nav) so the debounce window cannot drop the last keystrokes.
+  useEffect(() => {
+    return () => {
+      persistLocalDraftNowRef.current();
+    };
+  }, []);
+
+  // Warn on tab close/reload when edits are newer than the last Supabase save.
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (lastEditAt <= 0) return;
+      const cloudMs = lastCloudSavedAt ? Date.parse(lastCloudSavedAt) : 0;
+      if (!Number.isFinite(cloudMs) || lastEditAt > cloudMs) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [lastCloudSavedAt, lastEditAt]);
+
+  const clinicalWorkingSnapshotRef = useRef({
+    rawNotes,
+    collateralDocs,
+    divaState,
+    criteriaStates,
+    severityStated,
+    asdActive,
+    clinicianStatedFraming,
+    mentalHealthFraming,
+    mentalHealthGreenLight,
+    recommendationShorthand,
+    medicationWanted,
+    assessmentDate,
+    assessmentModality,
+    attendingParents,
+    formulation,
+    sectionTexts,
+  });
+  clinicalWorkingSnapshotRef.current = {
+    rawNotes,
+    collateralDocs,
+    divaState,
+    criteriaStates,
+    severityStated,
+    asdActive,
+    clinicianStatedFraming,
+    mentalHealthFraming,
+    mentalHealthGreenLight,
+    recommendationShorthand,
+    medicationWanted,
+    assessmentDate,
+    assessmentModality,
+    attendingParents,
+    formulation,
+    sectionTexts,
+  };
+
+  // Supabase resume banner when a Cliniko patient is loaded and there is no matching local draft.
   useEffect(() => {
     const patientId = cliniko?.patientId;
     if (!patientId) {
-      lastHydratedPatientIdRef.current = null;
       setDraftResumePrompt(null);
       return;
     }
     if (lastHydratedPatientIdRef.current === patientId) return;
+
+    const localKey = engineLocalDraftKey("adhd", patientId);
+    const localDraft = readLocalEngineDraft<AdhdSavedState>(localKey);
+    if (
+      localDraft &&
+      draftMatchesStorageKey("adhd", localKey, localDraft) &&
+      adhdSavedStateHasResumableContent(localDraft)
+    ) {
+      // Prefer local safety-net when clinical UI is still empty (e.g. after Change patient).
+      const clinicalEmpty = !adhdHasClinicalWorkingContent(clinicalWorkingSnapshotRef.current);
+      if (clinicalEmpty) {
+        suppressAutosaveRef.current = true;
+        applyAdhdSavedState(localDraft, { restoreCliniko: false });
+        setLocalDraftRestoredNotice({
+          lastSaved: localDraft.lastSaved ?? new Date().toISOString(),
+          storageKey: localKey,
+        });
+      }
+      lastHydratedPatientIdRef.current = patientId;
+      return;
+    }
 
     let cancelled = false;
     void (async () => {
@@ -1348,7 +1603,20 @@ export default function AdhdReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [cliniko?.connectedName, cliniko?.patientId]);
+  }, [applyAdhdSavedState, cliniko?.connectedName, cliniko?.patientId]);
+
+  const discardLocalDraftRestored = useCallback(() => {
+    if (localDraftRestoredNotice) {
+      clearLocalEngineDraft(localDraftRestoredNotice.storageKey);
+    }
+    clearRelevantLocalDraftKeys(cliniko?.patientId ?? null);
+    resetAllReportState();
+  }, [
+    clearRelevantLocalDraftKeys,
+    cliniko?.patientId,
+    localDraftRestoredNotice,
+    resetAllReportState,
+  ]);
 
   const statusLabel = saveFailed
     ? "Save failed"
@@ -1444,6 +1712,26 @@ export default function AdhdReportPage() {
         </div>
       ) : null}
 
+      {localDraftRestoredNotice ? (
+        <div className="flex justify-center border-b border-border/60 bg-muted/30 px-6 py-2">
+          <div className="flex w-full max-w-6xl flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              Draft restored — last saved{" "}
+              {formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={discardLocalDraftRestored}
+            >
+              Discard
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {draftResumePrompt ? (
         <div
           className="border-b border-amber-300/60 bg-amber-50 px-6 py-3 dark:border-amber-800/60 dark:bg-amber-950/30"
@@ -1460,7 +1748,16 @@ export default function AdhdReportPage() {
                 type="button"
                 size="sm"
                 onClick={() => {
-                  applyAdhdSavedState(draftResumePrompt.stored);
+                  const stored = draftResumePrompt.stored;
+                  applyAdhdSavedState(stored);
+                  if (typeof stored.lastSaved === "string") {
+                    setLastCloudSavedAt(stored.lastSaved);
+                  }
+                  const key = engineLocalDraftKey("adhd", draftResumePrompt.patientId);
+                  if (draftMatchesStorageKey("adhd", key, stored)) {
+                    writeLocalEngineDraft("adhd", key, { ...stored, engine: "adhd" });
+                    clearLocalEngineDraft(engineLocalDraftKey("adhd", null));
+                  }
                   setDraftResumePrompt(null);
                   setClinikoNotice(`Resumed draft for ${draftResumePrompt.patientLabel}`);
                 }}

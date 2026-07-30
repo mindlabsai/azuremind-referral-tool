@@ -46,6 +46,18 @@ import { TexlexReportHeader } from "./components/TexlexReportHeader";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import {
+  clearAsdLegacyLocalDraftKeys,
+  clearEngineActiveDraftPointer,
+  clearLocalEngineDraft,
+  draftMatchesStorageKey,
+  engineLocalDraftKey,
+  formatLocalDraftClockTime,
+  migrateAsdLegacyLocalDrafts,
+  readEngineActiveDraftKey,
+  readLocalEngineDraft,
+  writeLocalEngineDraft,
+} from "@/lib/engine-draft-storage";
+import {
   fetchReportStateForEngine,
   saveReportStateForEngine,
 } from "@/lib/texlex-report-state";
@@ -81,33 +93,7 @@ import {
   safeFilenamePart,
 } from "./pdf/utils";
 
-const STORAGE_KEY = "texlex-report-draft-v1";
-const STORAGE_KEY_PREFIX = "texlex-draft";
-const LEGACY_STORAGE_KEY = "texlex-report-draft-v1";
-
-function slugifyName(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
-function getStorageKey(
-  clinikoId: string | null | undefined,
-  clientName: string | null | undefined
-): string | null {
-  if (clinikoId) {
-    return `${STORAGE_KEY_PREFIX}-cliniko-${clinikoId}`;
-  }
-  if (clientName && clientName.trim().length > 0) {
-    return `${STORAGE_KEY_PREFIX}-manual-${slugifyName(clientName)}`;
-  }
-  return null;
-}
-
-const AUTO_SAVE_DEBOUNCE_MS = 2000;
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
 const METADATA_INPUT_MAX_LENGTH = 500;
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -232,6 +218,38 @@ function patientDetailsAfterNewReport(): PatientDetails {
   };
 }
 
+/** Clinical working content only — ignores Cliniko link and demographics. */
+function texlexHasClinicalWorkingContent(args: {
+  rawNotes: string;
+  collateralDocs: CollateralDoc[];
+  criteria: Record<CriterionCode, CriterionState>;
+  presentingConcernsRaw: string;
+  presentingConcerns: string;
+  background: BackgroundState;
+  collateralSummary: string;
+  functionalImpactSummary: string;
+  clinicalFormulation: string;
+  recommendations: string;
+  limitationsText: string;
+  diagnosticConclusion?: TexlexDiagnosticConclusion;
+}): boolean {
+  if (resolveTexlexDiagnosticConclusion(args.diagnosticConclusion) !== "inconclusive") return true;
+  if (args.rawNotes.trim()) return true;
+  if (args.collateralDocs.length > 0) return true;
+  if (args.presentingConcernsRaw.trim() || args.presentingConcerns.trim()) return true;
+  if (args.collateralSummary.trim() || args.functionalImpactSummary.trim()) return true;
+  if (args.clinicalFormulation.trim() || args.recommendations.trim()) return true;
+  if (args.limitationsText.trim() !== TEXLEX_LIMITATIONS.trim()) return true;
+  for (const key of Object.keys(args.background) as (keyof BackgroundState)[]) {
+    if (args.background[key].trim()) return true;
+  }
+  for (const code of CRITERION_CODES) {
+    const row = args.criteria[code];
+    if (row.rating !== null || row.indicators.trim() || row.lastGenerated) return true;
+  }
+  return false;
+}
+
 function isTexlexDraftEffectivelyEmpty(args: {
   patientDetails: PatientDetails;
   rawNotes: string;
@@ -245,7 +263,7 @@ function isTexlexDraftEffectivelyEmpty(args: {
   clinicalFormulation: string;
   recommendations: string;
   limitationsText: string;
-  cliniko: ClinikoDraftState | null;
+  cliniko?: ClinikoDraftState | null;
   diagnosticConclusion?: TexlexDiagnosticConclusion;
 }): boolean {
   const {
@@ -267,7 +285,7 @@ function isTexlexDraftEffectivelyEmpty(args: {
 
   if (resolveTexlexDiagnosticConclusion(diagnosticConclusion) !== "inconclusive") return false;
 
-  if (cliniko) return false;
+  if (cliniko ?? null) return false;
   if (rawNotes.trim()) return false;
   if (collateralDocs.length > 0) return false;
   if (presentingConcernsRaw.trim() || presentingConcerns.trim()) return false;
@@ -1968,6 +1986,8 @@ export default function TexlexReportPage() {
 
   const [hydrated, setHydrated] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  /** Last successful Supabase confirmed-save — used for beforeunload dirty check. */
+  const [lastCloudSavedAt, setLastCloudSavedAt] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [lastEditAt, setLastEditAt] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -1978,6 +1998,10 @@ export default function TexlexReportPage() {
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [newReportToast, setNewReportToast] = useState(false);
   const [clinikoIntakeResetKey, setClinikoIntakeResetKey] = useState(0);
+  const [localDraftRestoredNotice, setLocalDraftRestoredNotice] = useState<{
+    lastSaved: string;
+    storageKey: string;
+  } | null>(null);
   const [draftResumePrompt, setDraftResumePrompt] = useState<{
     patientLabel: string;
     lastSavedLabel: string;
@@ -1989,6 +2013,8 @@ export default function TexlexReportPage() {
   const saveToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const clinikoToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const newReportToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const suppressAutosaveRef = useRef(false);
+  const cloudResumeHandledPatientRef = useRef<string | null>(null);
   const debouncedRawNotes = useDebouncedValue(rawNotes, 400);
   const pipeline = useAsdEnginePipeline(debouncedRawNotes);
 
@@ -2016,11 +2042,10 @@ export default function TexlexReportPage() {
   );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
-  const processedDraftResumeKeyRef = useRef<string | null>(null);
 
   const applyLocalDraftData = useCallback((data: Partial<TexlexReportDraftV1>) => {
     if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
-    if (data.cliniko) setCliniko(data.cliniko);
+    if ("cliniko" in data) setCliniko(data.cliniko ?? null);
     if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
     if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
     if (data.criteria) {
@@ -3074,19 +3099,25 @@ export default function TexlexReportPage() {
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (raw) {
-        const data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
-        applyLocalDraftData(data);
-        try {
-          localStorage.removeItem(LEGACY_STORAGE_KEY);
-        } catch {
-          /* ignore */
+    migrateAsdLegacyLocalDrafts();
+    const activeKey =
+      readEngineActiveDraftKey("asd") ?? engineLocalDraftKey("asd", null);
+    const draft = readLocalEngineDraft<Partial<TexlexReportDraftV1>>(activeKey);
+    if (draft && draftMatchesStorageKey("asd", activeKey, draft)) {
+      const comparable = buildComparableDraftFromStorage(draft);
+      if (!isTexlexDraftEffectivelyEmpty(comparable)) {
+        suppressAutosaveRef.current = true;
+        applyLocalDraftData(draft);
+        // Local restore is not a Supabase confirmed-save — keep tab-close warning armed.
+        setLastEditAt(Date.now());
+        setLocalDraftRestoredNotice({
+          lastSaved: draft.lastSaved ?? new Date().toISOString(),
+          storageKey: activeKey,
+        });
+        if (draft.cliniko?.patientId) {
+          cloudResumeHandledPatientRef.current = draft.cliniko.patientId;
         }
       }
-    } catch {
-      /* ignore corrupt storage */
     }
     setHydrated(true);
   }, [applyLocalDraftData]);
@@ -3187,94 +3218,94 @@ export default function TexlexReportPage() {
     ]
   );
 
+  const asdClinicalSnapshotRef = useRef({
+    rawNotes,
+    collateralDocs,
+    criteria,
+    presentingConcernsRaw,
+    presentingConcerns,
+    background,
+    collateralSummary,
+    functionalImpactSummary,
+    clinicalFormulation,
+    recommendations,
+    limitationsText,
+    diagnosticConclusion,
+  });
+  asdClinicalSnapshotRef.current = {
+    rawNotes,
+    collateralDocs,
+    criteria,
+    presentingConcernsRaw,
+    presentingConcerns,
+    background,
+    collateralSummary,
+    functionalImpactSummary,
+    clinicalFormulation,
+    recommendations,
+    limitationsText,
+    diagnosticConclusion,
+  };
+
+  // Supabase resume only when a Cliniko patient is linked and no matching local draft was restored.
   useEffect(() => {
     if (!hydrated) return;
-    const activeKey = getStorageKey(cliniko?.patientId ?? null, patientDetails.clientName);
-    if (draftResumePrompt && draftResumePrompt.activeKey !== activeKey) {
-      setDraftResumePrompt(null);
-    }
-    if (!activeKey) {
-      processedDraftResumeKeyRef.current = null;
+    const patientId = cliniko?.patientId;
+    if (!patientId) {
       setDraftResumePrompt(null);
       return;
     }
-    if (draftResumePrompt?.activeKey === activeKey) return;
-    if (processedDraftResumeKeyRef.current === activeKey) return;
+    if (cloudResumeHandledPatientRef.current === patientId) return;
 
-    let raw: string | null = null;
-    try {
-      raw = localStorage.getItem(activeKey);
-    } catch {
-      return;
-    }
-    if (!raw) {
-      const fallbackPatientId = cliniko?.patientId;
-      if (fallbackPatientId) {
-        void (async () => {
-          const remote = await fetchReportStateFromSupabase(fallbackPatientId);
-          if (!remote) {
-            processedDraftResumeKeyRef.current = activeKey;
-            return;
-          }
-          const patientLabel =
-            patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
-          const lastSavedLabel =
-            typeof remote.lastSaved === "string" ? formatSavedAgo(remote.lastSaved, Date.now()) : "saved in Cliniko/cloud";
-          setDraftResumePrompt((prev) => (prev?.activeKey === activeKey ? prev : { patientLabel, lastSavedLabel, stored: remote, activeKey }));
-        })();
-      } else {
-        processedDraftResumeKeyRef.current = activeKey;
+    const localKey = engineLocalDraftKey("asd", patientId);
+    const localDraft = readLocalEngineDraft<Partial<TexlexReportDraftV1>>(localKey);
+    if (
+      localDraft &&
+      draftMatchesStorageKey("asd", localKey, localDraft) &&
+      !isTexlexDraftEffectivelyEmpty(buildComparableDraftFromStorage(localDraft))
+    ) {
+      // Restore patient local draft only when clinical UI is still empty (never overwrite in-progress notes).
+      if (!texlexHasClinicalWorkingContent(asdClinicalSnapshotRef.current)) {
+        suppressAutosaveRef.current = true;
+        applyLocalDraftData(localDraft);
+        setLocalDraftRestoredNotice({
+          lastSaved: localDraft.lastSaved ?? new Date().toISOString(),
+          storageKey: localKey,
+        });
       }
+      cloudResumeHandledPatientRef.current = patientId;
       return;
     }
 
-    let data: Partial<TexlexReportDraftV1>;
-    try {
-      data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
-    } catch {
-      processedDraftResumeKeyRef.current = activeKey;
-      return;
-    }
+    let cancelled = false;
+    void (async () => {
+      const remote = await fetchReportStateFromSupabase(patientId);
+      if (cancelled) return;
+      cloudResumeHandledPatientRef.current = patientId;
+      if (!remote) return;
+      const patientLabel =
+        patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
+      const lastSavedLabel =
+        typeof remote.lastSaved === "string"
+          ? formatSavedAgo(remote.lastSaved, Date.now())
+          : "saved in Cliniko/cloud";
+      setDraftResumePrompt({
+        patientLabel,
+        lastSavedLabel,
+        stored: remote,
+        activeKey: localKey,
+      });
+    })();
 
-    // Cliniko-linked patients always get an explicit Resume banner when a draft exists.
-    // Silent restore is only for manual (non-Cliniko) empty drafts.
-    if (draftIsEffectivelyEmpty && !cliniko?.patientId) {
-      applyLocalDraftData(data);
-      if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
-      processedDraftResumeKeyRef.current = activeKey;
-      return;
-    }
-
-    try {
-      const storedComparable = buildComparableDraftFromStorage(data);
-      const currentComparable = omitLastSaved(persistPayload);
-      if (JSON.stringify(storedComparable) === JSON.stringify(currentComparable)) {
-        processedDraftResumeKeyRef.current = activeKey;
-        return;
-      }
-    } catch {
-      processedDraftResumeKeyRef.current = activeKey;
-      return;
-    }
-
-    const patientLabel =
-      patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
-    const lastSavedLabel =
-      typeof data.lastSaved === "string" ? formatSavedAgo(data.lastSaved, Date.now()) : "unknown time";
-
-    setDraftResumePrompt((prev) => {
-      if (prev?.activeKey === activeKey) return prev;
-      return { patientLabel, lastSavedLabel, stored: data, activeKey };
-    });
+    return () => {
+      cancelled = true;
+    };
   }, [
-    hydrated,
-    cliniko?.patientId,
-    cliniko?.connectedName,
-    patientDetails.clientName,
-    draftIsEffectivelyEmpty,
-    persistPayload,
     applyLocalDraftData,
-    draftResumePrompt,
+    cliniko?.connectedName,
+    cliniko?.patientId,
+    hydrated,
+    patientDetails.clientName,
   ]);
 
   const startNewReport = useCallback(() => {
@@ -3284,16 +3315,16 @@ export default function TexlexReportPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    const activeKey = getStorageKey(cliniko?.patientId ?? null, patientDetails.clientName);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      if (activeKey) localStorage.removeItem(activeKey);
-    } catch {
-      /* ignore */
-    }
+    const patientId = cliniko?.patientId ?? null;
+    clearLocalEngineDraft(engineLocalDraftKey("asd", patientId));
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    clearAsdLegacyLocalDraftKeys(patientId, patientDetails.clientName);
+    suppressAutosaveRef.current = true;
+    cloudResumeHandledPatientRef.current = null;
 
     setDraftResumePrompt(null);
-    processedDraftResumeKeyRef.current = null;
+    setLocalDraftRestoredNotice(null);
 
     const fresh = defaultDraft();
     setPatientDetails(patientDetailsAfterNewReport());
@@ -3317,6 +3348,7 @@ export default function TexlexReportPage() {
     setGeneratingSectionId(null);
     setSectionGenErrors({});
     setLastSavedAt(null);
+    setLastCloudSavedAt(null);
     setSaveFailed(false);
     setSaveToast(false);
     setLastEditAt(0);
@@ -3353,20 +3385,38 @@ export default function TexlexReportPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    const activeKey = getStorageKey(
-      persistPayload.cliniko?.patientId ?? null,
-      persistPayload.patientDetails.clientName
+    const activeKey = engineLocalDraftKey(
+      "asd",
+      persistPayload.cliniko?.patientId ?? null
     );
-    if (!activeKey) return;
     try {
       const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
-      localStorage.setItem(activeKey, JSON.stringify(payload));
-      setLastSavedAt(payload.lastSaved);
+      if (draftMatchesStorageKey("asd", activeKey, payload)) {
+        const written = writeLocalEngineDraft("asd", activeKey, payload);
+        if (written.ok) {
+          setLastSavedAt(written.lastSaved);
+          if (payload.cliniko?.patientId) {
+            clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+          }
+        }
+      }
       const uploaded = await uploadStateToCliniko(payload);
       if (!uploaded) {
-        setSaveFailed(true);
+        // Local safety-net still saved; only fail the confirmed cloud path when linked.
+        if (payload.cliniko?.patientId) {
+          setSaveFailed(true);
+          return;
+        }
+        setSaveFailed(false);
+        setSaveToast(true);
+        if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+        saveToastTimerRef.current = globalThis.setTimeout(() => {
+          setSaveToast(false);
+          saveToastTimerRef.current = null;
+        }, 2000);
         return;
       }
+      setLastCloudSavedAt(payload.lastSaved);
       setSaveFailed(false);
       setSaveToast(true);
       if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
@@ -3503,26 +3553,36 @@ export default function TexlexReportPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [saveDraftNow]);
 
+  const persistPayloadRef = useRef(persistPayload);
+  persistPayloadRef.current = persistPayload;
+
+  const writeAsdLocalDraft = useCallback((payload: TexlexReportDraftV1) => {
+    const activeKey = engineLocalDraftKey("asd", payload.cliniko?.patientId ?? null);
+    if (!draftMatchesStorageKey("asd", activeKey, payload)) return false;
+    if (isTexlexDraftEffectivelyEmpty(omitLastSaved(payload))) return true;
+    const written = writeLocalEngineDraft("asd", activeKey, payload);
+    if (!written.ok) {
+      setSaveFailed(true);
+      return false;
+    }
+    setLastSavedAt(written.lastSaved);
+    setSaveFailed(false);
+    if (payload.cliniko?.patientId) {
+      clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    }
+    return true;
+  }, []);
+
   useEffect(() => {
     if (!hydrated) return;
-    const activeKey = getStorageKey(
-      persistPayload.cliniko?.patientId ?? null,
-      persistPayload.patientDetails.clientName
-    );
-    if (!activeKey) {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
+    if (suppressAutosaveRef.current) {
+      suppressAutosaveRef.current = false;
       return;
     }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       try {
-        const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
-        localStorage.setItem(activeKey, JSON.stringify(payload));
-        setLastSavedAt(payload.lastSaved);
-        setSaveFailed(false);
+        writeAsdLocalDraft(persistPayload);
       } catch {
         setSaveFailed(true);
       }
@@ -3530,7 +3590,41 @@ export default function TexlexReportPage() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [hydrated, persistPayload]);
+  }, [hydrated, persistPayload, writeAsdLocalDraft]);
+
+  // Flush pending edits on unmount (SPA nav) so the debounce window cannot drop the last keystrokes.
+  useEffect(() => {
+    return () => {
+      try {
+        writeAsdLocalDraft(persistPayloadRef.current);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [writeAsdLocalDraft]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (lastEditAt <= 0) return;
+      const cloudMs = lastCloudSavedAt ? Date.parse(lastCloudSavedAt) : 0;
+      if (!Number.isFinite(cloudMs) || lastEditAt > cloudMs) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [lastCloudSavedAt, lastEditAt]);
+
+  const discardLocalDraftRestored = useCallback(() => {
+    if (localDraftRestoredNotice) {
+      clearLocalEngineDraft(localDraftRestoredNotice.storageKey);
+    }
+    clearLocalEngineDraft(engineLocalDraftKey("asd", cliniko?.patientId ?? null));
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    startNewReport();
+  }, [cliniko?.patientId, localDraftRestoredNotice, startNewReport]);
 
   const editing = nowTick - lastEditAt < 2000 && lastEditAt > 0;
   const statusLabel = saveFailed
@@ -3579,6 +3673,26 @@ export default function TexlexReportPage() {
         }
       />
 
+      {localDraftRestoredNotice ? (
+        <div className="border-b border-border/60 bg-muted/30 px-5 py-2">
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              Draft restored — last saved{" "}
+              {formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={discardLocalDraftRestored}
+            >
+              Discard
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {draftResumePrompt ? (
         <div
           className="border-b border-amber-300/60 bg-amber-50 px-5 py-3 dark:border-amber-800/60 dark:bg-amber-950/30"
@@ -3596,7 +3710,18 @@ export default function TexlexReportPage() {
                 variant="default"
                 onClick={() => {
                   applyLocalDraftData(draftResumePrompt.stored);
-                  processedDraftResumeKeyRef.current = draftResumePrompt.activeKey;
+                  if (typeof draftResumePrompt.stored.lastSaved === "string") {
+                    setLastCloudSavedAt(draftResumePrompt.stored.lastSaved);
+                  }
+                  if (
+                    draftMatchesStorageKey("asd", draftResumePrompt.activeKey, draftResumePrompt.stored)
+                  ) {
+                    writeLocalEngineDraft("asd", draftResumePrompt.activeKey, {
+                      ...draftResumePrompt.stored,
+                      engine: "asd",
+                    });
+                    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+                  }
                   setDraftResumePrompt(null);
                 }}
               >
@@ -3607,7 +3732,6 @@ export default function TexlexReportPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  processedDraftResumeKeyRef.current = draftResumePrompt.activeKey;
                   setDraftResumePrompt(null);
                 }}
               >
