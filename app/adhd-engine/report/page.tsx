@@ -156,7 +156,7 @@ const NARRATIVE_SECTIONS = [
 const RECOMMENDATIONS_SECTION = {
   id: "recommendations",
   label: "Recommendations",
-  route: "/api/generate/recommendations",
+  route: "/api/generate/adhd-recommendations",
 } as const;
 
 const SHARED_SECTIONS = [...NARRATIVE_SECTIONS, RECOMMENDATIONS_SECTION] as const;
@@ -979,6 +979,68 @@ export default function AdhdReportPage() {
     );
   }, [pipeline.recommendations, touch]);
 
+  const generateRecommendationsFromNotes = useCallback(async () => {
+    if (rawNotes.trim().length < 20) {
+      setClinikoNotice(
+        "Raw clinical notes need at least 20 characters before generating recommendations."
+      );
+      return;
+    }
+    setSectionGenerating((prev) => ({ ...prev, recommendations: true }));
+    setClinikoNotice("");
+    try {
+      const res = await fetch("/api/generate/adhd-recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rawNotes,
+          ageYears: ageYearsFromDob(patientDetails.dob),
+          clientName: patientDetails.clientName,
+          chronologicalAge: chronologicalAgeLabel(patientDetails.dob),
+          yearLevel: patientDetails.yearLevel,
+          school: patientDetails.school,
+        }),
+      });
+      const data = (await res.json()) as {
+        text?: string;
+        shorthand?: string[];
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Recommendations generation failed");
+      }
+      touch();
+      if (Array.isArray(data.shorthand) && data.shorthand.length) {
+        setRecommendationShorthand(data.shorthand.join(", "));
+      }
+      if (data.text) {
+        setSectionTexts((prev) => ({
+          ...prev,
+          recommendations: data.text!,
+        }));
+      }
+      const count = Array.isArray(data.shorthand) ? data.shorthand.length : 0;
+      setClinikoNotice(
+        count
+          ? `Generated ${count} recommendation(s) from raw notes, then age-band expanded. Review before finalising.`
+          : "Recommendations generated from raw notes. Review before finalising."
+      );
+    } catch (err) {
+      setClinikoNotice(
+        err instanceof Error ? err.message : "Recommendations generation failed"
+      );
+    } finally {
+      setSectionGenerating((prev) => ({ ...prev, recommendations: false }));
+    }
+  }, [
+    patientDetails.clientName,
+    patientDetails.dob,
+    patientDetails.school,
+    patientDetails.yearLevel,
+    rawNotes,
+    touch,
+  ]);
+
   const generateAllSections = useCallback(async () => {
     const hasReadyPdf = collateralPayload.collateralPdfDocuments.length > 0;
     if (rawNotes.trim().length < 20 && !hasReadyPdf) {
@@ -999,7 +1061,7 @@ export default function AdhdReportPage() {
       setBulkLabel(`Generating ${NARRATIVE_SECTIONS.length + 1} of ${totalSteps} - Formulation`);
       await generateFormulation();
       setBulkLabel(`Generating ${totalSteps} of ${totalSteps} - Recommendations`);
-      generateRecommendationsFromShorthand();
+      await generateRecommendationsFromNotes();
     } catch (err) {
       setClinikoNotice(err instanceof Error ? err.message : "Generate all failed");
     } finally {
@@ -1009,7 +1071,7 @@ export default function AdhdReportPage() {
   }, [
     collateralPayload.collateralPdfDocuments.length,
     generateFormulation,
-    generateRecommendationsFromShorthand,
+    generateRecommendationsFromNotes,
     generateSection,
     rawNotes,
   ]);
@@ -2249,32 +2311,52 @@ export default function AdhdReportPage() {
               <CardContent className="space-y-3 pt-6">
                 <div className="flex items-center justify-between gap-3">
                   <TexlexSectionHeading>{RECOMMENDATIONS_SECTION.label}</TexlexSectionHeading>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={bulkRunning}
-                    onClick={() => generateRecommendationsFromShorthand()}
-                  >
-                    Expand shorthand
-                  </Button>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={bulkRunning || sectionGenerating.recommendations}
+                      onClick={() => generateRecommendationsFromShorthand()}
+                    >
+                      Expand shorthand
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={bulkRunning || sectionGenerating.recommendations}
+                      onClick={() => void generateRecommendationsFromNotes()}
+                    >
+                      {sectionGenerating.recommendations ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Generating
+                        </>
+                      ) : (
+                        "Generate"
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Expands only the clinician shorthand entered above. No extra recommendations are
-                  added.
+                  Generate pulls recommendation intents from the raw notes, then age-band expands
+                  them. Expand shorthand still uses only the clinician shorthand above.
                 </p>
-                <Textarea
-                  className="min-h-[160px] text-base leading-relaxed"
-                  value={sectionTexts.recommendations ?? ""}
-                  onChange={(e) => {
-                    touch();
-                    setSectionTexts((prev) => ({
-                      ...prev,
-                      recommendations: e.target.value,
-                    }));
-                  }}
-                  placeholder="Expand shorthand, or type/edit recommendation prose here."
-                  rows={8}
-                />
+                {sectionGenerating.recommendations ? (
+                  <p className="text-base text-muted-foreground">Generating…</p>
+                ) : (
+                  <Textarea
+                    className="min-h-[160px] text-base leading-relaxed"
+                    value={sectionTexts.recommendations ?? ""}
+                    onChange={(e) => {
+                      touch();
+                      setSectionTexts((prev) => ({
+                        ...prev,
+                        recommendations: e.target.value,
+                      }));
+                    }}
+                    placeholder="Generate from raw notes, expand shorthand, or type/edit recommendation prose here."
+                    rows={8}
+                  />
+                )}
               </CardContent>
             </Card>
           </div>

@@ -116,6 +116,9 @@ const EXPANSIONS: Record<string, Record<AgeBand, string>> = {
   },
 };
 
+/** Known shorthand keys accepted by the age-banded expander (exact match after lowercasing). */
+export const KNOWN_RECOMMENDATION_SHORTHAND_KEYS = Object.keys(EXPANSIONS);
+
 export type RecInput = {
   shorthand: string[]; // e.g. ["psych executive functioning", "school support"]
   ageYears: number;
