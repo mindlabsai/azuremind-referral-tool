@@ -447,6 +447,105 @@ async function streamSse(
   }
 }
 
+/** SSE reader for ADHD recommendations (pass-1 stream + voice-critic final content). */
+async function streamAdhdRecommendationsSse(
+  url: string,
+  body: Record<string, unknown>,
+  onDelta: (delta: string) => void,
+  onFinal: (content: string) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    const errorText = await response.text();
+    let detail = errorText.slice(0, 800);
+    try {
+      const j = JSON.parse(errorText) as { error?: string };
+      if (typeof j.error === "string") detail = j.error;
+    } catch {
+      /* keep raw body */
+    }
+    throw new Error(`Generation failed: ${detail}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let assembled = "";
+  let finalContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") {
+        onFinal((finalContent || assembled).trim());
+        return;
+      }
+      try {
+        const parsed = JSON.parse(data) as {
+          delta?: string;
+          error?: string;
+          content?: string;
+        };
+        if (parsed.error) throw new Error(parsed.error);
+        if (typeof parsed.delta === "string" && parsed.delta.length) {
+          assembled += parsed.delta;
+          onDelta(parsed.delta);
+        }
+        if (typeof parsed.content === "string") {
+          finalContent = parsed.content;
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) continue;
+        throw e;
+      }
+    }
+  }
+  onFinal((finalContent || assembled).trim());
+}
+
+function buildAdhdEngineContextBlock(args: {
+  presentation: string | null;
+  inattentionMet: number;
+  inattentionTotal: number;
+  hyperactivityMet: number;
+  hyperactivityTotal: number;
+  threshold: number;
+  severityStated: string;
+  criteriaStates: Record<string, AdhdCriterionState>;
+  divaState: DivaState;
+}): string {
+  const criterionLines = ADHD_CRITERIA.map((c) => {
+    const state = args.criteriaStates[c.code] ?? "unset";
+    return `- ${c.code} (${c.domain}): ${state}`;
+  }).join("\n");
+
+  return [
+    `DIVA-5: ${args.divaState}`,
+    `Presentation: ${args.presentation ?? "held open"}`,
+    `Inattention criteria met: ${args.inattentionMet}/${args.inattentionTotal}`,
+    `Hyperactivity/impulsivity criteria met: ${args.hyperactivityMet}/${args.hyperactivityTotal}`,
+    `Threshold: ${args.threshold}`,
+    `Severity stated: ${args.severityStated.trim() || "[not stated]"}`,
+    "Criterion states:",
+    criterionLines || "[none]",
+  ].join("\n");
+}
+
 function CriterionRow({
   code,
   label,
@@ -986,58 +1085,110 @@ export default function AdhdReportPage() {
       );
       return;
     }
+    sectionAbortRef.current?.abort();
+    const controller = new AbortController();
+    sectionAbortRef.current = controller;
     setSectionGenerating((prev) => ({ ...prev, recommendations: true }));
+    setSectionTexts((prev) => ({ ...prev, recommendations: "" }));
     setClinikoNotice("");
+    touch();
     try {
-      const res = await fetch("/api/generate/adhd-recommendations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rawNotes,
-          ageYears: ageYearsFromDob(patientDetails.dob),
+      const engineContext = buildAdhdEngineContextBlock({
+        presentation: pipeline.presentation.presentation,
+        inattentionMet: pipeline.counts.inattentionMet,
+        inattentionTotal: pipeline.counts.inattentionTotal,
+        hyperactivityMet: pipeline.counts.hyperactivityMet,
+        hyperactivityTotal: pipeline.counts.hyperactivityTotal,
+        threshold: pipeline.presentation.threshold,
+        severityStated,
+        criteriaStates,
+        divaState,
+      });
+      const diagnosticConclusion =
+        pipeline.presentation.presentation?.trim() ||
+        (divaState === "negative" ? "ADHD not met on current engine settings" : "");
+
+      await streamAdhdRecommendationsSse(
+        "/api/generate/adhd-recommendations",
+        {
           clientName: patientDetails.clientName,
+          pronouns: patientDetails.pronouns,
           chronologicalAge: chronologicalAgeLabel(patientDetails.dob),
           yearLevel: patientDetails.yearLevel,
           school: patientDetails.school,
-        }),
-      });
-      const data = (await res.json()) as {
-        text?: string;
-        shorthand?: string[];
-        error?: string;
-      };
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "Recommendations generation failed");
-      }
-      touch();
-      if (Array.isArray(data.shorthand) && data.shorthand.length) {
-        setRecommendationShorthand(data.shorthand.join(", "));
-      }
-      if (data.text) {
-        setSectionTexts((prev) => ({
-          ...prev,
-          recommendations: data.text!,
-        }));
-      }
-      const count = Array.isArray(data.shorthand) ? data.shorthand.length : 0;
+          referringPractitioner: patientDetails.referringPractitioner,
+          referringPractitionerType: patientDetails.referringPractitionerType,
+          rawNotes,
+          formulation,
+          engineContext,
+          ageYears: ageYearsFromDob(patientDetails.dob),
+          diagnosticConclusion,
+          patientDetails: {
+            clientName: patientDetails.clientName,
+            pronouns: patientDetails.pronouns,
+            chronologicalAge: chronologicalAgeLabel(patientDetails.dob),
+            yearLevel: patientDetails.yearLevel,
+            school: patientDetails.school,
+            referringPractitioner: patientDetails.referringPractitioner,
+            referringPractitionerType: patientDetails.referringPractitionerType,
+          },
+          ratingsAssigned: {
+            inattentionMet: pipeline.counts.inattentionMet,
+            hyperactivityMet: pipeline.counts.hyperactivityMet,
+            threshold: pipeline.presentation.threshold,
+          },
+        },
+        (delta) => {
+          setSectionTexts((prev) => ({
+            ...prev,
+            recommendations: (prev.recommendations ?? "") + delta,
+          }));
+        },
+        (finalContent) => {
+          if (finalContent) {
+            setSectionTexts((prev) => ({
+              ...prev,
+              recommendations: finalContent,
+            }));
+          }
+        },
+        controller.signal
+      );
       setClinikoNotice(
-        count
-          ? `Generated ${count} recommendation(s) from raw notes, then age-band expanded. Review before finalising.`
-          : "Recommendations generated from raw notes. Review before finalising."
+        "Recommendations drafted in Texlex clinical voice from the raw notes. Review before finalising."
       );
     } catch (err) {
+      if (controller.signal.aborted) return;
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
       setClinikoNotice(
         err instanceof Error ? err.message : "Recommendations generation failed"
       );
     } finally {
+      if (sectionAbortRef.current === controller) {
+        sectionAbortRef.current = null;
+      }
       setSectionGenerating((prev) => ({ ...prev, recommendations: false }));
     }
   }, [
+    criteriaStates,
+    divaState,
+    formulation,
     patientDetails.clientName,
     patientDetails.dob,
+    patientDetails.pronouns,
+    patientDetails.referringPractitioner,
+    patientDetails.referringPractitionerType,
     patientDetails.school,
     patientDetails.yearLevel,
+    pipeline.counts.hyperactivityMet,
+    pipeline.counts.hyperactivityTotal,
+    pipeline.counts.inattentionMet,
+    pipeline.counts.inattentionTotal,
+    pipeline.presentation.presentation,
+    pipeline.presentation.threshold,
     rawNotes,
+    severityStated,
     touch,
   ]);
 
@@ -2337,8 +2488,9 @@ export default function AdhdReportPage() {
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Generate pulls recommendation intents from the raw notes, then age-band expands
-                  them. Expand shorthand still uses only the clinician shorthand above.
+                  Generate reshapes the raw notes into Texlex clinical-grade recommendations
+                  (ASD-style drafting, ADHD pathway). Expand shorthand still uses only the
+                  clinician shorthand above.
                 </p>
                 {sectionGenerating.recommendations ? (
                   <p className="text-base text-muted-foreground">Generating…</p>

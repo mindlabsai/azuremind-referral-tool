@@ -1,120 +1,85 @@
 import { NextRequest } from "next/server";
-import { anthropic, MODELS } from "@/lib/anthropic-client";
 import {
-  expandRecommendations,
-  formatExpandedRecommendations,
-  KNOWN_RECOMMENDATION_SHORTHAND_KEYS,
-  parseRecommendationShorthand,
-} from "@/app/asd-engine/adhd-recommendations";
+  ADHD_RECOMMENDATIONS_SYSTEM_PROMPT,
+  buildAdhdRecommendationsUserPrompt,
+  type AdhdRecommendationsVariables,
+} from "@/lib/prompts/adhd-recommendations-template";
+import { createTexlexStreamResponseWithVoiceCritic } from "@/lib/voice/texlex-stream-with-voice-critic";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const EXTRACT_MAX_TOKENS = 1024;
+const ADHD_RECOMMENDATIONS_MAX_OUTPUT_TOKENS = 4096;
 
-type AdhdRecommendationsRequestBody = {
-  rawNotes?: string;
+type AdhdRecommendationsRequestBody = AdhdRecommendationsVariables & {
+  patientDetails?: Record<string, unknown>;
+  diagnosticConclusion?: string;
+  ratingsAssigned?: Record<string, unknown>;
   ageYears?: number;
-  clientName?: string;
-  chronologicalAge?: string;
-  yearLevel?: string;
-  school?: string;
 };
-
-function parseShorthandJson(raw: string): string[] {
-  const trimmed = raw.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = (fenced?.[1] ?? trimmed).trim();
-  const start = candidate.indexOf("[");
-  const end = candidate.lastIndexOf("]");
-  if (start === -1 || end === -1 || end <= start) {
-    // Fallback: treat model output as comma/line shorthand
-    return parseRecommendationShorthand(candidate.replace(/^json\s*/i, ""));
-  }
-  const parsed = JSON.parse(candidate.slice(start, end + 1)) as unknown;
-  if (!Array.isArray(parsed)) return [];
-  return parsed
-    .filter((item): item is string => typeof item === "string")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as AdhdRecommendationsRequestBody;
-    const rawNotes = typeof body.rawNotes === "string" ? body.rawNotes.trim() : "";
-    if (rawNotes.length < 20) {
-      return Response.json(
-        { error: "Raw clinical notes required (minimum 20 characters)" },
-        { status: 400 }
+
+    if (!body.rawNotes || body.rawNotes.trim().length < 20) {
+      return new Response(
+        JSON.stringify({ error: "Raw clinical notes required (minimum 20 characters)" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
-
-    const ageYears =
-      typeof body.ageYears === "number" && Number.isFinite(body.ageYears)
-        ? Math.max(0, Math.round(body.ageYears))
-        : 8;
 
     if (!process.env.ANTHROPIC_API_KEY) {
-      return Response.json({ error: "ANTHROPIC_API_KEY is not configured" }, { status: 500 });
+      return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const knownKeys = KNOWN_RECOMMENDATION_SHORTHAND_KEYS.join("\n- ");
-    const system = `You extract ADHD report recommendation shorthand from raw clinical notes.
+    const vars: AdhdRecommendationsVariables = {
+      clientName: typeof body.clientName === "string" ? body.clientName : "",
+      pronouns: typeof body.pronouns === "string" ? body.pronouns : "",
+      chronologicalAge: typeof body.chronologicalAge === "string" ? body.chronologicalAge : "",
+      yearLevel: typeof body.yearLevel === "string" ? body.yearLevel : "",
+      referringPractitioner:
+        typeof body.referringPractitioner === "string" ? body.referringPractitioner : "",
+      referringPractitionerType:
+        typeof body.referringPractitionerType === "string" ? body.referringPractitionerType : "",
+      school: typeof body.school === "string" ? body.school : "",
+      rawNotes: body.rawNotes,
+      formulation: typeof body.formulation === "string" ? body.formulation : "",
+      engineContext: typeof body.engineContext === "string" ? body.engineContext : "",
+    };
 
-Rules:
-- Return ONLY a JSON array of strings. No prose, no markdown fences unless necessary.
-- Prefer these exact known shorthand keys when the notes support them:
-- ${knownKeys}
-- You may include a free-text item only when the notes clearly support a recommendation that has no matching known key.
-- Include an item only when the notes evidence that need or plan. Do not invent referrals, school hours, medication, NDIS, or review timelines.
-- Preserve clinical priority order from the notes when possible.
-- If nothing is evidenced, return [].
-- Do not expand into full recommendation paragraphs — shorthand items only.`;
+    const userPrompt = buildAdhdRecommendationsUserPrompt(vars);
+    const patientDetails =
+      body.patientDetails && typeof body.patientDetails === "object" ? body.patientDetails : {};
+    const ratingsAssigned =
+      body.ratingsAssigned && typeof body.ratingsAssigned === "object" ? body.ratingsAssigned : {};
+    const diagnosticConclusion =
+      typeof body.diagnosticConclusion === "string" && body.diagnosticConclusion.trim()
+        ? body.diagnosticConclusion.trim()
+        : "ADHD assessment — diagnostic conclusion not finalised in engine";
 
-    const user = `Client: ${body.clientName?.trim() || "[not provided]"}
-Chronological age: ${body.chronologicalAge?.trim() || "[not specified]"}
-Age years (for context): ${ageYears}
-Year level: ${body.yearLevel?.trim() || "[not specified]"}
-School: ${body.school?.trim() || "[not specified]"}
-
-# RAW CLINICAL NOTES
-
-${rawNotes}
-
-# TASK
-
-Return a JSON array of recommendation shorthand items evidenced by the notes.`;
-
-    const message = await anthropic.messages.create({
-      model: MODELS.SONNET,
-      max_tokens: EXTRACT_MAX_TOKENS,
-      system,
-      messages: [{ role: "user", content: user }],
+    return createTexlexStreamResponseWithVoiceCritic({
+      req,
+      logLabel: "ADHD Recommendations",
+      criticSectionType: "recommendations",
+      maxTokens: ADHD_RECOMMENDATIONS_MAX_OUTPUT_TOKENS,
+      systemPrompt: ADHD_RECOMMENDATIONS_SYSTEM_PROMPT,
+      userPrompt,
+      caseContext: {
+        patientDetails,
+        rawNotes: body.rawNotes,
+        diagnosticConclusion,
+        ratingsAssigned,
+      },
     });
-
-    const textBlock = message.content.find((b) => b.type === "text");
-    const modelText = textBlock && textBlock.type === "text" ? textBlock.text : "";
-    const shorthand = parseShorthandJson(modelText);
-
-    if (!shorthand.length) {
-      return Response.json(
-        {
-          error:
-            "No recommendations evidenced in the raw notes. Add clinical recommendations to the notes, or enter shorthand manually and expand.",
-          shorthand: [],
-          text: "",
-        },
-        { status: 422 }
-      );
-    }
-
-    const items = expandRecommendations({ shorthand, ageYears });
-    const text = formatExpandedRecommendations(items);
-
-    return Response.json({ shorthand, items, text });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
