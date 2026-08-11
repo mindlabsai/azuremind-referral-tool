@@ -3308,18 +3308,13 @@ export default function TexlexReportPage() {
     patientDetails.clientName,
   ]);
 
-  const startNewReport = useCallback(() => {
+  const resetAllReportState = useCallback(() => {
     streamAbortRef.current?.abort();
     genSessionRef.current += 1;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    const patientId = cliniko?.patientId ?? null;
-    clearLocalEngineDraft(engineLocalDraftKey("asd", patientId));
-    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
-    clearEngineActiveDraftPointer("asd");
-    clearAsdLegacyLocalDraftKeys(patientId, patientDetails.clientName);
     suppressAutosaveRef.current = true;
     cloudResumeHandledPatientRef.current = null;
 
@@ -3347,19 +3342,30 @@ export default function TexlexReportPage() {
     setEditLimitations(false);
     setGeneratingSectionId(null);
     setSectionGenErrors({});
+    setVoiceCriticBadgeBySection({});
+    setFormulationTruncationWarning(null);
     setLastSavedAt(null);
     setLastCloudSavedAt(null);
     setSaveFailed(false);
     setSaveToast(false);
     setLastEditAt(0);
     window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const startNewReport = useCallback(() => {
+    const patientId = cliniko?.patientId ?? null;
+    clearLocalEngineDraft(engineLocalDraftKey("asd", patientId));
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    clearAsdLegacyLocalDraftKeys(patientId, patientDetails.clientName);
+    resetAllReportState();
     setNewReportToast(true);
     if (newReportToastTimerRef.current) clearTimeout(newReportToastTimerRef.current);
     newReportToastTimerRef.current = globalThis.setTimeout(() => {
       setNewReportToast(false);
       newReportToastTimerRef.current = null;
     }, 2000);
-  }, [cliniko, patientDetails]);
+  }, [cliniko, patientDetails, resetAllReportState]);
 
   const handleNewReportClick = useCallback(() => {
     if (pdfDownloading) return;
@@ -3572,6 +3578,28 @@ export default function TexlexReportPage() {
     }
     return true;
   }, []);
+
+  const handleChangePatientRequest = useCallback(async () => {
+    if (pdfDownloading || clinikoSyncInProgress) return;
+    try {
+      writeAsdLocalDraft(persistPayload);
+    } catch {
+      /* keep going — local flush is best-effort before wipe */
+    }
+    // Keep prior patient draft under asd:{id}; clear only unassigned + active pointer so remount
+    // cannot reopen the previous patient after Change patient.
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    resetAllReportState();
+    showClinikoLoadedToast("Draft saved. Select the next Cliniko patient.");
+  }, [
+    clinikoSyncInProgress,
+    pdfDownloading,
+    persistPayload,
+    resetAllReportState,
+    showClinikoLoadedToast,
+    writeAsdLocalDraft,
+  ]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -3791,6 +3819,7 @@ export default function TexlexReportPage() {
               onTouch={touch}
               onLoaded={showClinikoLoadedToast}
               onError={showClinikoErrorToast}
+              onChangePatientRequest={handleChangePatientRequest}
             />
 
             <section id="patient-details">
