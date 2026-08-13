@@ -8,13 +8,20 @@ import { cn } from "@/lib/utils";
 const TEXLEX_PRIMARY_BUTTON_CLASS =
   "inline-flex items-center justify-center rounded-md border-0 bg-[#1A1A1A] px-3 py-[5px] text-xs text-white transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60";
 
+const TEXLEX_SECONDARY_BUTTON_CLASS =
+  "inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60";
+
+export type TexlexPdfBusyMode = "only" | "save" | null;
+
 type TexlexReportHeaderProps = {
   clientName: string;
   statusLabel: string;
   saveFailed: boolean;
   editing: boolean;
   pdfDownloading: boolean;
-  onDownloadPdf: () => void;
+  pdfBusyMode: TexlexPdfBusyMode;
+  onDownloadOnly: () => void;
+  onDownloadAndSave: () => void;
   onNewReport: () => void;
   onSaveDraft: () => void;
   statusExtras?: ReactNode;
@@ -141,7 +148,9 @@ export function TexlexReportHeader({
   saveFailed,
   editing,
   pdfDownloading,
-  onDownloadPdf,
+  pdfBusyMode,
+  onDownloadOnly,
+  onDownloadAndSave,
   onNewReport,
   onSaveDraft,
   statusExtras,
@@ -181,11 +190,19 @@ export function TexlexReportHeader({
           </button>
           <button
             type="button"
+            className={TEXLEX_SECONDARY_BUTTON_CLASS}
+            disabled={pdfDownloading}
+            onClick={onDownloadOnly}
+          >
+            {pdfBusyMode === "only" ? "Preparing…" : "Download only"}
+          </button>
+          <button
+            type="button"
             className={TEXLEX_PRIMARY_BUTTON_CLASS}
             disabled={pdfDownloading}
-            onClick={onDownloadPdf}
+            onClick={onDownloadAndSave}
           >
-            {pdfDownloading ? "Preparing PDF…" : "Download PDF"}
+            {pdfBusyMode === "save" ? "Preparing…" : "Download & save to Cliniko"}
           </button>
           <TexlexHeaderOverflowMenu
             saveFailed={saveFailed}

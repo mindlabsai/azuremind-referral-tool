@@ -42,7 +42,10 @@ import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { TexlexModelPill } from "./components/TexlexModelPill";
 import { TexlexReportSidebarNav } from "./components/TexlexReportSidebarNav";
-import { TexlexReportHeader } from "./components/TexlexReportHeader";
+import {
+  TexlexReportHeader,
+  type TexlexPdfBusyMode,
+} from "./components/TexlexReportHeader";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import {
@@ -1992,7 +1995,8 @@ export default function TexlexReportPage() {
   const [lastEditAt, setLastEditAt] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [saveToast, setSaveToast] = useState(false);
-  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfBusyMode, setPdfBusyMode] = useState<TexlexPdfBusyMode>(null);
+  const pdfDownloading = pdfBusyMode !== null;
   const [clinikoSyncInProgress, setClinikoSyncInProgress] = useState(false);
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
@@ -3435,8 +3439,62 @@ export default function TexlexReportPage() {
     }
   }, [persistPayload]);
 
-  const handleDownloadPdf = useCallback(async () => {
-    setPdfDownloading(true);
+  const buildAsdPdfBlob = useCallback(async (): Promise<{ blob: Blob; filename: string }> => {
+    const [{ pdf }, { TexlexPdfDocument }] = await Promise.all([
+      import("@react-pdf/renderer"),
+      import("./pdf/TexlexPdfDocument"),
+    ]);
+    const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
+      persistPayload;
+    const sanitised = sanitiseForPdf(draft);
+    const cleanDraft = buildPdfRenderDraftFromSanitized(sanitised);
+    const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
+    let signatureSrc = await resolveTexlexSignatureSrc();
+    let blob: Blob;
+    try {
+      blob = await pdf(
+        <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+      ).toBlob();
+    } catch (firstError) {
+      console.warn("Texlex PDF export: first attempt failed, retrying without signature image.", firstError);
+      signatureSrc = null;
+      blob = await pdf(
+        <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+      ).toBlob();
+    }
+    const stem = safeFilenamePart(draft.patientDetails.clientName);
+    const filename = `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`;
+    return { blob, filename };
+  }, [persistPayload]);
+
+  const triggerPdfDownload = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleDownloadOnly = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("only");
+    setClinikoSyncNotice(null);
+    try {
+      const { blob, filename } = await buildAsdPdfBlob();
+      triggerPdfDownload(blob, filename);
+      setClinikoSyncNotice("Downloaded — not saved to Cliniko.");
+    } catch (error) {
+      console.error("Texlex PDF export failed:", error);
+      window.alert("Could not prepare the PDF. Please try again.");
+    } finally {
+      setPdfBusyMode(null);
+    }
+  }, [buildAsdPdfBlob, pdfBusyMode, triggerPdfDownload]);
+
+  const handleDownloadAndSave = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("save");
     setClinikoSyncNotice(null);
     if (cliniko?.patientId && cliniko.syncEnabled) {
       setClinikoSyncInProgress(true);
@@ -3485,35 +3543,8 @@ export default function TexlexReportPage() {
       }
     }
     try {
-      const [{ pdf }, { TexlexPdfDocument }] = await Promise.all([
-        import("@react-pdf/renderer"),
-        import("./pdf/TexlexPdfDocument"),
-      ]);
-      const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
-        persistPayload;
-      const sanitised = sanitiseForPdf(draft);
-      const cleanDraft = buildPdfRenderDraftFromSanitized(sanitised);
-      const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
-      let signatureSrc = await resolveTexlexSignatureSrc();
-      let blob: Blob;
-      try {
-        blob = await pdf(
-          <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
-        ).toBlob();
-      } catch (firstError) {
-        console.warn("Texlex PDF export: first attempt failed, retrying without signature image.", firstError);
-        signatureSrc = null;
-        blob = await pdf(
-          <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
-        ).toBlob();
-      }
-      const stem = safeFilenamePart(draft.patientDetails.clientName);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const { blob, filename } = await buildAsdPdfBlob();
+      triggerPdfDownload(blob, filename);
       const finalisePatientId = cliniko?.patientId;
       if (finalisePatientId) {
         try {
@@ -3522,13 +3553,12 @@ export default function TexlexReportPage() {
           const bytes = new Uint8Array(buf);
           for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
           const base64 = btoa(binary);
-          const dateStamp = new Date().toISOString().slice(0, 10);
           await fetch("/api/cliniko/files", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               patientId: finalisePatientId,
-              filename: `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`,
+              filename,
               content: base64,
               contentType: "application/pdf",
               encoding: "base64",
@@ -3544,9 +3574,9 @@ export default function TexlexReportPage() {
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");
     } finally {
-      setPdfDownloading(false);
+      setPdfBusyMode(null);
     }
-  }, [cliniko, patientDetails, persistPayload]);
+  }, [buildAsdPdfBlob, cliniko, patientDetails, pdfBusyMode, triggerPdfDownload]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -3672,7 +3702,9 @@ export default function TexlexReportPage() {
         saveFailed={saveFailed}
         editing={editing}
         pdfDownloading={pdfDownloading}
-        onDownloadPdf={() => void handleDownloadPdf()}
+        pdfBusyMode={pdfBusyMode}
+        onDownloadOnly={() => void handleDownloadOnly()}
+        onDownloadAndSave={() => void handleDownloadAndSave()}
         onNewReport={handleNewReportClick}
         onSaveDraft={() => saveDraftNow()}
         statusExtras={
