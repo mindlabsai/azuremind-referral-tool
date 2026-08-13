@@ -30,6 +30,8 @@ type ClinikoIntakeCardProps = {
    * If provided, the caller is responsible for clearing Cliniko linkage / remounting as needed.
    */
   onChangePatientRequest?: () => void | Promise<void>;
+  /** When true, Change patient is visually disabled (e.g. generation in flight). */
+  changePatientDisabled?: boolean;
 };
 
 function formatDobLabel(dob: string | null): string {
@@ -60,6 +62,7 @@ export function ClinikoIntakeCard({
   onLoaded,
   onError,
   onChangePatientRequest,
+  changePatientDisabled = false,
 }: ClinikoIntakeCardProps) {
   const [configured, setConfigured] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -215,8 +218,20 @@ export function ClinikoIntakeCard({
             Connected to Cliniko · {connectedLabel} ·{" "}
             <button
               type="button"
-              className="underline-offset-4 hover:underline"
+              className={cn(
+                "underline-offset-4",
+                changePatientDisabled
+                  ? "cursor-not-allowed opacity-50"
+                  : "hover:underline"
+              )}
+              disabled={changePatientDisabled}
+              title={
+                changePatientDisabled
+                  ? "Available once generation completes."
+                  : undefined
+              }
               onClick={() => {
+                if (changePatientDisabled) return;
                 void (async () => {
                   if (onChangePatientRequest) {
                     await onChangePatientRequest();

@@ -352,6 +352,9 @@ function AdhdHeaderOverflowMenu({
             role="menuitem"
             className="flex w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={generationBusy}
+            title={
+              generationBusy ? "Available once generation completes." : undefined
+            }
             onClick={() => {
               setOpen(false);
               onNewReport();
@@ -2128,6 +2131,7 @@ export default function AdhdReportPage() {
               onLoaded={(message) => setClinikoNotice(message)}
               onError={(message) => setClinikoNotice(message)}
               onChangePatientRequest={handleChangePatientRequest}
+              changePatientDisabled={generationBusy}
             />
 
             <Card>
