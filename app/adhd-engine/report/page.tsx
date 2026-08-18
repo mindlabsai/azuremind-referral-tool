@@ -40,7 +40,10 @@ import {
   type CollateralDoc,
 } from "../../asd-engine/report/components/CollateralDocumentsUpload";
 import { NewReportConfirmModal } from "../../asd-engine/report/components/NewReportConfirmModal";
+import { SavedDraftsByName } from "../../asd-engine/report/components/SavedDraftsByName";
+import { TexlexPdfPreviewPane } from "../../asd-engine/report/components/TexlexPdfPreviewPane";
 import { TexlexSectionHeading } from "../../asd-engine/report/components/TexlexSectionHeading";
+import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
 import { ADHD_CRITERIA } from "../../asd-engine/adhd-engine-core";
 import {
   useAdhdEnginePipeline,
@@ -785,8 +788,11 @@ export default function AdhdReportPage() {
 
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkLabel, setBulkLabel] = useState("");
-  const [pdfBusyMode, setPdfBusyMode] = useState<"only" | "save" | null>(null);
+  const [pdfBusyMode, setPdfBusyMode] = useState<"only" | "save" | "preview" | null>(null);
   const pdfDownloading = pdfBusyMode !== null;
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
 
   const [saveFailed, setSaveFailed] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -1633,6 +1639,41 @@ export default function AdhdReportPage() {
     URL.revokeObjectURL(url);
   }, []);
 
+  const closePdfPreview = useCallback(() => {
+    setPdfPreviewOpen(false);
+    setPdfPreviewError(null);
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    };
+  }, [pdfPreviewUrl]);
+
+  const handlePreviewPdf = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("preview");
+    setPdfPreviewOpen(true);
+    setPdfPreviewError(null);
+    try {
+      const { blob } = await buildAdhdPdfBlob();
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+    } catch (error) {
+      console.error("ADHD PDF preview failed:", error);
+      setPdfPreviewError("Could not prepare the preview. Please try again.");
+    } finally {
+      setPdfBusyMode(null);
+    }
+  }, [buildAdhdPdfBlob, pdfBusyMode]);
+
   const downloadOnly = useCallback(async () => {
     if (pdfBusyMode !== null) return;
     setPdfBusyMode("only");
@@ -1766,6 +1807,23 @@ export default function AdhdReportPage() {
     setSaveFailed(false);
     setSaveStatus("saved");
   }, []);
+
+  const resumeDraftFromName = useCallback(
+    (hit: NamedDraftHit) => {
+      suppressAutosaveRef.current = true;
+      applyAdhdSavedState(hit.state as AdhdSavedState, { restoreCliniko: true });
+      if (hit.patientId) {
+        lastHydratedPatientIdRef.current = hit.patientId;
+        const key = engineLocalDraftKey("adhd", hit.patientId);
+        if (draftMatchesStorageKey("adhd", key, hit.state as AdhdSavedState)) {
+          writeLocalEngineDraft("adhd", key, { ...hit.state, engine: "adhd" });
+        }
+      }
+      setDraftResumePrompt(null);
+      setClinikoNotice(`Resumed saved report for ${hit.clientName || "this client"}.`);
+    },
+    [applyAdhdSavedState]
+  );
 
   // Silent localStorage restore on mount (navigation / crash safety net).
   useEffect(() => {
@@ -2004,6 +2062,21 @@ export default function AdhdReportPage() {
                 variant="outline"
                 size="sm"
                 disabled={pdfDownloading || bulkRunning || workflowBusy}
+                onClick={() => void handlePreviewPdf()}
+              >
+                {pdfBusyMode === "preview" ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Preparing…
+                  </>
+                ) : (
+                  "Preview"
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pdfDownloading || bulkRunning || workflowBusy}
                 onClick={() => void downloadOnly()}
               >
                 {pdfBusyMode === "only" ? (
@@ -2138,14 +2211,22 @@ export default function AdhdReportPage() {
               <CardContent className="space-y-4 pt-6">
                 <TexlexSectionHeading>Client details</TexlexSectionHeading>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <DetailField
-                    label="Client name"
-                    value={patientDetails.clientName}
-                    onChange={(clientName) => {
-                      touch();
-                      setPatientDetails((prev) => ({ ...prev, clientName }));
-                    }}
-                  />
+                  <div className="space-y-1">
+                    <DetailField
+                      label="Client name"
+                      value={patientDetails.clientName}
+                      onChange={(clientName) => {
+                        touch();
+                        setPatientDetails((prev) => ({ ...prev, clientName }));
+                      }}
+                    />
+                    <SavedDraftsByName
+                      engine="adhd"
+                      clientName={patientDetails.clientName}
+                      currentPatientId={cliniko?.patientId ?? null}
+                      onResume={resumeDraftFromName}
+                    />
+                  </div>
                   <label className="block space-y-1 text-base">
                     <span className="text-muted-foreground">Date of birth</span>
                     <input
@@ -2754,6 +2835,14 @@ export default function AdhdReportPage() {
         onConfirm={handleConfirmNewReport}
         skipConfirmThisSession={skipNewReportConfirmSession}
         onSkipConfirmThisSessionChange={setSkipNewReportConfirmSession}
+      />
+      <TexlexPdfPreviewPane
+        open={pdfPreviewOpen}
+        busy={pdfBusyMode === "preview"}
+        blobUrl={pdfPreviewUrl}
+        error={pdfPreviewError}
+        title={`${patientDetails.clientName.trim() || "Client"} · ADHD report`}
+        onClose={closePdfPreview}
       />
     </div>
   );

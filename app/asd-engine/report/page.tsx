@@ -47,6 +47,8 @@ import {
   type TexlexPdfBusyMode,
 } from "./components/TexlexReportHeader";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
+import { SavedDraftsByName } from "./components/SavedDraftsByName";
+import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import {
   clearAsdLegacyLocalDraftKeys,
@@ -64,6 +66,7 @@ import {
   fetchReportStateForEngine,
   saveReportStateForEngine,
 } from "@/lib/texlex-report-state";
+import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
 import { EngineAssistant } from "../components/EngineAssistant";
 import { useAsdEnginePipeline } from "../asd-engine-core";
 import {
@@ -1997,6 +2000,9 @@ export default function TexlexReportPage() {
   const [saveToast, setSaveToast] = useState(false);
   const [pdfBusyMode, setPdfBusyMode] = useState<TexlexPdfBusyMode>(null);
   const pdfDownloading = pdfBusyMode !== null;
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [clinikoSyncInProgress, setClinikoSyncInProgress] = useState(false);
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
@@ -3492,6 +3498,62 @@ export default function TexlexReportPage() {
     }
   }, [buildAsdPdfBlob, pdfBusyMode, triggerPdfDownload]);
 
+  const closePdfPreview = useCallback(() => {
+    setPdfPreviewOpen(false);
+    setPdfPreviewError(null);
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    };
+  }, [pdfPreviewUrl]);
+
+  const handlePreviewPdf = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("preview");
+    setPdfPreviewOpen(true);
+    setPdfPreviewError(null);
+    try {
+      const { blob } = await buildAsdPdfBlob();
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+    } catch (error) {
+      console.error("Texlex PDF preview failed:", error);
+      setPdfPreviewError("Could not prepare the preview. Please try again.");
+    } finally {
+      setPdfBusyMode(null);
+    }
+  }, [buildAsdPdfBlob, pdfBusyMode]);
+
+  const resumeDraftFromName = useCallback(
+    (hit: NamedDraftHit) => {
+      suppressAutosaveRef.current = true;
+      applyLocalDraftData(hit.state as Partial<TexlexReportDraftV1>);
+      if (hit.patientId) {
+        cloudResumeHandledPatientRef.current = hit.patientId;
+        const key = engineLocalDraftKey("asd", hit.patientId);
+        if (draftMatchesStorageKey("asd", key, hit.state as { cliniko?: { patientId?: string | null } | null; engine?: string })) {
+          writeLocalEngineDraft("asd", key, { ...hit.state, engine: "asd" });
+        }
+      }
+      setClinikoToast(`Resumed saved report for ${hit.clientName || "this client"}.`);
+      if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+      clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+        setClinikoToast(null);
+        clinikoToastTimerRef.current = null;
+      }, 3000);
+    },
+    [applyLocalDraftData]
+  );
+
   const handleDownloadAndSave = useCallback(async () => {
     if (pdfBusyMode !== null) return;
     setPdfBusyMode("save");
@@ -3705,6 +3767,7 @@ export default function TexlexReportPage() {
         pdfBusyMode={pdfBusyMode}
         onDownloadOnly={() => void handleDownloadOnly()}
         onDownloadAndSave={() => void handleDownloadAndSave()}
+        onPreviewPdf={() => void handlePreviewPdf()}
         onNewReport={handleNewReportClick}
         onSaveDraft={() => saveDraftNow()}
         statusExtras={
@@ -3886,6 +3949,12 @@ export default function TexlexReportPage() {
                                   touch();
                                   setPatientDetails((p) => ({ ...p, clientName: e.target.value }));
                                 }}
+                              />
+                              <SavedDraftsByName
+                                engine="asd"
+                                clientName={patientDetails.clientName}
+                                currentPatientId={cliniko?.patientId ?? null}
+                                onResume={resumeDraftFromName}
                               />
                             </label>
                           </td>
@@ -4856,6 +4925,14 @@ export default function TexlexReportPage() {
         onConfirm={handleConfirmNewReport}
         skipConfirmThisSession={skipNewReportConfirmSession}
         onSkipConfirmThisSessionChange={setSkipNewReportConfirmSession}
+      />
+      <TexlexPdfPreviewPane
+        open={pdfPreviewOpen}
+        busy={pdfBusyMode === "preview"}
+        blobUrl={pdfPreviewUrl}
+        error={pdfPreviewError}
+        title={`${patientDetails.clientName.trim() || "Client"} · ASD report`}
+        onClose={closePdfPreview}
       />
     </div>
   );

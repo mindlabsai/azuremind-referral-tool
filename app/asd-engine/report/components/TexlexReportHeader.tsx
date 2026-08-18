@@ -11,7 +11,7 @@ const TEXLEX_PRIMARY_BUTTON_CLASS =
 const TEXLEX_SECONDARY_BUTTON_CLASS =
   "inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60";
 
-export type TexlexPdfBusyMode = "only" | "save" | null;
+export type TexlexPdfBusyMode = "only" | "save" | "preview" | null;
 
 type TexlexReportHeaderProps = {
   clientName: string;
@@ -22,6 +22,7 @@ type TexlexReportHeaderProps = {
   pdfBusyMode: TexlexPdfBusyMode;
   onDownloadOnly: () => void;
   onDownloadAndSave: () => void;
+  onPreviewPdf: () => void;
   onNewReport: () => void;
   onSaveDraft: () => void;
   statusExtras?: ReactNode;
@@ -151,6 +152,7 @@ export function TexlexReportHeader({
   pdfBusyMode,
   onDownloadOnly,
   onDownloadAndSave,
+  onPreviewPdf,
   onNewReport,
   onSaveDraft,
   statusExtras,
@@ -187,6 +189,14 @@ export function TexlexReportHeader({
             onClick={onSaveDraft}
           >
             Save
+          </button>
+          <button
+            type="button"
+            className={TEXLEX_SECONDARY_BUTTON_CLASS}
+            disabled={pdfDownloading}
+            onClick={onPreviewPdf}
+          >
+            {pdfBusyMode === "preview" ? "Preparing…" : "Preview"}
           </button>
           <button
             type="button"
