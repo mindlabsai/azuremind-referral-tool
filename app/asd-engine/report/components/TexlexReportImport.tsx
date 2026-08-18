@@ -52,18 +52,28 @@ export function TexlexReportImport({
         return;
       }
       const res = await fetch("/api/report-import", { method: "POST", body: form });
-      const data = (await res.json()) as {
+      let data: {
         success?: boolean;
         error?: string;
         import?: TexlexImportedReport;
-      };
+      } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        setError(res.ok ? "Import returned an invalid response." : "Import failed. Please try again.");
+        return;
+      }
       if (!res.ok || !data.success || !data.import) {
         setError(data.error || "Import failed.");
         return;
       }
+      if (!Array.isArray(data.import.filledSectionLabels)) {
+        setError("Import returned incomplete data. Please try again.");
+        return;
+      }
       setPreview(data.import);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Import failed.");
+    } catch {
+      setError("Could not reach the import service. Check the server is running and try again.");
     } finally {
       setBusy(false);
     }
@@ -208,13 +218,22 @@ export function TexlexReportImport({
                   ))}
                 </ul>
               ) : null}
-              <label className="flex items-center gap-2 text-xs text-foreground">
+              <label className="flex items-start gap-2 text-xs text-foreground">
                 <input
                   type="checkbox"
+                  className="mt-0.5"
                   checked={overwritePatientDetails}
                   onChange={(e) => setOverwritePatientDetails(e.target.checked)}
                 />
-                Overwrite existing client-detail fields (otherwise only empty fields are filled)
+                <span>
+                  <span className="font-medium">Overwrite client details</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — when checked, imported name/DOB/parents/etc. replace what is already in the form.
+                    Leave unchecked to only fill blank fields (safer if Cliniko already loaded the
+                    patient).
+                  </span>
+                </span>
               </label>
               <Button type="button" size="sm" onClick={apply}>
                 Load into report

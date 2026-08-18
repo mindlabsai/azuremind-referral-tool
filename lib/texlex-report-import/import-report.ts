@@ -30,25 +30,50 @@ export async function importTexlexReportFromText(
   if (text.length < 80) {
     return { success: false, error: "Report text is too short to import." };
   }
+  if (text.length > 400_000) {
+    return {
+      success: false,
+      error: "Report text is too long to import safely. Try a smaller PDF.",
+    };
+  }
 
-  const heading = finalizeImportedReport(splitTexlexReportByHeadings(text, engine));
+  let heading: TexlexImportedReport;
+  try {
+    heading = finalizeImportedReport(splitTexlexReportByHeadings(text, engine));
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Could not read report sections.",
+    };
+  }
 
   try {
     if (!needsLlm(heading)) {
       return { success: true, import: heading };
     }
     const hybrid = finalizeImportedReport(await mapReportWithLlm(engine, text, heading));
-    if (hybrid.filledSectionLabels.length === 0) {
+    if (hybrid.filledSectionLabels.length === 0 && heading.filledSectionLabels.length === 0) {
       return {
         success: false,
         error: "Could not map any report sections. Try pasting the full report text.",
       };
     }
+    // Prefer hybrid if it found anything; otherwise keep heading-only result.
+    const chosen =
+      hybrid.filledSectionLabels.length >= heading.filledSectionLabels.length ? hybrid : heading;
     return {
       success: true,
       import: {
-        ...hybrid,
-        diagnosticConclusion: hybrid.diagnosticConclusion ?? heading.diagnosticConclusion ?? null,
+        ...chosen,
+        diagnosticConclusion:
+          chosen.diagnosticConclusion ?? heading.diagnosticConclusion ?? null,
+        warnings:
+          chosen === heading && hybrid.filledSectionLabels.length < heading.filledSectionLabels.length
+            ? [
+                ...heading.warnings,
+                "AI gap-fill did not improve coverage — using heading split only.",
+              ]
+            : chosen.warnings,
       },
     };
   } catch (err) {
@@ -59,14 +84,14 @@ export async function importTexlexReportFromText(
           ...heading,
           warnings: [
             ...heading.warnings,
-            `AI gap-fill failed (${err instanceof Error ? err.message : String(err)}). Using heading split only — review carefully.`,
+            "AI gap-fill was unavailable. Using heading split only — review carefully.",
           ],
         },
       };
     }
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Import failed",
+      error: "Import failed. Try pasting the report text instead of the PDF.",
     };
   }
 }
