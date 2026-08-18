@@ -38,9 +38,27 @@ export function normalizeImportedReportText(raw: string): string {
 
 export function stripPageMarkers(text: string): string {
   return text
+    // pdf-parse page breaks: "-- 6 of 13 --"
     .replace(/^[ \t]*--\s*\d+\s+of\s+\d+\s*--[ \t]*$/gim, "")
+    .replace(/--\s*\d+\s+of\s+\d+\s*--/g, "")
+    // Texlex footer extract often collapses to one line
+    .replace(/Azure\s+Mind\s+Confidential\s+Page\s+\d+\s+of\s+\d+/gi, "")
+    .replace(/^[ \t]*Page\s+\d+\s+of\s+\d+[ \t]*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** Final scrub for any imported prose field before it hits the editors / PDF. */
+export function scrubImportedProse(text: string): string {
+  let out = stripPageMarkers(text);
+  out = out
+    .replace(/(\w)-\n(\w)/g, "$1$2")
+    .replace(/(\w)-\s+(\w)/g, "$1$2")
+    // Signature block sometimes appended under Limitations
+    .replace(/\n*Kind Regards,[\s\S]*$/i, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return out;
 }
 
 export function stripKnownBoilerplate(text: string, snippets: string[]): string {

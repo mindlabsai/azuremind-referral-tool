@@ -6,6 +6,7 @@ import {
   extractRatingToken,
   normalizeImportedReportText,
   parseFlexibleDateToIso,
+  scrubImportedProse,
   stripKnownBoilerplate,
   stripPageMarkers,
 } from "./normalize";
@@ -13,6 +14,7 @@ import {
   ASD_CRITERION_CODES,
   type AsdCriterionCode,
   type ImportedCriterion,
+  type ImportedDiagnosticConclusion,
   type ImportedPatientDetails,
   type ImportedSections,
   type TexlexImportedReport,
@@ -143,6 +145,64 @@ function stripCriterionDescription(code: AsdCriterionCode, body: string): string
 function criterionLooksJunk(indicators: string): boolean {
   const up = indicators.toUpperCase();
   return JUNK_CRITERION_MARKERS.some((m) => up.includes(m.toUpperCase()));
+}
+
+function inferDiagnosticConclusion(
+  formulation: string | undefined,
+  fullText: string
+): ImportedDiagnosticConclusion | null {
+  const hay = `${formulation ?? ""}\n${fullText}`.toLowerCase();
+  if (
+    /does not meet\s+dsm|does not meet.{0,40}criteria for autism|does not meet.{0,40}\basd\b/.test(
+      hay
+    )
+  ) {
+    return "does_not_meet";
+  }
+  if (
+    /meets\s+dsm[-–]?5|meets.{0,40}criteria for autism spectrum disorder|autism spectrum disorder,\s*level\s*[123]|asd,\s*level\s*[123]/.test(
+      hay
+    )
+  ) {
+    return "meets";
+  }
+  if (/inconclusive|further evidence required/.test(hay)) return "inconclusive";
+  return null;
+}
+
+function scrubSections(sections: ImportedSections): ImportedSections {
+  const out: ImportedSections = { ...sections };
+  const keys: (keyof ImportedSections)[] = [
+    "presentingConcerns",
+    "pregnancyBirth",
+    "earlyDevelopment",
+    "educationalHistory",
+    "emotionalBehaviouralSensory",
+    "collateralSummary",
+    "formulation",
+    "recommendations",
+    "limitationsText",
+    "functionalImpactSummary",
+  ];
+  for (const k of keys) {
+    const v = out[k];
+    if (typeof v === "string" && v.trim()) {
+      (out as Record<string, unknown>)[k] = scrubImportedProse(v);
+    }
+  }
+  if (out.criteria) {
+    const next: NonNullable<ImportedSections["criteria"]> = {};
+    for (const code of ASD_CRITERION_CODES) {
+      const row = out.criteria[code];
+      if (!row) continue;
+      next[code] = {
+        rating: row.rating,
+        indicators: scrubImportedProse(row.indicators),
+      };
+    }
+    out.criteria = next;
+  }
+  return out;
 }
 
 function extractPatientDetails(text: string): ImportedPatientDetails {
@@ -368,37 +428,50 @@ export function splitTexlexReportByHeadings(
     warnings.push("Client name was not detected from the PDF header — fill it manually if needed.");
   }
 
+  const cleanedSections = scrubSections(sections);
+  const diagnosticConclusion = inferDiagnosticConclusion(cleanedSections.formulation, text);
+
   const filledSectionLabels: string[] = [];
   for (const [k, v] of Object.entries(buckets)) {
-    if (k.startsWith("criterion:") && sections.criteria) {
+    if (k.startsWith("criterion:") && cleanedSections.criteria) {
       const code = k.slice("criterion:".length) as AsdCriterionCode;
-      if (!sections.criteria[code]) continue;
+      if (!cleanedSections.criteria[code]) continue;
     }
     if (v.trim()) filledSectionLabels.push(sectionLabel(k));
   }
-  // Ensure criterion labels from cleaned criteria
-  if (sections.criteria) {
+  if (cleanedSections.criteria) {
     for (const code of ASD_CRITERION_CODES) {
-      if (sections.criteria[code] && !filledSectionLabels.includes(`Criterion ${code}`)) {
+      if (cleanedSections.criteria[code] && !filledSectionLabels.includes(`Criterion ${code}`)) {
         filledSectionLabels.push(`Criterion ${code}`);
       }
     }
   }
+  if (diagnosticConclusion) {
+    filledSectionLabels.push(
+      diagnosticConclusion === "meets"
+        ? "Diagnostic conclusion: Meets"
+        : diagnosticConclusion === "does_not_meet"
+          ? "Diagnostic conclusion: Does not meet"
+          : "Diagnostic conclusion: Inconclusive"
+    );
+  }
 
   const proseCount = [
-    sections.presentingConcerns,
-    sections.pregnancyBirth,
-    sections.earlyDevelopment,
-    sections.educationalHistory,
-    sections.emotionalBehaviouralSensory,
-    sections.collateralSummary,
-    sections.formulation,
-    sections.recommendations,
-    sections.functionalImpactSummary,
+    cleanedSections.presentingConcerns,
+    cleanedSections.pregnancyBirth,
+    cleanedSections.earlyDevelopment,
+    cleanedSections.educationalHistory,
+    cleanedSections.emotionalBehaviouralSensory,
+    cleanedSections.collateralSummary,
+    cleanedSections.formulation,
+    cleanedSections.recommendations,
+    cleanedSections.functionalImpactSummary,
   ].filter((s) => (s ?? "").trim().length > 40).length;
 
-  const criterionCount = Object.keys(sections.criteria ?? {}).length;
-  const ratedCount = Object.values(sections.criteria ?? {}).filter((c) => c && c.rating !== null).length;
+  const criterionCount = Object.keys(cleanedSections.criteria ?? {}).length;
+  const ratedCount = Object.values(cleanedSections.criteria ?? {}).filter(
+    (c) => c && c.rating !== null
+  ).length;
   const expectedMin = engine === "asd" ? 4 : 3;
   const score =
     proseCount +
@@ -413,6 +486,9 @@ export function splitTexlexReportByHeadings(
     warnings.push("Not all ASD criteria were recovered cleanly — check A1–E after load.");
     if (confidence === "high") confidence = "medium";
   }
+  if (engine === "asd" && ratedCount < 8) {
+    warnings.push("Some clinician ratings were missing from the PDF — check A1–E rating dropdowns.");
+  }
 
   if (hits.length === 0) {
     warnings.push("No Texlex section headings detected. AI mapping will be used.");
@@ -426,7 +502,8 @@ export function splitTexlexReportByHeadings(
     confidence,
     warnings,
     patientDetails,
-    sections,
+    sections: cleanedSections,
+    diagnosticConclusion,
     filledSectionLabels,
     sourceCharCount: text.length,
   };

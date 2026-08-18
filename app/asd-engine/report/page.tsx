@@ -3582,15 +3582,26 @@ export default function TexlexReportPage() {
           for (const code of ASD_CRITERION_CODES) {
             const row = s.criteria?.[code];
             if (!row) continue;
+            const rating = row.rating;
             next[code] = {
               ...next[code],
               code,
               indicators: row.indicators.trim() || next[code].indicators,
-              rating: row.rating !== null ? row.rating : next[code].rating,
+              // Always apply imported clinician ratings (these drive Level A/B in the PDF).
+              rating: rating !== null && rating !== undefined ? rating : next[code].rating,
+              suggestedRating:
+                rating !== null && rating !== undefined ? rating : next[code].suggestedRating,
             };
           }
           return next;
         });
+      }
+      if (
+        imported.diagnosticConclusion === "meets" ||
+        imported.diagnosticConclusion === "does_not_meet" ||
+        imported.diagnosticConclusion === "inconclusive"
+      ) {
+        setDiagnosticConclusion(imported.diagnosticConclusion);
       }
       setPatientDetails((prev) => {
         const next = { ...prev };

@@ -2,8 +2,43 @@ import type { TexlexEngineId } from "@/lib/texlex-report-state";
 import { extractTextFromPdfBuffer } from "./extract-pdf";
 import { splitTexlexReportByHeadings } from "./heading-split";
 import { mapReportWithLlm } from "./llm-map";
-import { normalizeImportedReportText } from "./normalize";
-import type { ImportReportResult, TexlexImportedReport } from "./types";
+import { normalizeImportedReportText, scrubImportedProse } from "./normalize";
+import type {
+  ImportReportResult,
+  ImportedSections,
+  TexlexImportedReport,
+} from "./types";
+import { ASD_CRITERION_CODES } from "./types";
+
+function scrubImportResult(result: TexlexImportedReport): TexlexImportedReport {
+  const sections: ImportedSections = { ...result.sections };
+  const keys: (keyof ImportedSections)[] = [
+    "presentingConcerns",
+    "pregnancyBirth",
+    "earlyDevelopment",
+    "educationalHistory",
+    "emotionalBehaviouralSensory",
+    "collateralSummary",
+    "formulation",
+    "recommendations",
+    "limitationsText",
+    "functionalImpactSummary",
+  ];
+  for (const k of keys) {
+    const v = sections[k];
+    if (typeof v === "string") (sections as Record<string, unknown>)[k] = scrubImportedProse(v);
+  }
+  if (sections.criteria) {
+    const next: NonNullable<ImportedSections["criteria"]> = {};
+    for (const code of ASD_CRITERION_CODES) {
+      const row = sections.criteria[code];
+      if (!row) continue;
+      next[code] = { rating: row.rating, indicators: scrubImportedProse(row.indicators) };
+    }
+    sections.criteria = next;
+  }
+  return { ...result, sections };
+}
 
 function needsLlm(result: TexlexImportedReport): boolean {
   if (result.confidence === "low") return true;
@@ -17,7 +52,6 @@ function needsLlm(result: TexlexImportedReport): boolean {
     if (rated < 6) return true;
     if (!result.patientDetails.clientName) return true;
   }
-  // Any junk warning → refine with LLM gap-fill (keeps good heading text)
   if (result.warnings.some((w) => /junk|not detected|not all asd criteria/i.test(w))) return true;
   return false;
 }
@@ -31,22 +65,27 @@ export async function importTexlexReportFromText(
     return { success: false, error: "Report text is too short to import." };
   }
 
-  const heading = splitTexlexReportByHeadings(text, engine);
+  const heading = scrubImportResult(splitTexlexReportByHeadings(text, engine));
 
   try {
     if (!needsLlm(heading)) {
       return { success: true, import: heading };
     }
-    const hybrid = await mapReportWithLlm(engine, text, heading);
+    const hybrid = scrubImportResult(await mapReportWithLlm(engine, text, heading));
     if (hybrid.filledSectionLabels.length === 0) {
       return {
         success: false,
         error: "Could not map any report sections. Try pasting the full report text.",
       };
     }
-    return { success: true, import: hybrid };
+    return {
+      success: true,
+      import: {
+        ...hybrid,
+        diagnosticConclusion: hybrid.diagnosticConclusion ?? heading.diagnosticConclusion ?? null,
+      },
+    };
   } catch (err) {
-    // If LLM fails but heading split found content, still return heading result
     if (heading.filledSectionLabels.length > 0) {
       return {
         success: true,

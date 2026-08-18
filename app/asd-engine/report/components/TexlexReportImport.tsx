@@ -189,6 +189,17 @@ export function TexlexReportImport({
                   {preview.patientDetails.dob ? ` · DOB ${preview.patientDetails.dob}` : ""}
                 </p>
               ) : null}
+              {preview.engine === "asd" ? (
+                <p className="text-xs text-muted-foreground">
+                  Ratings:{" "}
+                  {Object.entries(preview.sections.criteria ?? {})
+                    .map(([code, row]) => `${code}=${row?.rating ?? "—"}`)
+                    .join(" · ") || "none detected"}
+                  {preview.diagnosticConclusion
+                    ? ` · Conclusion: ${preview.diagnosticConclusion}`
+                    : ""}
+                </p>
+              ) : null}
               {preview.warnings.length ? (
                 <ul className="list-disc space-y-0.5 pl-4 text-xs text-amber-800 dark:text-amber-200">
                   {preview.warnings.map((w) => (

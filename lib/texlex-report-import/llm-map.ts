@@ -341,6 +341,7 @@ export async function mapReportWithLlm(
     warnings,
     patientDetails,
     sections,
+    diagnosticConclusion: seed?.diagnosticConclusion ?? null,
     filledSectionLabels,
     sourceCharCount: text.length,
   };

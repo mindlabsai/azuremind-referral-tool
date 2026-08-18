@@ -50,6 +50,8 @@ export type ImportedSections = {
   criteria?: Partial<Record<AsdCriterionCode, ImportedCriterion>>;
 };
 
+export type ImportedDiagnosticConclusion = "meets" | "does_not_meet" | "inconclusive";
+
 export type ImportMethod = "heading" | "llm" | "hybrid";
 
 export type ImportConfidence = "high" | "medium" | "low";
@@ -61,6 +63,8 @@ export type TexlexImportedReport = {
   warnings: string[];
   patientDetails: ImportedPatientDetails;
   sections: ImportedSections;
+  /** When detected from formulation / report wording. */
+  diagnosticConclusion?: ImportedDiagnosticConclusion | null;
   filledSectionLabels: string[];
   sourceCharCount: number;
 };
