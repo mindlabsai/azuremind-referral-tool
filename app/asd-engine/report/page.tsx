@@ -38,6 +38,8 @@ import {
   type FormulationCriterionSnapshot,
 } from "@/lib/prompts/formulation-template";
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
+import { ClinikoCollateralImport } from "./components/ClinikoCollateralImport";
+import { TexlexScribe } from "./components/TexlexScribe";
 import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { TexlexModelPill } from "./components/TexlexModelPill";
@@ -1104,7 +1106,9 @@ const DOC_CATEGORIES = [
   "Cognitive assessment (WISC / WPPSI / WAIS)",
   "Adaptive functioning (ABAS-3 / Vineland-3)",
   "ASD-specific (ADOS-2 / ADI-R)",
+  "ASRS (Autism Spectrum Rating Scales)",
   "Behaviour rating scale (BASC-3 / Conners-3)",
+  "ADHD rating scale (Vanderbilt / Conners)",
   "Speech and language assessment",
   "Occupational therapy / sensory assessment",
   "Academic achievement (WIAT / WJ-IV)",
@@ -3965,6 +3969,39 @@ export default function TexlexReportPage() {
 
         <main className="min-w-0 flex-1">
           <div className="mx-auto max-w-[760px] space-y-[14px] text-[15px] leading-[1.55]">
+            <section id="cliniko-calendar">
+              <ClinikoIntakeCard
+                key={clinikoIntakeResetKey}
+                inputClass={inputClass}
+                patientDetails={patientDetails}
+                setPatientDetails={setPatientDetails}
+                cliniko={cliniko}
+                setCliniko={setCliniko}
+                onTouch={touch}
+                onLoaded={showClinikoLoadedToast}
+                onError={showClinikoErrorToast}
+                onChangePatientRequest={handleChangePatientRequest}
+                collateralDocs={collateralDocs}
+                setCollateralDocs={setCollateralDocs}
+                collateralSummaryFilled={collateralSummary.trim().length > 0}
+                engine="asd"
+              />
+            </section>
+
+            <section id="scribe">
+              <TexlexSectionHeading className="mb-3">Scribe</TexlexSectionHeading>
+              <TexlexScribe
+                onAppendToNotes={(text) => {
+                  touch();
+                  setRawNotes((prev) => {
+                    const existing = prev.trim();
+                    if (!existing) return text.trim();
+                    return `${existing}\n\n--- Whisper transcript ---\n\n${text.trim()}`;
+                  });
+                }}
+              />
+            </section>
+
             <section id="report-header">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3 text-center md:text-left")}>
@@ -3998,19 +4035,6 @@ export default function TexlexReportPage() {
                 </CardContent>
               </Card>
             </section>
-
-            <ClinikoIntakeCard
-              key={clinikoIntakeResetKey}
-              inputClass={inputClass}
-              patientDetails={patientDetails}
-              setPatientDetails={setPatientDetails}
-              cliniko={cliniko}
-              setCliniko={setCliniko}
-              onTouch={touch}
-              onLoaded={showClinikoLoadedToast}
-              onError={showClinikoErrorToast}
-              onChangePatientRequest={handleChangePatientRequest}
-            />
 
             <TexlexReportImport
               engine="asd"
@@ -4655,12 +4679,20 @@ export default function TexlexReportPage() {
               <TexlexSectionHeading className="mb-1">Collateral documents</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
-                  <CollateralDocumentsUpload
-                    collateralDocs={collateralDocs}
-                    setCollateralDocs={setCollateralDocs}
-                    touch={touch}
-                    inputClass={inputClass}
-                  />
+                  <div className="space-y-4">
+                    <ClinikoCollateralImport
+                      patientId={cliniko?.patientId ?? null}
+                      collateralDocs={collateralDocs}
+                      setCollateralDocs={setCollateralDocs}
+                      touch={touch}
+                    />
+                    <CollateralDocumentsUpload
+                      collateralDocs={collateralDocs}
+                      setCollateralDocs={setCollateralDocs}
+                      touch={touch}
+                      inputClass={inputClass}
+                    />
+                  </div>
                 </CardContent>
               </Card>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>

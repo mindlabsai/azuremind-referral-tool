@@ -30,6 +30,7 @@ import {
   truncateFilename,
   type CollateralDoc,
 } from "@/lib/collateral/collateral-docs-client";
+import { ClinikoCollateralImport } from "./ClinikoCollateralImport";
 
 export type { CollateralDoc };
 export {
@@ -57,11 +58,14 @@ export function CollateralDocumentsUpload({
   setCollateralDocs,
   touch,
   inputClass,
+  clinikoPatientId = null,
 }: {
   collateralDocs: CollateralDoc[];
   setCollateralDocs: Dispatch<SetStateAction<CollateralDoc[]>>;
   touch: () => void;
   inputClass: string;
+  /** When set, show Cliniko attachment browser (ASRS / forms import). */
+  clinikoPatientId?: string | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -187,6 +191,13 @@ export function CollateralDocumentsUpload({
         collateral generation and formulation. JPG, PNG, HEIC, and DOCX uploads are listed for
         manual summary only until a future release.
       </p>
+
+      <ClinikoCollateralImport
+        patientId={clinikoPatientId}
+        collateralDocs={collateralDocs}
+        setCollateralDocs={setCollateralDocs}
+        touch={touch}
+      />
 
       <input
         ref={inputRef}

@@ -33,6 +33,7 @@ import {
   saveReportStateForEngine,
 } from "@/lib/texlex-report-state";
 import { ClinikoIntakeCard } from "../../asd-engine/report/components/ClinikoIntakeCard";
+import { TexlexScribe } from "../../asd-engine/report/components/TexlexScribe";
 import {
   CollateralDocumentsUpload,
   migrateCollateralDocsFromStorage,
@@ -2247,21 +2248,45 @@ export default function AdhdReportPage() {
       <div className="flex justify-center px-6 py-6 pb-32">
         <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="min-w-0 space-y-6 text-[15px] leading-[1.55]">
-            <ClinikoIntakeCard
-              key={clinikoIntakeResetKey}
-              inputClass={INPUT_CLASS}
-              patientDetails={patientDetails as AsdPatientDetails}
-              setPatientDetails={
-                setPatientDetails as unknown as Dispatch<SetStateAction<AsdPatientDetails>>
-              }
-              cliniko={cliniko}
-              setCliniko={setCliniko}
-              onTouch={touch}
-              onLoaded={(message) => setClinikoNotice(message)}
-              onError={(message) => setClinikoNotice(message)}
-              onChangePatientRequest={handleChangePatientRequest}
-              changePatientDisabled={generationBusy}
-            />
+            <section id="cliniko-calendar">
+              <ClinikoIntakeCard
+                key={clinikoIntakeResetKey}
+                inputClass={INPUT_CLASS}
+                patientDetails={patientDetails as AsdPatientDetails}
+                setPatientDetails={
+                  setPatientDetails as unknown as Dispatch<SetStateAction<AsdPatientDetails>>
+                }
+                cliniko={cliniko}
+                setCliniko={setCliniko}
+                onTouch={touch}
+                onLoaded={(message) => setClinikoNotice(message)}
+                onError={(message) => setClinikoNotice(message)}
+                onChangePatientRequest={handleChangePatientRequest}
+                changePatientDisabled={generationBusy}
+                collateralDocs={collateralDocs}
+                setCollateralDocs={setCollateralDocs}
+                collateralSummaryFilled={(sectionTexts["collateral-summary"] ?? "").trim().length > 0}
+                engine="adhd"
+                onDateSeenFromAppointment={(dateYmd) => {
+                  touch();
+                  setAssessmentDate(dateYmd);
+                }}
+              />
+            </section>
+
+            <section id="scribe">
+              <TexlexSectionHeading>Scribe</TexlexSectionHeading>
+              <TexlexScribe
+                onAppendToNotes={(text) => {
+                  touch();
+                  setRawNotes((prev) => {
+                    const existing = prev.trim();
+                    if (!existing) return text.trim();
+                    return `${existing}\n\n--- Whisper transcript ---\n\n${text.trim()}`;
+                  });
+                }}
+              />
+            </section>
 
             <TexlexReportImport
               engine="adhd"
@@ -2476,6 +2501,7 @@ export default function AdhdReportPage() {
                   setCollateralDocs={setCollateralDocs}
                   touch={touch}
                   inputClass={INPUT_CLASS}
+                  clinikoPatientId={cliniko?.patientId ?? null}
                 />
               </CardContent>
             </Card>

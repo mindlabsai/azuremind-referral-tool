@@ -9,6 +9,8 @@ type NavGroup = { heading?: string; items: readonly NavItem[] };
 const NAV_GROUPS: readonly NavGroup[] = [
   {
     items: [
+      { id: "cliniko-calendar", label: "Cliniko calendar" },
+      { id: "scribe", label: "Scribe" },
       { id: "report-header", label: "Report header" },
       { id: "assessment-context", label: "Assessment context" },
       { id: "consent", label: "Consent" },

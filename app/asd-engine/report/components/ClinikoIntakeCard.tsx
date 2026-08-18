@@ -10,11 +10,25 @@ import {
   buildClinikoBaseline,
   type ClinikoDraftState,
 } from "@/lib/texlex-cliniko-sync";
+import {
+  appointmentStartsAtToDateSeen,
+  mergeRegistrationIntoPatientDetails,
+  type RegistrationDemographics,
+} from "@/lib/cliniko-registration-forms";
 import type { PatientDetails } from "../page";
 import {
   TEXLEX_SECTION_CONTAINER_CLASS,
   TEXLEX_SECTION_CONTENT_CLASS,
 } from "../constants/texlexSectionSurface";
+import { ClinikoPatientAppointments } from "./ClinikoPatientAppointments";
+import { ClinikoMyCalendar } from "./ClinikoMyCalendar";
+import type { CollateralDoc } from "@/lib/collateral/collateral-docs-client";
+import {
+  formatClinikoImportNotice,
+  importClinikoAttachmentsIntoCollateral,
+} from "@/lib/collateral/import-cliniko-attachments";
+
+const IMPORT_FILES_PREF_KEY = "texlex.cliniko.importFilesOnAppt";
 
 type ClinikoIntakeCardProps = {
   inputClass: string;
@@ -32,6 +46,15 @@ type ClinikoIntakeCardProps = {
   onChangePatientRequest?: () => void | Promise<void>;
   /** When true, Change patient is visually disabled (e.g. generation in flight). */
   changePatientDisabled?: boolean;
+  /** When provided, calendar can auto-import Cliniko attachments into collateral. */
+  collateralDocs?: CollateralDoc[];
+  setCollateralDocs?: Dispatch<SetStateAction<CollateralDoc[]>>;
+  /** Whether written collateral summary has content (for Hey Tex list). */
+  collateralSummaryFilled?: boolean;
+  /** Prefer Autism vs ADHD registration form when both exist. */
+  engine?: "asd" | "adhd";
+  /** Set date seen / assessment date from the clicked calendar appointment. */
+  onDateSeenFromAppointment?: (dateYmd: string) => void;
 };
 
 function formatDobLabel(dob: string | null): string {
@@ -63,6 +86,11 @@ export function ClinikoIntakeCard({
   onError,
   onChangePatientRequest,
   changePatientDisabled = false,
+  collateralDocs,
+  setCollateralDocs,
+  collateralSummaryFilled = false,
+  engine,
+  onDateSeenFromAppointment,
 }: ClinikoIntakeCardProps) {
   const [configured, setConfigured] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -72,8 +100,35 @@ export function ClinikoIntakeCard({
   const [slowSearch, setSlowSearch] = useState(false);
   const [results, setResults] = useState<ClinikoPatient[]>([]);
   const [loadingPatientId, setLoadingPatientId] = useState<string | null>(null);
+  const [importFilesEnabled, setImportFilesEnabled] = useState(true);
+  const [importingFiles, setImportingFiles] = useState(false);
   const onErrorRef = useRef(onError);
   const onLoadedRef = useRef(onLoaded);
+  const collateralDocsRef = useRef(collateralDocs);
+  const canImportFiles = Boolean(setCollateralDocs);
+
+  useEffect(() => {
+    collateralDocsRef.current = collateralDocs;
+  }, [collateralDocs]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(IMPORT_FILES_PREF_KEY);
+      if (raw === "0") setImportFilesEnabled(false);
+      if (raw === "1") setImportFilesEnabled(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const updateImportFilesEnabled = (enabled: boolean) => {
+    setImportFilesEnabled(enabled);
+    try {
+      window.localStorage.setItem(IMPORT_FILES_PREF_KEY, enabled ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -167,13 +222,19 @@ export function ClinikoIntakeCard({
     return patientDetails.clientName.trim();
   }, [cliniko?.connectedName, patientDetails.clientName]);
 
-  const handleSelectPatient = async (patient: ClinikoPatient) => {
+  const handleSelectPatient = async (
+    patient: ClinikoPatient | { id: string },
+    options: { importFiles?: boolean; appointmentStartsAt?: string | null } = {}
+  ) => {
     setLoadingPatientId(patient.id);
     try {
-      const response = await fetch(`/api/cliniko/patients/${patient.id}`);
+      const engineQuery = engine ? `?engine=${engine}` : "";
+      const response = await fetch(`/api/cliniko/patients/${patient.id}${engineQuery}`);
       const data = (await response.json()) as {
         patient?: Parameters<typeof applyClinikoPatientToForm>[0];
         customFields?: Parameters<typeof applyClinikoPatientToForm>[1];
+        registration?: RegistrationDemographics | null;
+        mergedDetails?: ReturnType<typeof applyClinikoPatientToForm> | null;
         error?: string;
       };
       if (!response.ok || !data.patient) {
@@ -181,20 +242,71 @@ export function ClinikoIntakeCard({
         return;
       }
 
-      const mapped = applyClinikoPatientToForm(data.patient, data.customFields ?? {});
+      const fromPatient = applyClinikoPatientToForm(data.patient, data.customFields ?? {});
+      const mapped =
+        data.mergedDetails ??
+        mergeRegistrationIntoPatientDetails(fromPatient, data.registration);
+      const dateSeen = appointmentStartsAtToDateSeen(options.appointmentStartsAt);
+
       onTouch();
-      setPatientDetails((current) => ({
-        ...current,
-        ...mapped,
-      }));
+      setPatientDetails((current) => {
+        const next = {
+          ...current,
+          ...mapped,
+        } as PatientDetails;
+        if (dateSeen && "assessmentDates" in next) {
+          const existing = Array.isArray(next.assessmentDates) ? next.assessmentDates : [];
+          const hasDate = existing.some((d) => String(d).trim() === dateSeen);
+          if (!hasDate) {
+            const cleaned = existing.map((d) => String(d).trim()).filter(Boolean);
+            next.assessmentDates = cleaned.length ? [...cleaned, dateSeen] : [dateSeen];
+          }
+        }
+        return next;
+      });
+      if (dateSeen && onDateSeenFromAppointment) {
+        onDateSeenFromAppointment(dateSeen);
+      }
       setCliniko({
         patientId: patient.id,
-        connectedName: mapped.clientName || `${patient.last_name}, ${patient.first_name}`,
+        connectedName: mapped.clientName || `${data.patient.last_name}, ${data.patient.first_name}`,
         syncEnabled: true,
         baseline: buildClinikoBaseline(data.patient, data.customFields ?? {}, mapped),
       });
       setShowSearchCard(false);
-      onLoaded(`Loaded ${mapped.clientName || `${patient.first_name} ${patient.last_name}`.trim()} from Cliniko`);
+
+      const nameLabel =
+        mapped.clientName || `${data.patient.first_name} ${data.patient.last_name}`.trim();
+      let loadedMessage = `Loaded ${nameLabel} from Cliniko`;
+      if (data.registration?.formName) {
+        loadedMessage += ` (+ ${data.registration.formName})`;
+      }
+      if (dateSeen) {
+        loadedMessage += `. Date seen ${dateSeen}`;
+      }
+
+      if (options.importFiles && setCollateralDocs) {
+        setImportingFiles(true);
+        try {
+          const result = await importClinikoAttachmentsIntoCollateral({
+            patientId: patient.id,
+            existingDocs: collateralDocsRef.current ?? [],
+            asrsOnly: false,
+          });
+          if (result.additions.length > 0) {
+            setCollateralDocs((prev) => [...prev, ...result.additions]);
+          }
+          const importNotice = formatClinikoImportNotice(result);
+          if (importNotice) loadedMessage = `${loadedMessage}. ${importNotice}`;
+          if (result.error) onError(result.error);
+        } catch {
+          onError("Patient loaded, but Cliniko file import failed.");
+        } finally {
+          setImportingFiles(false);
+        }
+      }
+
+      onLoaded(loadedMessage);
     } catch {
       onError("Could not load Cliniko patient.");
     } finally {
@@ -210,6 +322,27 @@ export function ClinikoIntakeCard({
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
           {connectionError}
         </p>
+      ) : null}
+
+      {configured && !connectionError ? (
+        <ClinikoMyCalendar
+          selectedPatientId={cliniko?.patientId ?? null}
+          disabled={changePatientDisabled || Boolean(loadingPatientId) || importingFiles}
+          importingFiles={importingFiles}
+          importFilesEnabled={canImportFiles ? importFilesEnabled : false}
+          onImportFilesEnabledChange={canImportFiles ? updateImportFilesEnabled : undefined}
+          collateralDocs={collateralDocs}
+          collateralSummaryFilled={collateralSummaryFilled}
+          onSelectPatientId={async (patientId, _name, options) => {
+            await handleSelectPatient(
+              { id: patientId },
+              {
+                importFiles: Boolean(canImportFiles && options.importFiles),
+                appointmentStartsAt: options.appointmentStartsAt,
+              }
+            );
+          }}
+        />
       ) : null}
 
       {cliniko && !showSearchCard ? (
@@ -254,6 +387,7 @@ export function ClinikoIntakeCard({
             />
             Sync changes back to Cliniko
           </label>
+          <ClinikoPatientAppointments patientId={cliniko.patientId} />
         </div>
       ) : null}
 
@@ -261,8 +395,10 @@ export function ClinikoIntakeCard({
         <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
           <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
             <div>
-              <h3 className="text-base font-semibold">Load from Cliniko</h3>
-              <p className="text-sm text-muted-foreground">Search Cliniko to auto-fill client details</p>
+              <h3 className="text-base font-semibold">Or search by name</h3>
+              <p className="text-sm text-muted-foreground">
+                Prefer the calendar above when the booking is on your schedule
+              </p>
             </div>
             <label className="block space-y-1.5">
               <span className="sr-only">Search Cliniko patients</span>

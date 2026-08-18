@@ -14,6 +14,7 @@ export const DOC_CATEGORIES = [
   "Cognitive assessment (WISC / WPPSI / WAIS)",
   "Adaptive functioning (ABAS-3 / Vineland-3)",
   "ASD-specific (ADOS-2 / ADI-R)",
+  "ASRS (Autism Spectrum Rating Scales)",
   "Behaviour rating scale (BASC-3 / Conners-3)",
   "ADHD rating scale (Vanderbilt / Conners)",
   "Speech and language assessment",
@@ -31,6 +32,54 @@ export const DOC_CATEGORIES = [
 ] as const;
 
 export const DEFAULT_DOC_CATEGORY: (typeof DOC_CATEGORIES)[number] = "Other";
+
+export const ASRS_DOC_CATEGORY: (typeof DOC_CATEGORIES)[number] =
+  "ASRS (Autism Spectrum Rating Scales)";
+
+/** Guess collateral category from Cliniko filename / description. */
+export function guessCollateralCategoryFromName(
+  filename: string,
+  description = ""
+): (typeof DOC_CATEGORIES)[number] {
+  const haystack = `${filename} ${description}`.toLowerCase();
+  if (
+    /\basrs\b/.test(haystack) ||
+    haystack.includes("autism spectrum rating")
+  ) {
+    return ASRS_DOC_CATEGORY;
+  }
+  if (/\bados\b/.test(haystack) || /\badi-?r\b/.test(haystack)) {
+    return "ASD-specific (ADOS-2 / ADI-R)";
+  }
+  if (/\bwisc\b/.test(haystack) || /\bwppsi\b/.test(haystack) || /\bwais\b/.test(haystack)) {
+    return "Cognitive assessment (WISC / WPPSI / WAIS)";
+  }
+  if (/\babas\b/.test(haystack) || haystack.includes("vineland")) {
+    return "Adaptive functioning (ABAS-3 / Vineland-3)";
+  }
+  if (/\bbasc\b/.test(haystack) || /\bconners?\b/.test(haystack)) {
+    return "Behaviour rating scale (BASC-3 / Conners-3)";
+  }
+  if (haystack.includes("vanderbilt")) {
+    return "ADHD rating scale (Vanderbilt / Conners)";
+  }
+  if (/\bbrief\b/.test(haystack)) return "Executive function (BRIEF)";
+  if (haystack.includes("speech") || /\bslt\b/.test(haystack)) {
+    return "Speech and language assessment";
+  }
+  if (/\bot\b/.test(haystack) || haystack.includes("occupational") || haystack.includes("sensory")) {
+    return "Occupational therapy / sensory assessment";
+  }
+  if (haystack.includes("school") || /\biep\b/.test(haystack) || /\bnccd\b/.test(haystack)) {
+    return "School report / IEP / NCCD";
+  }
+  if (haystack.includes("teacher")) return "Teacher questionnaire";
+  if (haystack.includes("paediatric") || haystack.includes("pediatric")) {
+    return "Paediatrician report";
+  }
+  if (/\bgp\b/.test(haystack) || haystack.includes("referral")) return "GP referral";
+  return DEFAULT_DOC_CATEGORY;
+}
 
 export const COLLATERAL_MAX_FILES = 20;
 export const COLLATERAL_MAX_FILE_BYTES = 25 * 1024 * 1024;
