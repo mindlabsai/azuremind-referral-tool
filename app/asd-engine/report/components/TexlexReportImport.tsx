@@ -93,7 +93,8 @@ export function TexlexReportImport({
         <div>
           <p className="text-sm font-medium text-foreground">Import finished report</p>
           <p className="text-xs text-muted-foreground">
-            Recover a PDF or pasted report into editable sections for typo fixes — text is copied, not rewritten.
+            Recover a PDF or pasted report into editable sections for typo fixes — text is copied, not
+            rewritten. Use the original Texlex report PDF (not a previous Preview download).
           </p>
         </div>
         <span className="text-xs text-muted-foreground">{open ? "Hide" : "Show"}</span>

@@ -46,6 +46,7 @@ import { TexlexReportImport } from "../../asd-engine/report/components/TexlexRep
 import { TexlexSectionHeading } from "../../asd-engine/report/components/TexlexSectionHeading";
 import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
 import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
+import { finalizeImportedReport } from "@/lib/texlex-report-import/scrub-content";
 import { ADHD_CRITERIA } from "../../asd-engine/adhd-engine-core";
 import {
   useAdhdEnginePipeline,
@@ -1828,8 +1829,9 @@ export default function AdhdReportPage() {
   );
 
   const applyImportedReport = useCallback(
-    (imported: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
+    (importedRaw: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
       touch();
+      const imported = finalizeImportedReport(importedRaw);
       const s = imported.sections;
       setSectionTexts((prev) => ({
         ...prev,

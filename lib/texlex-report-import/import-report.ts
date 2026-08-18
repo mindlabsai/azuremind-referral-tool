@@ -2,43 +2,9 @@ import type { TexlexEngineId } from "@/lib/texlex-report-state";
 import { extractTextFromPdfBuffer } from "./extract-pdf";
 import { splitTexlexReportByHeadings } from "./heading-split";
 import { mapReportWithLlm } from "./llm-map";
-import { normalizeImportedReportText, scrubImportedProse } from "./normalize";
-import type {
-  ImportReportResult,
-  ImportedSections,
-  TexlexImportedReport,
-} from "./types";
-import { ASD_CRITERION_CODES } from "./types";
-
-function scrubImportResult(result: TexlexImportedReport): TexlexImportedReport {
-  const sections: ImportedSections = { ...result.sections };
-  const keys: (keyof ImportedSections)[] = [
-    "presentingConcerns",
-    "pregnancyBirth",
-    "earlyDevelopment",
-    "educationalHistory",
-    "emotionalBehaviouralSensory",
-    "collateralSummary",
-    "formulation",
-    "recommendations",
-    "limitationsText",
-    "functionalImpactSummary",
-  ];
-  for (const k of keys) {
-    const v = sections[k];
-    if (typeof v === "string") (sections as Record<string, unknown>)[k] = scrubImportedProse(v);
-  }
-  if (sections.criteria) {
-    const next: NonNullable<ImportedSections["criteria"]> = {};
-    for (const code of ASD_CRITERION_CODES) {
-      const row = sections.criteria[code];
-      if (!row) continue;
-      next[code] = { rating: row.rating, indicators: scrubImportedProse(row.indicators) };
-    }
-    sections.criteria = next;
-  }
-  return { ...result, sections };
-}
+import { normalizeImportedReportText } from "./normalize";
+import { finalizeImportedReport } from "./scrub-content";
+import type { ImportReportResult, TexlexImportedReport } from "./types";
 
 function needsLlm(result: TexlexImportedReport): boolean {
   if (result.confidence === "low") return true;
@@ -65,13 +31,13 @@ export async function importTexlexReportFromText(
     return { success: false, error: "Report text is too short to import." };
   }
 
-  const heading = scrubImportResult(splitTexlexReportByHeadings(text, engine));
+  const heading = finalizeImportedReport(splitTexlexReportByHeadings(text, engine));
 
   try {
     if (!needsLlm(heading)) {
       return { success: true, import: heading };
     }
-    const hybrid = scrubImportResult(await mapReportWithLlm(engine, text, heading));
+    const hybrid = finalizeImportedReport(await mapReportWithLlm(engine, text, heading));
     if (hybrid.filledSectionLabels.length === 0) {
       return {
         success: false,

@@ -54,8 +54,11 @@ export function scrubImportedProse(text: string): string {
   out = out
     .replace(/(\w)-\n(\w)/g, "$1$2")
     .replace(/(\w)-\s+(\w)/g, "$1$2")
+    // Footer fragments that survived mid-paragraph
+    .replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, "")
     // Signature block sometimes appended under Limitations
     .replace(/\n*Kind Regards,[\s\S]*$/i, "")
+    .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return out;

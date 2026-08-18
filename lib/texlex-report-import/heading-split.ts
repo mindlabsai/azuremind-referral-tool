@@ -1,15 +1,14 @@
-import { TEXLEX_CRITERIA, TEXLEX_LIMITATIONS } from "@/app/asd-engine/report/constants/texlexBoilerplate";
+import { TEXLEX_LIMITATIONS } from "@/app/asd-engine/report/constants/texlexBoilerplate";
 import type { TexlexEngineId } from "@/lib/texlex-report-state";
 import {
-  collapseForMatch,
   collapseWs,
   extractRatingToken,
   normalizeImportedReportText,
   parseFlexibleDateToIso,
-  scrubImportedProse,
   stripKnownBoilerplate,
   stripPageMarkers,
 } from "./normalize";
+import { finalizeImportedReport, looksLikeMastheadJunk, scrubCriterionIndicators } from "./scrub-content";
 import {
   ASD_CRITERION_CODES,
   type AsdCriterionCode,
@@ -77,13 +76,6 @@ const SKIP_HEADINGS: RegExp[] = [
 const ASSESSMENT_CONTEXT_SNIPPET =
   "This assessment was conducted as part of a consensus-based neurodevelopmental assessment pathway";
 
-const JUNK_CRITERION_MARKERS = [
-  "CONSENSUS-BASED NEURODEVELOPMENTAL",
-  "CONFIDENTIAL",
-  "Azure Mind",
-  "PSY000",
-];
-
 function lineMatchesAny(line: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(line.trim()));
 }
@@ -111,42 +103,6 @@ function cleanSectionBody(raw: string): string {
   );
 }
 
-function stripCriterionDescription(code: AsdCriterionCode, body: string): string {
-  const desc = TEXLEX_CRITERIA[code]?.description?.trim();
-  if (!desc) return body.trim();
-  const needle = collapseForMatch(desc);
-  const words = body.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return "";
-
-  // Grow a prefix until it covers the full description (tolerates PDF soft hyphens).
-  for (let i = 1; i <= words.length; i++) {
-    const head = collapseForMatch(words.slice(0, i).join(" "));
-    if (head === needle) {
-      return words.slice(i).join(" ").trim();
-    }
-    if (head.length > needle.length + 20) break;
-  }
-
-  // Description starts after a short residue
-  const collapsed = collapseForMatch(body);
-  const idx = collapsed.indexOf(needle);
-  if (idx >= 0 && idx < 60) {
-    for (let i = 1; i <= words.length; i++) {
-      const head = collapseForMatch(words.slice(0, i).join(" "));
-      if (head.includes(needle) && head.length >= needle.length) {
-        return words.slice(i).join(" ").trim();
-      }
-    }
-  }
-
-  return body.trim();
-}
-
-function criterionLooksJunk(indicators: string): boolean {
-  const up = indicators.toUpperCase();
-  return JUNK_CRITERION_MARKERS.some((m) => up.includes(m.toUpperCase()));
-}
-
 function inferDiagnosticConclusion(
   formulation: string | undefined,
   fullText: string
@@ -168,41 +124,6 @@ function inferDiagnosticConclusion(
   }
   if (/inconclusive|further evidence required/.test(hay)) return "inconclusive";
   return null;
-}
-
-function scrubSections(sections: ImportedSections): ImportedSections {
-  const out: ImportedSections = { ...sections };
-  const keys: (keyof ImportedSections)[] = [
-    "presentingConcerns",
-    "pregnancyBirth",
-    "earlyDevelopment",
-    "educationalHistory",
-    "emotionalBehaviouralSensory",
-    "collateralSummary",
-    "formulation",
-    "recommendations",
-    "limitationsText",
-    "functionalImpactSummary",
-  ];
-  for (const k of keys) {
-    const v = out[k];
-    if (typeof v === "string" && v.trim()) {
-      (out as Record<string, unknown>)[k] = scrubImportedProse(v);
-    }
-  }
-  if (out.criteria) {
-    const next: NonNullable<ImportedSections["criteria"]> = {};
-    for (const code of ASD_CRITERION_CODES) {
-      const row = out.criteria[code];
-      if (!row) continue;
-      next[code] = {
-        rating: row.rating,
-        indicators: scrubImportedProse(row.indicators),
-      };
-    }
-    out.criteria = next;
-  }
-  return out;
 }
 
 function extractPatientDetails(text: string): ImportedPatientDetails {
@@ -406,14 +327,16 @@ export function splitTexlexReportByHeadings(
       const key = `criterion:${code}`;
       const raw = buckets[key];
       if (!raw && ratingsFromHeading[key] == null) continue;
-      let body = stripCriterionDescription(code, raw ?? "");
-      body = body.replace(new RegExp(`^${code}\\.[^\\n]*\\n+`, "i"), "").trim();
-      body = stripPageMarkers(body);
+      let body = scrubCriterionIndicators(code, raw ?? "");
       const fromBody = extractRatingToken(body);
       const rating = ratingsFromHeading[key] ?? fromBody.rating;
       const indicators = (fromBody.rating !== null ? fromBody.rest : body).trim();
-      if (criterionLooksJunk(indicators)) {
+      if (looksLikeMastheadJunk(indicators)) {
         warnings.push(`Criterion ${code} looked like header junk and was skipped — review that section.`);
+        // Still keep rating if we captured it from the heading line
+        if (rating !== null) {
+          criteria[code] = { indicators: "", rating };
+        }
         continue;
       }
       if (indicators.trim() || rating !== null) {
@@ -428,7 +351,16 @@ export function splitTexlexReportByHeadings(
     warnings.push("Client name was not detected from the PDF header — fill it manually if needed.");
   }
 
-  const cleanedSections = scrubSections(sections);
+  const cleanedSections = finalizeImportedReport({
+    engine,
+    method: "heading",
+    confidence: "medium",
+    warnings: [],
+    patientDetails: {},
+    sections,
+    filledSectionLabels: [],
+    sourceCharCount: text.length,
+  }).sections;
   const diagnosticConclusion = inferDiagnosticConclusion(cleanedSections.formulation, text);
 
   const filledSectionLabels: string[] = [];

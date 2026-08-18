@@ -70,6 +70,7 @@ import {
 import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
 import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
 import { ASD_CRITERION_CODES } from "@/lib/texlex-report-import/types";
+import { finalizeImportedReport } from "@/lib/texlex-report-import/scrub-content";
 import { EngineAssistant } from "../components/EngineAssistant";
 import { useAsdEnginePipeline } from "../asd-engine-core";
 import {
@@ -3558,8 +3559,9 @@ export default function TexlexReportPage() {
   );
 
   const applyImportedReport = useCallback(
-    (imported: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
+    (importedRaw: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
       touch();
+      const imported = finalizeImportedReport(importedRaw);
       const s = imported.sections;
       if (s.presentingConcerns?.trim()) setPresentingConcerns(s.presentingConcerns);
       setBackground((prev) => ({
