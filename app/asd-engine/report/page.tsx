@@ -903,18 +903,24 @@ function normalizeBackgroundForPdf(bg: BackgroundState): BackgroundState {
 
 /** Only fields read by TexlexPdfDocument — strips lastGenerated and coerces ratings. */
 function criteriaStateForPdfRenderer(
-  criteria: Record<CriterionCode, CriterionState>
+  criteria: Record<CriterionCode, CriterionState>,
+  pinnedRatings?: Partial<Record<CriterionCode, 0 | 1 | 2 | 3 | null>> | null
 ): Record<CriterionCode, CriterionState> {
   return Object.fromEntries(
     CRITERION_CODES.map((code) => {
       const c = criteria[code];
+      const pinned =
+        pinnedRatings && Object.prototype.hasOwnProperty.call(pinnedRatings, code)
+          ? pinnedRatings[code]
+          : undefined;
       return [
         code,
         {
           code,
           indicators: normalizeTexlexTextForPdf(c.indicators),
-          rating: clampCriterionRatingForPdfExport(c.rating),
-          suggestedRating: clampCriterionRatingForPdfExport(c.suggestedRating),
+          rating: clampCriterionRatingForPdfExport(pinned !== undefined ? pinned : c.rating),
+          // Never send suggested into the PDF path as a display fallback.
+          suggestedRating: null,
           markerCount: safeMarkerCountForPdfExport(c.markerCount),
           lastGenerated: null,
         },
@@ -925,7 +931,8 @@ function criteriaStateForPdfRenderer(
 
 /** Explicit PDF-only draft: no spread from sanitized JSON (drops stray keys) and strips cliniko payload. */
 function buildPdfRenderDraftFromSanitized(
-  sanitised: Omit<TexlexReportDraftV1, "lastSaved" | "rawNotes" | "collateralDocs">
+  sanitised: Omit<TexlexReportDraftV1, "lastSaved" | "rawNotes" | "collateralDocs">,
+  pinnedRatings?: Partial<Record<CriterionCode, 0 | 1 | 2 | 3 | null>> | null
 ): Omit<TexlexReportDraftV1, "lastSaved" | "rawNotes" | "collateralDocs"> {
   return {
     patientDetails: normalizePatientDetailsForPdf(sanitised.patientDetails),
@@ -937,7 +944,7 @@ function buildPdfRenderDraftFromSanitized(
     clinicalFormulation: normalizeTexlexTextForPdf(sanitised.clinicalFormulation),
     recommendations: normalizeTexlexTextForPdf(sanitised.recommendations),
     limitationsText: normalizeTexlexTextForPdf(sanitised.limitationsText),
-    criteria: criteriaStateForPdfRenderer(sanitised.criteria),
+    criteria: criteriaStateForPdfRenderer(sanitised.criteria, pinnedRatings),
     cliniko: null,
     diagnosticConclusion: resolveTexlexDiagnosticConclusion(sanitised.diagnosticConclusion),
   };
@@ -2029,6 +2036,10 @@ export default function TexlexReportPage() {
   const newReportToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const suppressAutosaveRef = useRef(false);
   const cloudResumeHandledPatientRef = useRef<string | null>(null);
+  /** Clinician ratings from Import finished report — kept sticky until New report. */
+  const importedClinicianRatingsRef = useRef<Partial<
+    Record<CriterionCode, 0 | 1 | 2 | 3 | null>
+  > | null>(null);
   const debouncedRawNotes = useDebouncedValue(rawNotes, 400);
   const pipeline = useAsdEnginePipeline(debouncedRawNotes);
 
@@ -3138,6 +3149,7 @@ export default function TexlexReportPage() {
 
   useEffect(() => {
     const conclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+    const pinned = importedClinicianRatingsRef.current;
     setCriteria((prev) => {
       const next = { ...prev };
       for (const code of CRITERION_CODES) {
@@ -3149,10 +3161,13 @@ export default function TexlexReportPage() {
         const matrixRating = suggestedRatingFromMatrix(count, status);
         const merged = mergeCriterionSuggestedRating(code, prev[code].indicators, matrixRating);
         const capped = capSuggestedRatingForDiagnosticConclusion(merged, conclusion, code);
+        const pinnedRating =
+          pinned && Object.prototype.hasOwnProperty.call(pinned, code) ? pinned[code] : undefined;
         next[code] = {
           ...prev[code],
           markerCount: count,
           suggestedRating: capped,
+          ...(pinnedRating !== undefined ? { rating: pinnedRating } : {}),
         };
       }
       return next;
@@ -3331,6 +3346,7 @@ export default function TexlexReportPage() {
     }
     suppressAutosaveRef.current = true;
     cloudResumeHandledPatientRef.current = null;
+    importedClinicianRatingsRef.current = null;
 
     setDraftResumePrompt(null);
     setLocalDraftRestoredNotice(null);
@@ -3457,7 +3473,10 @@ export default function TexlexReportPage() {
     const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
       persistPayload;
     const sanitised = sanitiseForPdf(draft);
-    const cleanDraft = buildPdfRenderDraftFromSanitized(sanitised);
+    const cleanDraft = buildPdfRenderDraftFromSanitized(
+      sanitised,
+      importedClinicianRatingsRef.current
+    );
     const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
     let signatureSrc = await resolveTexlexSignatureSrc();
     let blob: Blob;
@@ -3579,22 +3598,25 @@ export default function TexlexReportPage() {
       if (s.recommendations?.trim()) setRecommendations(s.recommendations);
       if (s.limitationsText?.trim()) setLimitationsText(s.limitationsText);
       if (s.criteria) {
+        const pinned: Partial<Record<CriterionCode, 0 | 1 | 2 | 3 | null>> = {};
         setCriteria((prev) => {
           const next = { ...prev };
           for (const code of ASD_CRITERION_CODES) {
             const row = s.criteria?.[code];
             if (!row) continue;
-            // Always take imported rating (including clearing a stale wrong value).
+            const rating = row.rating ?? null;
+            pinned[code] = rating;
             next[code] = {
               ...next[code],
               code,
               indicators: row.indicators.trim() || next[code].indicators,
-              rating: row.rating ?? null,
-              suggestedRating: row.rating ?? null,
+              rating,
+              suggestedRating: rating,
             };
           }
           return next;
         });
+        importedClinicianRatingsRef.current = pinned;
       }
       if (
         imported.diagnosticConclusion === "meets" ||
@@ -3632,7 +3654,12 @@ export default function TexlexReportPage() {
         return next;
       });
       setClinikoToast(
-        `Imported ${imported.filledSectionLabels.length} section(s) from finished report (${imported.confidence} confidence). Fix typos, then Preview / Download.`
+        `Imported ${imported.filledSectionLabels.length} section(s) from finished report (${imported.confidence} confidence). Fix typos, then Preview / Download.` +
+          (imported.sections.criteria
+            ? ` Ratings: ${ASD_CRITERION_CODES.filter((c) => imported.sections.criteria?.[c])
+                .map((c) => `${c}=${imported.sections.criteria?.[c]?.rating ?? "—"}`)
+                .join(" · ")}.`
+            : "")
       );
       if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
       clinikoToastTimerRef.current = globalThis.setTimeout(() => {

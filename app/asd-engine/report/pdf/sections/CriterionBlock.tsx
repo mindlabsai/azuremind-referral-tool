@@ -4,7 +4,6 @@ import { ProseParagraphs } from "../components/ProseParagraphs";
 import { RatingPill } from "../components/RatingPill";
 import { styles } from "../styles";
 import type { CriterionCode, CriterionState } from "../types";
-import { resolveCriterionDisplayRating } from "../utils";
 
 export function CriterionBlock({
   code,
@@ -14,9 +13,11 @@ export function CriterionBlock({
   criterion: CriterionState;
 }) {
   const meta = TEXLEX_CRITERIA[code];
-  const displayRating = resolveCriterionDisplayRating(code, criterion);
+  // Clinician rating only — never auto-suggested (import / typo-fix must stick on the PDF).
   const pillRating =
-    displayRating !== null && [0, 1, 2, 3].includes(displayRating) ? displayRating : null;
+    criterion.rating !== null && [0, 1, 2, 3].includes(criterion.rating)
+      ? (criterion.rating as 0 | 1 | 2 | 3)
+      : null;
 
   return (
     <View>
