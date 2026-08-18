@@ -49,6 +49,7 @@ import {
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import { SavedDraftsByName } from "./components/SavedDraftsByName";
 import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
+import { TexlexReportImport } from "./components/TexlexReportImport";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import {
   clearAsdLegacyLocalDraftKeys,
@@ -67,6 +68,8 @@ import {
   saveReportStateForEngine,
 } from "@/lib/texlex-report-state";
 import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
+import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
+import { ASD_CRITERION_CODES } from "@/lib/texlex-report-import/types";
 import { EngineAssistant } from "../components/EngineAssistant";
 import { useAsdEnginePipeline } from "../asd-engine-core";
 import {
@@ -3554,6 +3557,81 @@ export default function TexlexReportPage() {
     [applyLocalDraftData]
   );
 
+  const applyImportedReport = useCallback(
+    (imported: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
+      touch();
+      const s = imported.sections;
+      if (s.presentingConcerns?.trim()) setPresentingConcerns(s.presentingConcerns);
+      setBackground((prev) => ({
+        ...prev,
+        ...(s.pregnancyBirth?.trim() ? { pregnancyBirth: s.pregnancyBirth } : {}),
+        ...(s.earlyDevelopment?.trim() ? { earlyDevelopment: s.earlyDevelopment } : {}),
+        ...(s.educationalHistory?.trim() ? { educationalHistory: s.educationalHistory } : {}),
+        ...(s.emotionalBehaviouralSensory?.trim()
+          ? { emotionalBehaviouralSensory: s.emotionalBehaviouralSensory }
+          : {}),
+      }));
+      if (s.collateralSummary?.trim()) setCollateralSummary(s.collateralSummary);
+      if (s.functionalImpactSummary?.trim()) setFunctionalImpactSummary(s.functionalImpactSummary);
+      if (s.formulation?.trim()) setClinicalFormulation(s.formulation);
+      if (s.recommendations?.trim()) setRecommendations(s.recommendations);
+      if (s.limitationsText?.trim()) setLimitationsText(s.limitationsText);
+      if (s.criteria) {
+        setCriteria((prev) => {
+          const next = { ...prev };
+          for (const code of ASD_CRITERION_CODES) {
+            const row = s.criteria?.[code];
+            if (!row) continue;
+            next[code] = {
+              ...next[code],
+              code,
+              indicators: row.indicators.trim() || next[code].indicators,
+              rating: row.rating !== null ? row.rating : next[code].rating,
+            };
+          }
+          return next;
+        });
+      }
+      setPatientDetails((prev) => {
+        const next = { ...prev };
+        const fill = (key: keyof PatientDetails, value?: string) => {
+          if (!value?.trim()) return;
+          if (opts.overwritePatientDetails || !String(prev[key] ?? "").trim()) {
+            (next as Record<string, unknown>)[key] = value.trim();
+          }
+        };
+        const d = imported.patientDetails;
+        fill("clientName", d.clientName);
+        fill("dob", d.dob);
+        fill("pronouns", d.pronouns);
+        fill("yearLevel", d.yearLevel);
+        fill("school", d.school);
+        fill("parent1", d.parent1);
+        fill("parent2", d.parent2);
+        fill("phone", d.phone);
+        fill("address", d.address);
+        fill("referringPractitioner", d.referringPractitioner);
+        fill("assessor", d.assessor);
+        fill("reportDate", d.reportDate);
+        if (d.assessmentDate?.trim()) {
+          if (opts.overwritePatientDetails || prev.assessmentDates.length === 0) {
+            next.assessmentDates = [d.assessmentDate.trim()];
+          }
+        }
+        return next;
+      });
+      setClinikoToast(
+        `Imported ${imported.filledSectionLabels.length} section(s) from finished report (${imported.confidence} confidence). Fix typos, then Preview / Download.`
+      );
+      if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+      clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+        setClinikoToast(null);
+        clinikoToastTimerRef.current = null;
+      }, 5000);
+    },
+    [touch]
+  );
+
   const handleDownloadAndSave = useCallback(async () => {
     if (pdfBusyMode !== null) return;
     setPdfBusyMode("save");
@@ -3915,6 +3993,23 @@ export default function TexlexReportPage() {
               onLoaded={showClinikoLoadedToast}
               onError={showClinikoErrorToast}
               onChangePatientRequest={handleChangePatientRequest}
+            />
+
+            <TexlexReportImport
+              engine="asd"
+              hasExistingContent={
+                presentingConcerns.trim().length > 0 ||
+                clinicalFormulation.trim().length > 0 ||
+                recommendations.trim().length > 0 ||
+                collateralSummary.trim().length > 0 ||
+                Object.values(background).some((v) => String(v ?? "").trim().length > 0) ||
+                CRITERION_CODES.some(
+                  (code) =>
+                    criteria[code].indicators.trim().length > 0 || criteria[code].rating !== null
+                )
+              }
+              onApply={applyImportedReport}
+              className="mb-2"
             />
 
             <section id="patient-details">

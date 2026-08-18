@@ -42,8 +42,10 @@ import {
 import { NewReportConfirmModal } from "../../asd-engine/report/components/NewReportConfirmModal";
 import { SavedDraftsByName } from "../../asd-engine/report/components/SavedDraftsByName";
 import { TexlexPdfPreviewPane } from "../../asd-engine/report/components/TexlexPdfPreviewPane";
+import { TexlexReportImport } from "../../asd-engine/report/components/TexlexReportImport";
 import { TexlexSectionHeading } from "../../asd-engine/report/components/TexlexSectionHeading";
 import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
+import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
 import { ADHD_CRITERIA } from "../../asd-engine/adhd-engine-core";
 import {
   useAdhdEnginePipeline,
@@ -1825,6 +1827,58 @@ export default function AdhdReportPage() {
     [applyAdhdSavedState]
   );
 
+  const applyImportedReport = useCallback(
+    (imported: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
+      touch();
+      const s = imported.sections;
+      setSectionTexts((prev) => ({
+        ...prev,
+        ...(s.presentingConcerns ? { "presenting-concerns": s.presentingConcerns } : {}),
+        ...(s.pregnancyBirth ? { "background-pregnancy-birth": s.pregnancyBirth } : {}),
+        ...(s.earlyDevelopment ? { "background-early-development": s.earlyDevelopment } : {}),
+        ...(s.educationalHistory ? { "background-educational-history": s.educationalHistory } : {}),
+        ...(s.emotionalBehaviouralSensory
+          ? { "background-emotional-behavioural-sensory": s.emotionalBehaviouralSensory }
+          : {}),
+        ...(s.collateralSummary ? { "collateral-summary": s.collateralSummary } : {}),
+        ...(s.recommendations ? { recommendations: s.recommendations } : {}),
+      }));
+      if (s.formulation?.trim()) setFormulation(s.formulation);
+      setPatientDetails((prev) => {
+        const next = { ...prev };
+        const fill = (key: keyof PatientDetails, value?: string) => {
+          if (!value?.trim()) return;
+          if (opts.overwritePatientDetails || !String(prev[key] ?? "").trim()) {
+            (next as Record<string, unknown>)[key] = value.trim();
+          }
+        };
+        const d = imported.patientDetails;
+        fill("clientName", d.clientName);
+        fill("dob", d.dob);
+        fill("pronouns", d.pronouns);
+        fill("yearLevel", d.yearLevel);
+        fill("school", d.school);
+        fill("parent1", d.parent1);
+        fill("parent2", d.parent2);
+        fill("phone", d.phone);
+        fill("address", d.address);
+        fill("referringPractitioner", d.referringPractitioner);
+        fill("assessor", d.assessor);
+        fill("reportDate", d.reportDate);
+        return next;
+      });
+      if (imported.patientDetails.assessmentDate?.trim()) {
+        if (opts.overwritePatientDetails || !assessmentDate.trim()) {
+          setAssessmentDate(imported.patientDetails.assessmentDate.trim());
+        }
+      }
+      setClinikoNotice(
+        `Imported ${imported.filledSectionLabels.length} section(s) from finished report (${imported.confidence} confidence). Fix typos, then Preview / Download.`
+      );
+    },
+    [assessmentDate, touch]
+  );
+
   // Silent localStorage restore on mount (navigation / crash safety net).
   useEffect(() => {
     if (localDraftHydratedRef.current) return;
@@ -2205,6 +2259,15 @@ export default function AdhdReportPage() {
               onError={(message) => setClinikoNotice(message)}
               onChangePatientRequest={handleChangePatientRequest}
               changePatientDisabled={generationBusy}
+            />
+
+            <TexlexReportImport
+              engine="adhd"
+              hasExistingContent={
+                Object.values(sectionTexts).some((t) => t.trim().length > 0) ||
+                formulation.trim().length > 0
+              }
+              onApply={applyImportedReport}
             />
 
             <Card>
