@@ -3584,15 +3584,13 @@ export default function TexlexReportPage() {
           for (const code of ASD_CRITERION_CODES) {
             const row = s.criteria?.[code];
             if (!row) continue;
-            const rating = row.rating;
+            // Always take imported rating (including clearing a stale wrong value).
             next[code] = {
               ...next[code],
               code,
               indicators: row.indicators.trim() || next[code].indicators,
-              // Always apply imported clinician ratings (these drive Level A/B in the PDF).
-              rating: rating !== null && rating !== undefined ? rating : next[code].rating,
-              suggestedRating:
-                rating !== null && rating !== undefined ? rating : next[code].suggestedRating,
+              rating: row.rating ?? null,
+              suggestedRating: row.rating ?? null,
             };
           }
           return next;

@@ -50,11 +50,28 @@ export function resolveCriterionDisplayRating(
     return r as 0 | 1 | 2 | 3;
   };
   const safeRating = toRating(criterion.rating);
-  const safeSuggested = toRating(criterion.suggestedRating);
+  // PDF / clinical display: clinician rating only. Never fall back to auto-suggested
+  // (suggested can read "severe" language and inflate A1/A2 after import).
   if (code === "A2" && isInsufficientEvidenceNarrative(criterion.indicators)) return null;
-  if (safeRating !== null) return safeRating;
+  return safeRating;
+}
+
+/** UI helper: suggested rating for the editor chrome only. */
+export function resolveCriterionSuggestedRating(
+  code: string,
+  criterion: { rating: 0 | 1 | 2 | 3 | null; suggestedRating: 0 | 1 | 2 | 3 | null; indicators: string }
+): 0 | 1 | 2 | 3 | null {
+  const toRating = (n: unknown): 0 | 1 | 2 | 3 | null => {
+    if (n === null || n === undefined) return null;
+    const v = typeof n === "number" ? n : Number(n);
+    if (!Number.isFinite(v)) return null;
+    const r = Math.round(v);
+    if (r < 0 || r > 3) return null;
+    return r as 0 | 1 | 2 | 3;
+  };
+  if (code === "A2" && isInsufficientEvidenceNarrative(criterion.indicators)) return null;
   if (isInsufficientEvidenceNarrative(criterion.indicators)) return null;
-  return safeSuggested;
+  return toRating(criterion.suggestedRating);
 }
 
 export function clientFirstName(clientName: string): string {

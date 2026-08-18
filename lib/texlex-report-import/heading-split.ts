@@ -255,7 +255,15 @@ export function splitTexlexReportByHeadings(
       continue;
     }
 
-    const { rating: headingRating } = extractRatingToken(trimmed);
+    const { rating: headingRatingFromLine } = extractRatingToken(trimmed);
+    let headingRating = headingRatingFromLine;
+    // Ratings often sit on the following line (A2/A3/B1/E).
+    if (headingRating === null && i + 1 < lines.length) {
+      const nextLine = lines[i + 1]!.trim();
+      if (/^RATING\b/i.test(nextLine)) {
+        headingRating = extractRatingToken(nextLine).rating;
+      }
+    }
 
     // Prefer the later occurrence when the same key appears twice (e.g. C umbrella then real C).
     const existingIdx = hits.findIndex((h) => h.key === key);
