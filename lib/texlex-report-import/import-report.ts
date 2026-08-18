@@ -8,8 +8,17 @@ import type { ImportReportResult, TexlexImportedReport } from "./types";
 function needsLlm(result: TexlexImportedReport): boolean {
   if (result.confidence === "low") return true;
   if (result.filledSectionLabels.length < 3) return true;
-  // ASD without any criteria often needs help
   if (result.engine === "asd" && !result.sections.criteria) return true;
+  if (result.engine === "asd") {
+    const crit = result.sections.criteria ?? {};
+    const count = Object.keys(crit).length;
+    const rated = Object.values(crit).filter((c) => c && c.rating !== null).length;
+    if (count < 8) return true;
+    if (rated < 6) return true;
+    if (!result.patientDetails.clientName) return true;
+  }
+  // Any junk warning → refine with LLM gap-fill (keeps good heading text)
+  if (result.warnings.some((w) => /junk|not detected|not all asd criteria/i.test(w))) return true;
   return false;
 }
 
