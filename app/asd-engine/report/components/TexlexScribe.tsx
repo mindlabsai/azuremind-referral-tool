@@ -27,11 +27,20 @@ export function TexlexScribe({
   className,
   onTranscript,
   onAppendToNotes,
+  onGenerateSessionSections,
+  sessionGenerating = false,
 }: {
   className?: string;
   onTranscript?: (text: string) => void;
   /** Optional: push transcript into raw clinical notes. */
   onAppendToNotes?: (text: string) => void;
+  /**
+   * Option A: draft presenting concerns + four background sections from this
+   * transcript (stops before collateral).
+   */
+  onGenerateSessionSections?: (text: string) => void | Promise<void>;
+  /** Parent is running the session-section pipeline. */
+  sessionGenerating?: boolean;
 }) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -40,6 +49,7 @@ export function TexlexScribe({
   const [status, setStatus] = useState("Record the encounter, then Whisper will transcribe.");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [generatingLocal, setGeneratingLocal] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -187,6 +197,27 @@ export function TexlexScribe({
     setStatus("Appended to raw notes.");
   };
 
+  const generateSessionSections = async () => {
+    const text = transcript.trim();
+    if (!text || !onGenerateSessionSections) return;
+    setGeneratingLocal(true);
+    setError(null);
+    setStatus("Drafting presenting concerns and background sections…");
+    try {
+      await onGenerateSessionSections(text);
+      setStatus("Session sections drafted — review presenting concerns and background.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Session section generation failed.";
+      setError(message);
+      setStatus("Session section generation failed.");
+    } finally {
+      setGeneratingLocal(false);
+    }
+  };
+
+  const pipelineBusy = busy || sessionGenerating || generatingLocal;
+
   if (!supported) {
     return (
       <p className={cn("text-xs text-muted-foreground", className)}>
@@ -224,7 +255,7 @@ export function TexlexScribe({
             size="lg"
             variant="outline"
             className="h-12 min-w-[9.5rem] gap-2 px-4 text-base font-semibold"
-            disabled={busy}
+            disabled={pipelineBusy}
             onClick={() => void startRecording()}
           >
             {busy ? (
@@ -270,6 +301,7 @@ export function TexlexScribe({
               type="button"
               size="sm"
               variant="outline"
+              disabled={pipelineBusy}
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(transcript);
@@ -282,11 +314,40 @@ export function TexlexScribe({
               Copy
             </Button>
             {onAppendToNotes ? (
-              <Button type="button" size="sm" variant="outline" onClick={appendNotes}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pipelineBusy}
+                onClick={appendNotes}
+              >
                 Append to raw notes
               </Button>
             ) : null}
+            {onGenerateSessionSections ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={pipelineBusy || transcript.trim().length < 20}
+                onClick={() => void generateSessionSections()}
+              >
+                {sessionGenerating || generatingLocal ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Generating sections…
+                  </span>
+                ) : (
+                  "Generate sections from session"
+                )}
+              </Button>
+            ) : null}
           </div>
+          {onGenerateSessionSections ? (
+            <p className="text-[11px] text-muted-foreground">
+              Drafts presenting concerns and all four background sections from this
+              transcript. Does not touch collateral, criteria, or formulation.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>

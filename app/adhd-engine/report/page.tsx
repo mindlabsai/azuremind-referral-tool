@@ -160,6 +160,11 @@ const NARRATIVE_SECTIONS = [
   },
 ] as const;
 
+/** Scribe option A: session transcript → these sections only (not collateral). */
+const SESSION_NARRATIVE_SECTIONS = NARRATIVE_SECTIONS.filter(
+  (s) => s.id !== "collateral-summary"
+);
+
 const RECOMMENDATIONS_SECTION = {
   id: "recommendations",
   label: "Recommendations",
@@ -1070,6 +1075,67 @@ export default function AdhdReportPage() {
     [applyIfCurrent, beginGenerateSession, generationBody]
   );
 
+  const [sessionSectionsGenerating, setSessionSectionsGenerating] = useState(false);
+
+  const runSessionNarrativeFromTranscript = useCallback(
+    async (transcript: string) => {
+      const sessionNotes = transcript.trim();
+      if (sessionNotes.length < 20) {
+        throw new Error("Transcript needs at least 20 characters before generating sections.");
+      }
+
+      const existing = rawNotes.trim();
+      const mergedNotes =
+        !existing
+          ? sessionNotes
+          : existing.includes(sessionNotes)
+            ? existing
+            : `${existing}\n\n--- Whisper transcript ---\n\n${sessionNotes}`;
+
+      touch();
+      setRawNotes(mergedNotes);
+
+      const body = {
+        ...generationBody,
+        rawNotes: mergedNotes,
+      };
+
+      const { session, signal } = beginGenerateSession();
+      setSessionSectionsGenerating(true);
+      try {
+        for (const section of SESSION_NARRATIVE_SECTIONS) {
+          if (signal.aborted) return;
+          applyIfCurrent(session, () => {
+            setSectionGenerating((prev) => ({ ...prev, [section.id]: true }));
+            setSectionTexts((prev) => ({ ...prev, [section.id]: "" }));
+          });
+          try {
+            await streamSse(
+              section.route,
+              body,
+              (delta) => {
+                applyIfCurrent(session, () => {
+                  setSectionTexts((prev) => ({
+                    ...prev,
+                    [section.id]: prev[section.id] + delta,
+                  }));
+                });
+              },
+              signal
+            );
+          } finally {
+            applyIfCurrent(session, () => {
+              setSectionGenerating((prev) => ({ ...prev, [section.id]: false }));
+            });
+          }
+        }
+      } finally {
+        applyIfCurrent(session, () => setSessionSectionsGenerating(false));
+      }
+    },
+    [applyIfCurrent, beginGenerateSession, generationBody, rawNotes, touch]
+  );
+
   const generateFormulation = useCallback(async () => {
     const { session, signal } = beginGenerateSession();
     applyIfCurrent(session, () => {
@@ -1475,6 +1541,49 @@ export default function AdhdReportPage() {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
+  /** Save + clear clinical content when calendar/search loads a different patient. */
+  const prepareClinikoPatientSwitch = useCallback(
+    async (_nextPatientId: string) => {
+      await persistDraftBeforeSwitch();
+      genSessionRef.current += 1;
+      bulkRunRef.current += 1;
+      generateAbortRef.current?.abort();
+      generateAbortRef.current = null;
+      lastHydratedPatientIdRef.current = null;
+      suppressAutosaveRef.current = true;
+
+      setSectionGenerating(emptySectionGenerating());
+      setFormulationGenerating(false);
+      setBulkRunning(false);
+      setBulkLabel("");
+
+      setRawNotes("");
+      setCollateralDocs([]);
+      setSectionTexts(emptySectionTexts());
+      setDivaState("not-administered");
+      setCriteriaStates({});
+      setSeverityStated("");
+      setAsdActive(false);
+      setClinicianStatedFraming("");
+      setMentalHealthFraming("");
+      setMentalHealthGreenLight(false);
+      setRecommendationShorthand("");
+      setMedicationWanted(false);
+      setAssessmentDate("");
+      setAssessmentModality("");
+      setAttendingParents([]);
+      setFormulation("");
+      setSaveFailed(false);
+      setSaveStatus("idle");
+      setLastEditAt(0);
+      setLastSavedAt(null);
+      setLastCloudSavedAt(null);
+      setLocalDraftRestoredNotice(null);
+      setDraftResumePrompt(null);
+    },
+    [persistDraftBeforeSwitch]
+  );
+
   const startNewReport = useCallback(async () => {
     setWorkflowBusy(true);
     const hadLinkedPatient = Boolean(cliniko?.patientId);
@@ -1629,10 +1738,12 @@ export default function AdhdReportPage() {
         <AdhdPdfDocument draft={draft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
       ).toBlob();
     }
-    const stem = safeFilenamePart(draft.patientDetails.clientName);
+    const stem = safeFilenamePart(
+      (cliniko?.connectedName ?? "").trim() || draft.patientDetails.clientName
+    );
     const filename = `${stem}-ADHDReport-${draft.patientDetails.reportDate || todayIso()}.pdf`;
     return { blob, filename };
-  }, [buildAdhdPdfDraft]);
+  }, [buildAdhdPdfDraft, cliniko?.connectedName]);
 
   const triggerPdfDownload = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -1746,15 +1857,16 @@ export default function AdhdReportPage() {
   }, [buildAdhdPdfBlob, cliniko?.patientId, pdfBusyMode, triggerPdfDownload]);
 
   const applyAdhdSavedState = useCallback((state: AdhdSavedState, opts?: { restoreCliniko?: boolean }) => {
-    // Replace (do not merge) so a prior patient's fields cannot linger under a new name.
-    setPatientDetails({
-      ...patientDetailsAfterNewReport(),
-      ...(state.patientDetails ?? {}),
-      assessmentType: state.patientDetails?.assessmentType || "ADHD",
-      assessor: state.patientDetails?.assessor?.trim() || DEFAULT_ASSESSOR,
-      reportDate: state.patientDetails?.reportDate?.trim() || todayIso(),
-    });
+    // When restoring under an already-linked Cliniko patient, keep live demographics
+    // so a polluted draft cannot rename Emma Pate → Jessica Little.
     if (opts?.restoreCliniko) {
+      setPatientDetails({
+        ...patientDetailsAfterNewReport(),
+        ...(state.patientDetails ?? {}),
+        assessmentType: state.patientDetails?.assessmentType || "ADHD",
+        assessor: state.patientDetails?.assessor?.trim() || DEFAULT_ASSESSOR,
+        reportDate: state.patientDetails?.reportDate?.trim() || todayIso(),
+      });
       setCliniko(state.cliniko ?? null);
       if (state.cliniko?.patientId) {
         lastHydratedPatientIdRef.current = state.cliniko.patientId;
@@ -2266,6 +2378,7 @@ export default function AdhdReportPage() {
                 collateralDocs={collateralDocs}
                 setCollateralDocs={setCollateralDocs}
                 collateralSummaryFilled={(sectionTexts["collateral-summary"] ?? "").trim().length > 0}
+                onPreparePatientSwitch={prepareClinikoPatientSwitch}
                 engine="adhd"
                 onDateSeenFromAppointment={(dateYmd) => {
                   touch();
@@ -2277,6 +2390,7 @@ export default function AdhdReportPage() {
             <section id="scribe">
               <TexlexSectionHeading>Scribe</TexlexSectionHeading>
               <TexlexScribe
+                sessionGenerating={sessionSectionsGenerating}
                 onAppendToNotes={(text) => {
                   touch();
                   setRawNotes((prev) => {
@@ -2285,6 +2399,7 @@ export default function AdhdReportPage() {
                     return `${existing}\n\n--- Whisper transcript ---\n\n${text.trim()}`;
                   });
                 }}
+                onGenerateSessionSections={runSessionNarrativeFromTranscript}
               />
             </section>
 

@@ -457,24 +457,39 @@ export async function clinikoSearchPatients(query: string): Promise<ClinikoPatie
   if (trimmed.length < 2) return [];
 
   const tokens = trimmed.split(/\s+/).filter(Boolean);
-  const requests: Promise<ClinikoPatient[]>[] = [];
+  let merged: ClinikoPatient[] = [];
+
   if (tokens.length === 1) {
     const token = tokens[0]!;
-    requests.push(searchPatientsByFilters([`first_name:~${token}`]));
-    requests.push(searchPatientsByFilters([`last_name:~${token}`]));
+    const batches = await Promise.all([
+      searchPatientsByFilters([`first_name:~${token}`]),
+      searchPatientsByFilters([`last_name:~${token}`]),
+    ]);
+    merged = dedupePatients(batches.flat());
   } else {
-    const [first, ...rest] = tokens;
-    const last = rest.join(" ");
-    requests.push(searchPatientsByFilters([`first_name:~${first}`, `last_name:~${last}`]));
-    requests.push(searchPatientsByFilters([`first_name:~${last}`, `last_name:~${first}`]));
-    requests.push(searchPatientsByFilters([`first_name:~${first}`]));
-    requests.push(searchPatientsByFilters([`last_name:~${last}`]));
+    const first = tokens[0]!;
+    const last = tokens.slice(1).join(" ");
+    // Prefer first+last together — do not flood with every "Jessica" when searching
+    // "Jessica Little".
+    const tight = await Promise.all([
+      searchPatientsByFilters([`first_name:~${first}`, `last_name:~${last}`]),
+      searchPatientsByFilters([`first_name:~${last}`, `last_name:~${first}`]),
+    ]);
+    merged = dedupePatients(tight.flat());
+    if (merged.length === 0) {
+      const loose = await Promise.all([
+        searchPatientsByFilters([`first_name:~${first}`]),
+        searchPatientsByFilters([`last_name:~${last}`]),
+      ]);
+      merged = dedupePatients(loose.flat());
+    }
   }
 
-  const batches = await Promise.all(requests);
-  const merged = dedupePatients(batches.flat()).slice(0, 20);
-  console.log(`[cliniko] clinikoSearchPatients("${trimmed}") found ${merged.length} (${Date.now() - started}ms)`);
-  return merged;
+  const results = merged.slice(0, 20);
+  console.log(
+    `[cliniko] clinikoSearchPatients("${trimmed}") found ${results.length} (${Date.now() - started}ms)`
+  );
+  return results;
 }
 
 export async function clinikoGetPatient(id: string): Promise<ClinikoPatientFull> {
@@ -918,8 +933,13 @@ export async function clinikoUploadPatientAttachment(
   const presign = (await presignRes.json()) as { url: string; fields: Record<string, string> };
   console.log("[cliniko] presign", JSON.stringify(presign, null, 2));
 
+  // S3 POST keys often contain `${filename}` — resolve before upload so the object
+  // path matches the upload_url we register with Cliniko.
+  const resolvedKey = (presign.fields.key ?? "").replace(/\$\{filename\}/g, filename);
   const form = new FormData();
-  for (const [k, v] of Object.entries(presign.fields)) form.append(k, v);
+  for (const [k, v] of Object.entries(presign.fields)) {
+    form.append(k, k === "key" ? resolvedKey : v);
+  }
   form.append("file", new Blob([typeof content === "string" ? content : new Uint8Array(content)], { type: contentType }), filename);
 
   const s3Res = await fetch(presign.url, { method: "POST", body: form });
@@ -927,7 +947,6 @@ export async function clinikoUploadPatientAttachment(
     throw new Error(`S3 upload failed (${s3Res.status})`);
   }
 
-  const resolvedKey = presign.fields.key.replace("${filename}", encodeURIComponent(filename));
   const uploadUrl = `${presign.url.replace(/\/$/, "")}/${resolvedKey}`;
   const createRes = await clinikoFetch(`/patient_attachments`, {
     method: "POST",

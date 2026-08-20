@@ -2062,9 +2062,16 @@ export default function TexlexReportPage() {
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
 
-  const applyLocalDraftData = useCallback((data: Partial<TexlexReportDraftV1>) => {
-    if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
-    if ("cliniko" in data) setCliniko(data.cliniko ?? null);
+  const applyLocalDraftData = useCallback((
+    data: Partial<TexlexReportDraftV1>,
+    options?: { clinicalOnly?: boolean }
+  ) => {
+    // clinicalOnly: keep the Cliniko-loaded demographics/link (fixes polluted drafts
+    // e.g. Emma Pate key still carrying Jessica Little's clientName).
+    if (!options?.clinicalOnly) {
+      if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
+      if ("cliniko" in data) setCliniko(data.cliniko ?? null);
+    }
     if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
     if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
     if (data.criteria) {
@@ -3030,6 +3037,103 @@ export default function TexlexReportPage() {
     void runFullReportGeneration();
   }, [generatingSectionId, runFullReportGeneration]);
 
+  const [sessionSectionsGenerating, setSessionSectionsGenerating] = useState(false);
+
+  /** Option A: presenting concerns + four backgrounds from scribe transcript (not collateral). */
+  const runSessionNarrativeFromTranscript = useCallback(
+    async (transcript: string) => {
+      const sessionNotes = transcript.trim();
+      if (sessionNotes.length < GENERATION_MIN_NOTES_CHARS) {
+        throw new Error(GENERATION_MIN_NOTES_ERROR);
+      }
+
+      const existing = rawNotes.trim();
+      const mergedNotes =
+        !existing
+          ? sessionNotes
+          : existing.includes(sessionNotes)
+            ? existing
+            : `${existing}\n\n--- Whisper transcript ---\n\n${sessionNotes}`;
+
+      setLastEditAt(Date.now());
+      setRawNotes(mergedNotes);
+
+      streamAbortRef.current?.abort();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const session = ++genSessionRef.current;
+      setSessionSectionsGenerating(true);
+
+      const patientPayload = {
+        clientName: patientDetails.clientName,
+        pronouns: patientDetails.pronouns,
+        chronologicalAge: computeChronologicalAge(patientDetails.dob),
+        yearLevel: patientDetails.yearLevel,
+        rawNotes: mergedNotes,
+      };
+
+      try {
+        setGeneratingSectionId("presenting-concerns");
+        setSectionGenErrors((p) => {
+          const n = { ...p };
+          delete n["presenting-concerns"];
+          delete n["session-sections"];
+          return n;
+        });
+        setPresentingConcerns("");
+        await streamTexlexSse(
+          "/api/generate/presenting-concerns",
+          patientPayload,
+          (delta) => setPresentingConcerns((prev) => prev + delta),
+          controller.signal
+        );
+
+        const backgroundKeys: BackgroundSectionKey[] = [
+          "pregnancyBirth",
+          "earlyDevelopment",
+          "educationalHistory",
+          "emotionalBehaviouralSensory",
+        ];
+        for (const key of backgroundKeys) {
+          if (controller.signal.aborted) return;
+          const sectionId = BACKGROUND_STREAM_SLUG[key];
+          setGeneratingSectionId(sectionId);
+          setSectionGenErrors((p) => {
+            const n = { ...p };
+            delete n[sectionId];
+            return n;
+          });
+          setBackground((b) => ({ ...b, [key]: "" }));
+          await streamTexlexSse(
+            `/api/generate/${sectionId}`,
+            patientPayload,
+            (delta) => setBackground((b) => ({ ...b, [key]: b[key] + delta })),
+            controller.signal
+          );
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error("Session narrative generation error:", err);
+        if (genSessionRef.current === session) {
+          setSectionGenErrors((p) => ({
+            ...p,
+            "session-sections":
+              err instanceof Error ? err.message : "Session section generation failed.",
+          }));
+        }
+        throw err instanceof Error ? err : new Error("Session section generation failed.");
+      } finally {
+        if (genSessionRef.current === session) {
+          setGeneratingSectionId(null);
+          streamAbortRef.current = null;
+          setSessionSectionsGenerating(false);
+        }
+      }
+    },
+    [patientDetails, rawNotes]
+  );
+
   const getCriterionGenerateProps = useCallback(
     (code: CriterionCode) => {
       const sid = criterionSectionId(code);
@@ -3283,10 +3387,11 @@ export default function TexlexReportPage() {
       draftMatchesStorageKey("asd", localKey, localDraft) &&
       !isTexlexDraftEffectivelyEmpty(buildComparableDraftFromStorage(localDraft))
     ) {
-      // Restore patient local draft only when clinical UI is still empty (never overwrite in-progress notes).
+      // Restore clinical content only — never overwrite Cliniko-loaded name/demographics
+      // (polluted asd:{emmaId} drafts previously stored Jessica Little's clientName).
       if (!texlexHasClinicalWorkingContent(asdClinicalSnapshotRef.current)) {
         suppressAutosaveRef.current = true;
-        applyLocalDraftData(localDraft);
+        applyLocalDraftData(localDraft, { clinicalOnly: true });
         setLocalDraftRestoredNotice({
           lastSaved: localDraft.lastSaved ?? new Date().toISOString(),
           storageKey: localKey,
@@ -3370,6 +3475,57 @@ export default function TexlexReportPage() {
     setLastEditAt(0);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
+
+  /**
+   * Calendar/search/Hey Tex switched to a different Cliniko patient while a draft
+   * was open (e.g. Jessica Little). Save the old draft, wipe clinical content so
+   * it cannot be uploaded under the new patient, then let patient load continue.
+   */
+  const prepareClinikoPatientSwitch = useCallback(
+    async (_nextPatientId: string) => {
+      try {
+        writeAsdLocalDraft(persistPayloadRef.current);
+      } catch {
+        /* best-effort */
+      }
+      streamAbortRef.current?.abort();
+      genSessionRef.current += 1;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      suppressAutosaveRef.current = true;
+      cloudResumeHandledPatientRef.current = null;
+      setDraftResumePrompt(null);
+      setLocalDraftRestoredNotice(null);
+
+      const fresh = defaultDraft();
+      setRawNotes(fresh.rawNotes);
+      setCollateralDocs(fresh.collateralDocs);
+      setCriteria(fresh.criteria);
+      setPresentingConcernsRaw(fresh.presentingConcernsRaw);
+      setPresentingConcerns(fresh.presentingConcerns);
+      setBackground(fresh.background);
+      setCollateralSummary(fresh.collateralSummary);
+      setFunctionalImpactSummary(fresh.functionalImpactSummary);
+      setClinicalFormulation(fresh.clinicalFormulation);
+      setRecommendations(fresh.recommendations);
+      setLimitationsText(fresh.limitationsText);
+      setDiagnosticConclusion(fresh.diagnosticConclusion ?? "inconclusive");
+      setEditLimitations(false);
+      setGeneratingSectionId(null);
+      setSectionGenErrors({});
+      setVoiceCriticBadgeBySection({});
+      setFormulationTruncationWarning(null);
+      setLastSavedAt(null);
+      setLastCloudSavedAt(null);
+      setSaveFailed(false);
+      setSaveToast(false);
+      setLastEditAt(0);
+      setClinikoSyncNotice(null);
+    },
+    []
+  );
 
   const startNewReport = useCallback(() => {
     const patientId = cliniko?.patientId ?? null;
@@ -3462,7 +3618,17 @@ export default function TexlexReportPage() {
     const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
       persistPayload;
     const sanitised = sanitiseForPdf(draft);
-    const cleanDraft = buildPdfRenderDraftFromSanitized(sanitised);
+    // Prefer live Cliniko connected name over possibly polluted draft clientName.
+    const connectedName = (persistPayload.cliniko?.connectedName ?? "").trim();
+    const detailsName = (sanitised.patientDetails.clientName ?? "").trim();
+    const reportName = connectedName || detailsName;
+    const cleanDraft = buildPdfRenderDraftFromSanitized({
+      ...sanitised,
+      patientDetails: {
+        ...sanitised.patientDetails,
+        clientName: reportName || sanitised.patientDetails.clientName,
+      },
+    });
     const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
     let signatureSrc = await resolveTexlexSignatureSrc();
     let blob: Blob;
@@ -3477,8 +3643,8 @@ export default function TexlexReportPage() {
         <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
       ).toBlob();
     }
-    const stem = safeFilenamePart(draft.patientDetails.clientName);
-    const filename = `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`;
+    const stem = safeFilenamePart(reportName);
+    const filename = `${stem}-ASDReport-${cleanDraft.patientDetails.reportDate}.pdf`;
     return { blob, filename };
   }, [persistPayload]);
 
@@ -3931,7 +4097,14 @@ export default function TexlexReportPage() {
                 size="sm"
                 variant="default"
                 onClick={() => {
-                  applyLocalDraftData(draftResumePrompt.stored);
+                  const linked = cliniko;
+                  applyLocalDraftData(draftResumePrompt.stored, { clinicalOnly: true });
+                  if (linked?.connectedName?.trim()) {
+                    setPatientDetails((prev) => ({
+                      ...prev,
+                      clientName: linked.connectedName!.trim(),
+                    }));
+                  }
                   if (typeof draftResumePrompt.stored.lastSaved === "string") {
                     setLastCloudSavedAt(draftResumePrompt.stored.lastSaved);
                   }
@@ -3941,6 +4114,14 @@ export default function TexlexReportPage() {
                     writeLocalEngineDraft("asd", draftResumePrompt.activeKey, {
                       ...draftResumePrompt.stored,
                       engine: "asd",
+                      cliniko: linked ?? draftResumePrompt.stored.cliniko,
+                      patientDetails: {
+                        ...(draftResumePrompt.stored.patientDetails as object),
+                        clientName:
+                          linked?.connectedName?.trim() ||
+                          (draftResumePrompt.stored.patientDetails as { clientName?: string })
+                            ?.clientName,
+                      },
                     });
                     clearLocalEngineDraft(engineLocalDraftKey("asd", null));
                   }
@@ -3984,6 +4165,7 @@ export default function TexlexReportPage() {
                 collateralDocs={collateralDocs}
                 setCollateralDocs={setCollateralDocs}
                 collateralSummaryFilled={collateralSummary.trim().length > 0}
+                onPreparePatientSwitch={prepareClinikoPatientSwitch}
                 engine="asd"
               />
             </section>
@@ -3991,6 +4173,7 @@ export default function TexlexReportPage() {
             <section id="scribe">
               <TexlexSectionHeading className="mb-3">Scribe</TexlexSectionHeading>
               <TexlexScribe
+                sessionGenerating={sessionSectionsGenerating}
                 onAppendToNotes={(text) => {
                   touch();
                   setRawNotes((prev) => {
@@ -3999,7 +4182,13 @@ export default function TexlexReportPage() {
                     return `${existing}\n\n--- Whisper transcript ---\n\n${text.trim()}`;
                   });
                 }}
+                onGenerateSessionSections={runSessionNarrativeFromTranscript}
               />
+              {sectionGenErrors["session-sections"] ? (
+                <p className="mt-2 text-sm text-destructive" role="alert">
+                  {sectionGenErrors["session-sections"]}
+                </p>
+              ) : null}
             </section>
 
             <section id="report-header">

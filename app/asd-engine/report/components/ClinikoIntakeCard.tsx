@@ -51,6 +51,12 @@ type ClinikoIntakeCardProps = {
   setCollateralDocs?: Dispatch<SetStateAction<CollateralDoc[]>>;
   /** Whether written collateral summary has content (for Hey Tex list). */
   collateralSummaryFilled?: boolean;
+  /**
+   * Called when loading a different Cliniko patient while one is already linked
+   * (calendar / search / Hey Tex). Save the current draft and clear clinical
+   * content so the previous patient's report is not uploaded under the new id.
+   */
+  onPreparePatientSwitch?: (nextPatientId: string) => void | Promise<void>;
   /** Prefer Autism vs ADHD registration form when both exist. */
   engine?: "asd" | "adhd";
   /** Set date seen / assessment date from the clicked calendar appointment. */
@@ -89,6 +95,7 @@ export function ClinikoIntakeCard({
   collateralDocs,
   setCollateralDocs,
   collateralSummaryFilled = false,
+  onPreparePatientSwitch,
   engine,
   onDateSeenFromAppointment,
 }: ClinikoIntakeCardProps) {
@@ -228,6 +235,11 @@ export function ClinikoIntakeCard({
   ) => {
     setLoadingPatientId(patient.id);
     try {
+      const previousId = cliniko?.patientId?.trim() || null;
+      if (previousId && previousId !== patient.id && onPreparePatientSwitch) {
+        await onPreparePatientSwitch(patient.id);
+      }
+
       const engineQuery = engine ? `?engine=${engine}` : "";
       const response = await fetch(`/api/cliniko/patients/${patient.id}${engineQuery}`);
       const data = (await response.json()) as {

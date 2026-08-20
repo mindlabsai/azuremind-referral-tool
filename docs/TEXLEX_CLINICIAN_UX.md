@@ -110,6 +110,7 @@ Days understood: today, tomorrow, yesterday, weekdays (this / next / last), and 
 4. Audio is sent to the server → **OpenAI Whisper** (`whisper-1`) → transcript appears.
 5. Edit the transcript if needed.
 6. **Copy** and/or **Append to raw notes** (adds a clear `--- Whisper transcript ---` separator if notes already exist).
+7. **Generate sections from session** (option A): drafts **presenting concerns** + all four **background** sections from the transcript. Does **not** generate collateral, criteria, formulation, or recommendations.
 
 ### Important UX rules
 
