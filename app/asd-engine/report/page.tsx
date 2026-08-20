@@ -2061,6 +2061,8 @@ export default function TexlexReportPage() {
   );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
+  /** Bumped on New Report / full reset so stale autosave/unmount cannot revive an old draft. */
+  const draftWriteEpochRef = useRef(0);
 
   const applyLocalDraftData = useCallback((
     data: Partial<TexlexReportDraftV1>,
@@ -3435,6 +3437,7 @@ export default function TexlexReportPage() {
   const resetAllReportState = useCallback(() => {
     streamAbortRef.current?.abort();
     genSessionRef.current += 1;
+    draftWriteEpochRef.current += 1;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -3484,7 +3487,7 @@ export default function TexlexReportPage() {
   const prepareClinikoPatientSwitch = useCallback(
     async (_nextPatientId: string) => {
       try {
-        writeAsdLocalDraft(persistPayloadRef.current);
+        writeAsdLocalDraft(persistPayloadRef.current, draftWriteEpochRef.current);
       } catch {
         /* best-effort */
       }
@@ -3919,7 +3922,8 @@ export default function TexlexReportPage() {
   const persistPayloadRef = useRef(persistPayload);
   persistPayloadRef.current = persistPayload;
 
-  const writeAsdLocalDraft = useCallback((payload: TexlexReportDraftV1) => {
+  const writeAsdLocalDraft = useCallback((payload: TexlexReportDraftV1, writeEpoch?: number) => {
+    if (writeEpoch !== undefined && writeEpoch !== draftWriteEpochRef.current) return false;
     const activeKey = engineLocalDraftKey("asd", payload.cliniko?.patientId ?? null);
     if (!draftMatchesStorageKey("asd", activeKey, payload)) return false;
     if (isTexlexDraftEffectivelyEmpty(omitLastSaved(payload))) return true;
@@ -3965,9 +3969,10 @@ export default function TexlexReportPage() {
       return;
     }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const epoch = draftWriteEpochRef.current;
     saveTimerRef.current = setTimeout(() => {
       try {
-        writeAsdLocalDraft(persistPayload);
+        writeAsdLocalDraft(persistPayload, epoch);
       } catch {
         setSaveFailed(true);
       }
@@ -3981,7 +3986,7 @@ export default function TexlexReportPage() {
   useEffect(() => {
     return () => {
       try {
-        writeAsdLocalDraft(persistPayloadRef.current);
+        writeAsdLocalDraft(persistPayloadRef.current, draftWriteEpochRef.current);
       } catch {
         /* ignore */
       }

@@ -208,6 +208,10 @@ export function pickPreferredRegistrationForm(
 /**
  * Merge Cliniko patient details with all answered Autism/ADHD registration forms.
  * Answered forms beat blank re-issues; first matched form wins field conflicts, later forms only fill gaps.
+ *
+ * Identity (client name + DOB) always stays with the Cliniko patient record when present.
+ * Registration forms often contain parent/claimant names in “Given Names” (e.g. Jessie Little
+ * on Emma Pate’s autism registration) — those must not rename the patient.
  */
 export function mergeRegistrationFormsIntoPatientDetails(
   base: TexlexPatientDetailsForCliniko,
@@ -215,6 +219,8 @@ export function mergeRegistrationFormsIntoPatientDetails(
   engine: "asd" | "adhd" | null = null
 ): { details: TexlexPatientDetailsForCliniko; registration: RegistrationDemographics | null } {
   const ranked = rankRegistrationForms(forms, engine);
+  const patientClientName = (base.clientName ?? "").trim();
+  const patientDob = (base.dob ?? "").trim();
   let merged = base;
   let primary: RegistrationDemographics | null = null;
   let appliedAnswered = false;
@@ -230,6 +236,14 @@ export function mergeRegistrationFormsIntoPatientDetails(
       appliedAnswered ? "keep-existing" : "incoming-wins"
     );
     appliedAnswered = true;
+  }
+
+  if (patientClientName || patientDob) {
+    merged = {
+      ...merged,
+      ...(patientClientName ? { clientName: patientClientName } : {}),
+      ...(patientDob ? { dob: patientDob } : {}),
+    };
   }
 
   return { details: merged, registration: primary };

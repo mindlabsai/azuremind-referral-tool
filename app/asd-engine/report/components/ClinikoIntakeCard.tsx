@@ -255,9 +255,15 @@ export function ClinikoIntakeCard({
       }
 
       const fromPatient = applyClinikoPatientToForm(data.patient, data.customFields ?? {});
-      const mapped =
+      const mappedRaw =
         data.mergedDetails ??
         mergeRegistrationIntoPatientDetails(fromPatient, data.registration);
+      // Cliniko patient record wins for identity (registration often has parent/claimant name).
+      const mapped = {
+        ...mappedRaw,
+        clientName: fromPatient.clientName.trim() || mappedRaw.clientName,
+        dob: fromPatient.dob.trim() || mappedRaw.dob,
+      } as typeof mappedRaw;
       const dateSeen = appointmentStartsAtToDateSeen(options.appointmentStartsAt);
 
       onTouch();
