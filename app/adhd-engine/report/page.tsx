@@ -763,6 +763,9 @@ export default function AdhdReportPage() {
   /** Bumped on reset and at Generate-all start; stops the bulk loop from continuing after a wipe. */
   const bulkRunRef = useRef(0);
   const lastHydratedPatientIdRef = useRef<string | null>(null);
+  /** >0 while calendar/search load (+ file import) is in flight — blocks draft restore races. */
+  const clinikoPatientLoadLockRef = useRef(0);
+  const [clinikoPatientLoadGate, setClinikoPatientLoadGate] = useState(0);
 
   const applyIfCurrent = useCallback((session: number, fn: () => void): boolean => {
     if (genSessionRef.current !== session) return false;
@@ -1538,6 +1541,12 @@ export default function AdhdReportPage() {
     setLocalDraftRestoredNotice(null);
     setDraftResumePrompt(null);
     setClinikoNotice(null);
+    setPdfPreviewOpen(false);
+    setPdfPreviewError(null);
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
@@ -2095,6 +2104,7 @@ export default function AdhdReportPage() {
 
   // Supabase resume banner when a Cliniko patient is loaded and there is no matching local draft.
   useEffect(() => {
+    if (clinikoPatientLoadLockRef.current > 0) return;
     const patientId = cliniko?.patientId;
     if (!patientId) {
       setDraftResumePrompt(null);
@@ -2110,7 +2120,12 @@ export default function AdhdReportPage() {
       adhdSavedStateHasResumableContent(localDraft)
     ) {
       // Prefer local safety-net when clinical UI is still empty (e.g. after Change patient).
-      const clinicalEmpty = !adhdHasClinicalWorkingContent(clinicalWorkingSnapshotRef.current);
+      // Ignore collateral-only content so calendar file import does not block notes restore.
+      const snapshot = clinicalWorkingSnapshotRef.current;
+      const clinicalEmpty = !adhdHasClinicalWorkingContent({
+        ...snapshot,
+        collateralDocs: [],
+      });
       if (clinicalEmpty) {
         suppressAutosaveRef.current = true;
         applyAdhdSavedState(localDraft, { restoreCliniko: false });
@@ -2152,7 +2167,12 @@ export default function AdhdReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [applyAdhdSavedState, cliniko?.connectedName, cliniko?.patientId]);
+  }, [
+    applyAdhdSavedState,
+    cliniko?.connectedName,
+    cliniko?.patientId,
+    clinikoPatientLoadGate,
+  ]);
 
   const discardLocalDraftRestored = useCallback(() => {
     if (localDraftRestoredNotice) {
@@ -2379,6 +2399,16 @@ export default function AdhdReportPage() {
                 setCollateralDocs={setCollateralDocs}
                 collateralSummaryFilled={(sectionTexts["collateral-summary"] ?? "").trim().length > 0}
                 onPreparePatientSwitch={prepareClinikoPatientSwitch}
+                onPatientLoadStart={() => {
+                  clinikoPatientLoadLockRef.current += 1;
+                }}
+                onPatientLoadEnd={() => {
+                  clinikoPatientLoadLockRef.current = Math.max(
+                    0,
+                    clinikoPatientLoadLockRef.current - 1
+                  );
+                  setClinikoPatientLoadGate((n) => n + 1);
+                }}
                 engine="adhd"
                 onDateSeenFromAppointment={(dateYmd) => {
                   touch();
@@ -2617,6 +2647,7 @@ export default function AdhdReportPage() {
                   touch={touch}
                   inputClass={INPUT_CLASS}
                   clinikoPatientId={cliniko?.patientId ?? null}
+                  engine="adhd"
                 />
               </CardContent>
             </Card>

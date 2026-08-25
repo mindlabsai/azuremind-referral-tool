@@ -34,11 +34,15 @@ function getAnswer(map: Map<string, string>, ...aliases: string[]): string {
     const value = map.get(normalizeQuestionKey(alias));
     if (value?.trim()) return value.trim();
   }
-  // Fuzzy contains match for minor typo variants (e.g. "Given Maes").
+  // Fuzzy contains match only for longer labels (e.g. "Given Maes").
+  // Short aliases like "First Name" / "Relationship" must stay exact — otherwise
+  // they match "Parent 1 First Name" and pollute patient demographics.
   for (const alias of aliases) {
     const needle = normalizeQuestionKey(alias);
+    if (needle.length < 10) continue;
     for (const [key, value] of map.entries()) {
-      if (key.includes(needle) || needle.includes(key)) {
+      if (key === needle) continue;
+      if (key.includes(needle) || (needle.includes(key) && key.length >= 10)) {
         if (value.trim()) return value.trim();
       }
     }
@@ -89,7 +93,8 @@ export function extractDemographicsFromRegistrationForm(
   );
   const address = [street, suburb].filter(Boolean).join(", ");
 
-  const phone = getAnswer(map, "Phone Number", "Phone number", "Mobile", "Contact number");
+  // Exact patient phone only — do not fall back to parent/claimant contact number.
+  const phone = getAnswer(map, "Phone Number", "Phone number", "Mobile");
   const dobRaw = getAnswer(map, "Date of Birth", "DOB");
   const referringPractitioner = getAnswer(
     map,
@@ -104,10 +109,9 @@ export function extractDemographicsFromRegistrationForm(
   const parent1Relationship = getAnswer(
     map,
     "Their relationship to you",
-    "Relationship",
-    "Parent relationship"
+    "Parent relationship",
+    "Claimant relationship"
   );
-  const parentPhone = getAnswer(map, "Their contact number");
 
   const kind = classifyRegistrationForm(form.name);
   const assessmentType =
@@ -119,7 +123,7 @@ export function extractDemographicsFromRegistrationForm(
     clientName,
     dob: parseRegistrationDobToIso(dobRaw) || dobRaw,
     address,
-    phone: phone || parentPhone,
+    phone,
     referringPractitioner: referringPractitioner || referringClinic,
     referringPractitionerType: referringPractitioner || referringClinic ? "GP" : "",
     assessmentType,
@@ -244,6 +248,14 @@ export function mergeRegistrationFormsIntoPatientDetails(
       ...(patientClientName ? { clientName: patientClientName } : {}),
       ...(patientDob ? { dob: patientDob } : {}),
     };
+  }
+
+  // Engine wins for assessment type so an Autism form on an ADHD report (or vice versa)
+  // cannot leave the wrong pathway label on the draft.
+  if (engine === "adhd") {
+    merged = { ...merged, assessmentType: "ADHD" };
+  } else if (engine === "asd") {
+    merged = { ...merged, assessmentType: "ASD" };
   }
 
   return { details: merged, registration: primary };

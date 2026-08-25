@@ -71,8 +71,11 @@ export function AdhdPdfDocument({ draft, logoSrc, signatureSrc }: AdhdPdfDocumen
           <Formulation content={draft.formulation} title="Clinical formulation" />
         ) : null}
         {showRecommendations ? <Recommendations content={draft.recommendations} /> : null}
-        {showLimitations ? <Limitations content={draft.limitationsText} /> : null}
-        <Signature signatureSrc={signatureSrc} />
+        {/* Keep closing block together so signature is not alone on a trailing blank page. */}
+        <View wrap={false}>
+          {showLimitations ? <Limitations content={draft.limitationsText} /> : null}
+          <Signature signatureSrc={signatureSrc} />
+        </View>
         {!showPresenting &&
         !showBackground &&
         !showCollateral &&

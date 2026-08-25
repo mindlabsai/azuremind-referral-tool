@@ -1,4 +1,4 @@
-import { Document, Page } from "@react-pdf/renderer";
+import { Document, Page, View } from "@react-pdf/renderer";
 /* PDF uses built-in Helvetica (see styles.ts). Do not load remote Inter here — fontkit metrics
    can corrupt and yield coordinates outside pdfkit's ±1e21 range, causing "unsupported number". */
 export { BRAND, BRAND_LIGHT, INK, MUTED, RULE, SUBTLE } from "./tokens";
@@ -54,8 +54,11 @@ export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDoc
         <FunctionalImpact content={draft.functionalImpactSummary} />
         <Formulation content={draft.clinicalFormulation} />
         <Recommendations content={draft.recommendations} />
-        <Limitations content={draft.limitationsText} />
-        <Signature signatureSrc={signatureSrc} />
+        {/* Keep limitations + signature together so the signature is not orphaned on a blank page. */}
+        <View wrap={false}>
+          <Limitations content={draft.limitationsText} />
+          <Signature signatureSrc={signatureSrc} />
+        </View>
       </Page>
     </Document>
   );

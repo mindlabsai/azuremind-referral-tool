@@ -104,6 +104,12 @@ import {
   resolveFunctionalImpactDisplay,
   safeFilenamePart,
 } from "./pdf/utils";
+import {
+  collateralDocNeedsPdfBytes,
+  importClinikoAttachmentsIntoCollateral,
+  mergeCollateralDocsPreferringReadyBytes,
+  mergeImportedCollateralDocs,
+} from "@/lib/collateral/import-cliniko-attachments";
 
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 const METADATA_INPUT_MAX_LENGTH = 500;
@@ -231,23 +237,27 @@ function patientDetailsAfterNewReport(): PatientDetails {
 }
 
 /** Clinical working content only — ignores Cliniko link and demographics. */
-function texlexHasClinicalWorkingContent(args: {
-  rawNotes: string;
-  collateralDocs: CollateralDoc[];
-  criteria: Record<CriterionCode, CriterionState>;
-  presentingConcernsRaw: string;
-  presentingConcerns: string;
-  background: BackgroundState;
-  collateralSummary: string;
-  functionalImpactSummary: string;
-  clinicalFormulation: string;
-  recommendations: string;
-  limitationsText: string;
-  diagnosticConclusion?: TexlexDiagnosticConclusion;
-}): boolean {
+function texlexHasClinicalWorkingContent(
+  args: {
+    rawNotes: string;
+    collateralDocs: CollateralDoc[];
+    criteria: Record<CriterionCode, CriterionState>;
+    presentingConcernsRaw: string;
+    presentingConcerns: string;
+    background: BackgroundState;
+    collateralSummary: string;
+    functionalImpactSummary: string;
+    clinicalFormulation: string;
+    recommendations: string;
+    limitationsText: string;
+    diagnosticConclusion?: TexlexDiagnosticConclusion;
+  },
+  options?: { ignoreCollateralDocs?: boolean }
+): boolean {
   if (resolveTexlexDiagnosticConclusion(args.diagnosticConclusion) !== "inconclusive") return true;
   if (args.rawNotes.trim()) return true;
-  if (args.collateralDocs.length > 0) return true;
+  // Calendar auto-import must not block draft restore of notes/sections.
+  if (!options?.ignoreCollateralDocs && args.collateralDocs.length > 0) return true;
   if (args.presentingConcernsRaw.trim() || args.presentingConcerns.trim()) return true;
   if (args.collateralSummary.trim() || args.functionalImpactSummary.trim()) return true;
   if (args.clinicalFormulation.trim() || args.recommendations.trim()) return true;
@@ -1176,9 +1186,10 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
           ? o.category
           : DEFAULT_DOC_CATEGORY;
       const extractionStatus =
-        o.extractionStatus === "ready" || o.extractionStatus === "failed"
-          ? o.extractionStatus
-          : "pending";
+        o.extractionStatus === "failed"
+          ? "failed"
+          : // Never trust "ready" from storage — PDF bytes are stripped on save.
+            "pending";
       out.push({
         id,
         filename: o.filename,
@@ -2063,6 +2074,9 @@ export default function TexlexReportPage() {
   const genSessionRef = useRef(0);
   /** Bumped on New Report / full reset so stale autosave/unmount cannot revive an old draft. */
   const draftWriteEpochRef = useRef(0);
+  /** >0 while calendar/search load (+ file import) is in flight — blocks draft restore races. */
+  const clinikoPatientLoadLockRef = useRef(0);
+  const [clinikoPatientLoadGate, setClinikoPatientLoadGate] = useState(0);
 
   const applyLocalDraftData = useCallback((
     data: Partial<TexlexReportDraftV1>,
@@ -2075,7 +2089,14 @@ export default function TexlexReportPage() {
       if ("cliniko" in data) setCliniko(data.cliniko ?? null);
     }
     if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
-    if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
+    if (Array.isArray(data.collateralDocs)) {
+      setCollateralDocs((prev) =>
+        mergeCollateralDocsPreferringReadyBytes(
+          prev,
+          migrateCollateralDocsFromStorage(data.collateralDocs)
+        )
+      );
+    }
     if (data.criteria) {
       setCriteria((c) => {
         const next = { ...c };
@@ -2443,10 +2464,30 @@ export default function TexlexReportPage() {
 
   const runCollateralSummaryStream = useCallback(async (): Promise<string | null> => {
     const sectionId = "collateral-summary";
-    const collateralContent = collateralDocs.length
-      ? buildCollateralManifestForApi(collateralDocs)
+    const patientId = cliniko?.patientId?.trim() || null;
+
+    // Draft save strips pdfBase64. Re-pull Cliniko PDFs before generate when stubs remain.
+    let docsForGenerate = collateralDocs;
+    if (patientId && collateralDocs.some((d) => collateralDocNeedsPdfBytes(d))) {
+      try {
+        const result = await importClinikoAttachmentsIntoCollateral({
+          patientId,
+          existingDocs: collateralDocs,
+          asrsOnly: false,
+        });
+        if (result.additions.length > 0) {
+          docsForGenerate = mergeImportedCollateralDocs(collateralDocs, result.additions);
+          setCollateralDocs(docsForGenerate);
+        }
+      } catch (err) {
+        console.warn("[Texlex] Could not rehydrate Cliniko collateral PDFs before generate:", err);
+      }
+    }
+
+    const collateralContent = docsForGenerate.length
+      ? buildCollateralManifestForApi(docsForGenerate)
       : "";
-    const pdfPayload = buildCollateralPdfPayload(collateralDocs);
+    const pdfPayload = buildCollateralPdfPayload(docsForGenerate);
     const hasReadyPdfs = pdfPayload.collateralPdfDocuments.length > 0;
     const masterInput = rawNotes.trim();
     if (
@@ -2471,7 +2512,10 @@ export default function TexlexReportPage() {
     if (contextNotes.length < GENERATION_MIN_NOTES_CHARS && !hasReadyPdfs) {
       setSectionGenErrors((p) => ({
         ...p,
-        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+        [sectionId]:
+          docsForGenerate.length > 0 && !hasReadyPdfs
+            ? "Collateral PDFs are listed but not loaded for AI yet. Re-import from Cliniko (calendar toggle or Browse Cliniko files), then Generate again."
+            : GENERATION_MIN_NOTES_ERROR,
       }));
       return null;
     }
@@ -2548,7 +2592,15 @@ export default function TexlexReportPage() {
         streamAbortRef.current = null;
       }
     }
-  }, [collateralDocs, criteria, diagnosticConclusion, patientDetails, rawNotes, setSectionVoiceCriticBadge]);
+  }, [
+    cliniko?.patientId,
+    collateralDocs,
+    criteria,
+    diagnosticConclusion,
+    patientDetails,
+    rawNotes,
+    setSectionVoiceCriticBadge,
+  ]);
 
   const handleGenerateCollateralSummary = useCallback(() => {
     const sectionId = "collateral-summary";
@@ -3375,6 +3427,7 @@ export default function TexlexReportPage() {
   // Supabase resume only when a Cliniko patient is linked and no matching local draft was restored.
   useEffect(() => {
     if (!hydrated) return;
+    if (clinikoPatientLoadLockRef.current > 0) return;
     const patientId = cliniko?.patientId;
     if (!patientId) {
       setDraftResumePrompt(null);
@@ -3391,7 +3444,13 @@ export default function TexlexReportPage() {
     ) {
       // Restore clinical content only — never overwrite Cliniko-loaded name/demographics
       // (polluted asd:{emmaId} drafts previously stored Jessica Little's clientName).
-      if (!texlexHasClinicalWorkingContent(asdClinicalSnapshotRef.current)) {
+      // Ignore collateralDocs for the "already working" gate so calendar file import
+      // does not block restoring notes/sections from the draft.
+      if (
+        !texlexHasClinicalWorkingContent(asdClinicalSnapshotRef.current, {
+          ignoreCollateralDocs: true,
+        })
+      ) {
         suppressAutosaveRef.current = true;
         applyLocalDraftData(localDraft, { clinicalOnly: true });
         setLocalDraftRestoredNotice({
@@ -3430,6 +3489,7 @@ export default function TexlexReportPage() {
     applyLocalDraftData,
     cliniko?.connectedName,
     cliniko?.patientId,
+    clinikoPatientLoadGate,
     hydrated,
     patientDetails.clientName,
   ]);
@@ -3476,6 +3536,12 @@ export default function TexlexReportPage() {
     setSaveFailed(false);
     setSaveToast(false);
     setLastEditAt(0);
+    setPdfPreviewOpen(false);
+    setPdfPreviewError(null);
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
@@ -3498,7 +3564,8 @@ export default function TexlexReportPage() {
         saveTimerRef.current = null;
       }
       suppressAutosaveRef.current = true;
-      cloudResumeHandledPatientRef.current = null;
+      // Keep previous patient marked "handled" so draft restore does not refill the
+      // cleared clinical state with the OLD patient's draft while Emma (etc.) loads.
       setDraftResumePrompt(null);
       setLocalDraftRestoredNotice(null);
 
@@ -4171,6 +4238,16 @@ export default function TexlexReportPage() {
                 setCollateralDocs={setCollateralDocs}
                 collateralSummaryFilled={collateralSummary.trim().length > 0}
                 onPreparePatientSwitch={prepareClinikoPatientSwitch}
+                onPatientLoadStart={() => {
+                  clinikoPatientLoadLockRef.current += 1;
+                }}
+                onPatientLoadEnd={() => {
+                  clinikoPatientLoadLockRef.current = Math.max(
+                    0,
+                    clinikoPatientLoadLockRef.current - 1
+                  );
+                  setClinikoPatientLoadGate((n) => n + 1);
+                }}
                 engine="asd"
               />
             </section>
@@ -4879,6 +4956,7 @@ export default function TexlexReportPage() {
                       collateralDocs={collateralDocs}
                       setCollateralDocs={setCollateralDocs}
                       touch={touch}
+                      engine="asd"
                     />
                     <CollateralDocumentsUpload
                       collateralDocs={collateralDocs}

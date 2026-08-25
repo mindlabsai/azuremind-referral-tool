@@ -54,6 +54,75 @@ export type ImportClinikoAttachmentsResult = {
   error: string | null;
 };
 
+/** True when a listed PDF has no in-memory bytes (typical after draft restore). */
+export function collateralDocNeedsPdfBytes(doc: CollateralDoc): boolean {
+  return isCollateralPdfDoc(doc) && !doc.pdfBase64;
+}
+
+/**
+ * Merge imported/rehydrated docs over existing ones by filename.
+ * Fresh downloads with pdfBase64 replace stale pending filename stubs.
+ */
+export function mergeImportedCollateralDocs(
+  existing: CollateralDoc[],
+  additions: CollateralDoc[]
+): CollateralDoc[] {
+  if (!additions.length) return existing;
+  const byName = new Map<string, CollateralDoc>();
+  const unnamed: CollateralDoc[] = [];
+  for (const doc of existing) {
+    const key = doc.filename.trim().toLowerCase();
+    if (!key) unnamed.push(doc);
+    else byName.set(key, doc);
+  }
+  for (const doc of additions) {
+    const key = doc.filename.trim().toLowerCase();
+    if (!key) {
+      unnamed.push(doc);
+      continue;
+    }
+    byName.set(key, doc);
+  }
+  return [...byName.values(), ...unnamed];
+}
+
+/**
+ * When applying a draft, keep any live docs that still have PDF bytes so
+ * calendar import is not wiped by a concurrent draft restore.
+ */
+export function mergeCollateralDocsPreferringReadyBytes(
+  live: CollateralDoc[],
+  fromStorage: CollateralDoc[]
+): CollateralDoc[] {
+  const liveReadyByName = new Map<string, CollateralDoc>();
+  for (const doc of live) {
+    const key = doc.filename.trim().toLowerCase();
+    if (key && doc.pdfBase64) liveReadyByName.set(key, doc);
+  }
+
+  const used = new Set<string>();
+  const out: CollateralDoc[] = [];
+  for (const doc of fromStorage) {
+    const key = doc.filename.trim().toLowerCase();
+    const ready = key ? liveReadyByName.get(key) : undefined;
+    if (ready) {
+      out.push(ready);
+      if (key) used.add(key);
+    } else {
+      out.push(doc);
+      if (key) used.add(key);
+    }
+  }
+
+  for (const doc of live) {
+    const key = doc.filename.trim().toLowerCase();
+    if (key && used.has(key)) continue;
+    out.push(doc);
+    if (key) used.add(key);
+  }
+  return out;
+}
+
 export async function importClinikoAttachmentsIntoCollateral(args: {
   patientId: string;
   existingDocs: CollateralDoc[];
@@ -94,8 +163,17 @@ export async function importClinikoAttachmentsIntoCollateral(args: {
   }
 
   const additions: CollateralDoc[] = [];
+  // Only treat filename as "already imported" when PDF bytes are present.
+  // Draft restore leaves filename stubs with pdfBase64=null — those must re-download.
+  const existingByName = new Map<string, CollateralDoc>();
+  for (const doc of args.existingDocs) {
+    const key = doc.filename.trim().toLowerCase();
+    if (key) existingByName.set(key, doc);
+  }
   const seenNames = new Set(
-    args.existingDocs.map((d) => d.filename.trim().toLowerCase()).filter(Boolean)
+    [...existingByName.entries()]
+      .filter(([, doc]) => Boolean(doc.pdfBase64) || !isCollateralPdfDoc(doc))
+      .map(([key]) => key)
   );
   let runningBytes = args.existingDocs.reduce((s, d) => s + (d.size || 0), 0);
   let firstError: string | null = null;
@@ -114,6 +192,11 @@ export async function importClinikoAttachmentsIntoCollateral(args: {
     if (nameKey && seenNames.has(nameKey)) {
       skippedExisting += 1;
       continue;
+    }
+
+    const stale = nameKey ? existingByName.get(nameKey) : undefined;
+    if (stale && collateralDocNeedsPdfBytes(stale)) {
+      runningBytes = Math.max(0, runningBytes - (stale.size || 0));
     }
 
     try {
@@ -145,12 +228,15 @@ export async function importClinikoAttachmentsIntoCollateral(args: {
       }
 
       const doc: CollateralDoc = {
-        id: newCollateralDocId(),
+        id: stale?.id ?? newCollateralDocId(),
         filename,
         size,
         mimeType: mime,
-        category: guessCollateralCategoryFromName(filename, attachment.description),
-        uploadedAt: new Date().toISOString(),
+        category:
+          stale?.category ||
+          guessCollateralCategoryFromName(filename, attachment.description),
+        uploadedAt: stale?.uploadedAt ?? new Date().toISOString(),
+        content: stale?.content,
         pdfBase64: null,
         extractionStatus: "pending",
       };

@@ -162,7 +162,7 @@ export type ClinikoPatientAttachment = {
   createdAt: string | null;
   processingCompleted: boolean;
   contentUrl: string | null;
-  /** Heuristic: filename/description suggests ASRS or similar rating-scale form. */
+  /** Heuristic: filename/description suggests preferred rating / allied-health collateral. */
   likelyAsrs: boolean;
   /** True when mime/extension looks importable into collateral. */
   importable: boolean;
@@ -658,13 +658,51 @@ const IMPORTABLE_ATTACHMENT_MIME_PREFIXES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
+/**
+ * Preferred Cliniko collateral for auto-import / browse defaults.
+ * Matches ASRS, Vanderbilt (parent/teacher), Conners, teacher reports,
+ * OT / allied health, and speech — not clinic letters or unrelated PDFs.
+ */
 export function clinikoAttachmentLooksLikeAsrs(filename: string, description = ""): boolean {
   const haystack = `${filename} ${description}`.toLowerCase();
-  return (
+  if (
     /\basrs\b/.test(haystack) ||
     haystack.includes("autism spectrum rating") ||
     haystack.includes("autism spectrum rating scales")
-  );
+  ) {
+    return true;
+  }
+  if (haystack.includes("vanderbilt")) return true;
+  if (/\bconners?\b/.test(haystack)) return true;
+  if (
+    /\bteacher\s+report\b/.test(haystack) ||
+    haystack.includes("teacher questionnaire") ||
+    haystack.includes("teacher form") ||
+    haystack.includes("teacher rating")
+  ) {
+    return true;
+  }
+  if (
+    haystack.includes("speech") ||
+    /\bslt\b/.test(haystack) ||
+    haystack.includes("language assessment") ||
+    haystack.includes("speech pathology")
+  ) {
+    return true;
+  }
+  if (
+    /\bot\b/.test(haystack) ||
+    haystack.includes("occupational") ||
+    haystack.includes("allied health") ||
+    haystack.includes("sensory profile") ||
+    haystack.includes("sensory assessment")
+  ) {
+    return true;
+  }
+  // ASD-oriented extras when filename clearly indicates them
+  if (/\bados\b/.test(haystack) || /\badi-?r\b/.test(haystack)) return true;
+  if (/\bbasc\b/.test(haystack)) return true;
+  return false;
 }
 
 function clinikoAttachmentIsImportable(filename: string, contentType: string | null): boolean {

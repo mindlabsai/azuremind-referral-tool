@@ -419,8 +419,8 @@ export function ClinikoMyCalendar({
             onChange={(e) => onImportFilesEnabledChange(e.target.checked)}
           />
           <span>
-            Also import Cliniko files into collateral (ASRS, forms, reports) when you click an
-            appointment
+            Also import preferred Cliniko files into collateral (Vanderbilt, Conners, teacher, OT,
+            speech, ASRS, and similar) when you click an appointment
           </span>
         </label>
       ) : null}

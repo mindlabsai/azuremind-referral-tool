@@ -26,6 +26,7 @@ import type { CollateralDoc } from "@/lib/collateral/collateral-docs-client";
 import {
   formatClinikoImportNotice,
   importClinikoAttachmentsIntoCollateral,
+  mergeImportedCollateralDocs,
 } from "@/lib/collateral/import-cliniko-attachments";
 
 const IMPORT_FILES_PREF_KEY = "texlex.cliniko.importFilesOnAppt";
@@ -61,6 +62,9 @@ type ClinikoIntakeCardProps = {
   engine?: "asd" | "adhd";
   /** Set date seen / assessment date from the clicked calendar appointment. */
   onDateSeenFromAppointment?: (dateYmd: string) => void;
+  /** Hold draft restore while calendar/search patient load (+ optional file import) runs. */
+  onPatientLoadStart?: () => void;
+  onPatientLoadEnd?: () => void;
 };
 
 function formatDobLabel(dob: string | null): string {
@@ -98,6 +102,8 @@ export function ClinikoIntakeCard({
   onPreparePatientSwitch,
   engine,
   onDateSeenFromAppointment,
+  onPatientLoadStart,
+  onPatientLoadEnd,
 }: ClinikoIntakeCardProps) {
   const [configured, setConfigured] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -234,6 +240,7 @@ export function ClinikoIntakeCard({
     options: { importFiles?: boolean; appointmentStartsAt?: string | null } = {}
   ) => {
     setLoadingPatientId(patient.id);
+    onPatientLoadStart?.();
     try {
       const previousId = cliniko?.patientId?.trim() || null;
       if (previousId && previousId !== patient.id && onPreparePatientSwitch) {
@@ -309,10 +316,11 @@ export function ClinikoIntakeCard({
           const result = await importClinikoAttachmentsIntoCollateral({
             patientId: patient.id,
             existingDocs: collateralDocsRef.current ?? [],
-            asrsOnly: false,
+            // ADHD: curated instruments only. ASD: all importable patient files.
+            asrsOnly: engine === "adhd",
           });
           if (result.additions.length > 0) {
-            setCollateralDocs((prev) => [...prev, ...result.additions]);
+            setCollateralDocs((prev) => mergeImportedCollateralDocs(prev, result.additions));
           }
           const importNotice = formatClinikoImportNotice(result);
           if (importNotice) loadedMessage = `${loadedMessage}. ${importNotice}`;
@@ -329,6 +337,7 @@ export function ClinikoIntakeCard({
       onError("Could not load Cliniko patient.");
     } finally {
       setLoadingPatientId(null);
+      onPatientLoadEnd?.();
     }
   };
 

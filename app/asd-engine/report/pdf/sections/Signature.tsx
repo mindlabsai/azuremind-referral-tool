@@ -4,7 +4,7 @@ import { styles } from "../styles";
 
 export function Signature({ signatureSrc }: { signatureSrc: string | null }) {
   return (
-    <View>
+    <View wrap={false}>
       <View style={styles.signatureDivider} />
       <Text style={styles.signatureClosing}>{TEXLEX_SIGNATURE.closing}</Text>
       {signatureSrc ? (

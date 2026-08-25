@@ -10,6 +10,7 @@ import {
   formatClinikoImportNotice,
   importClinikoAttachmentsIntoCollateral,
   isClinikoAttachmentAutoImportCandidate,
+  mergeImportedCollateralDocs,
 } from "@/lib/collateral/import-cliniko-attachments";
 
 function formatCreatedAt(iso: string | null): string {
@@ -24,11 +25,13 @@ export function ClinikoCollateralImport({
   collateralDocs,
   setCollateralDocs,
   touch,
+  engine = null,
 }: {
   patientId: string | null | undefined;
   collateralDocs: CollateralDoc[];
   setCollateralDocs: Dispatch<SetStateAction<CollateralDoc[]>>;
   touch: () => void;
+  engine?: "asd" | "adhd" | null;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -37,7 +40,8 @@ export function ClinikoCollateralImport({
   const [notice, setNotice] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<ClinikoPatientAttachment[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [asrsOnly, setAsrsOnly] = useState(true);
+  // Default ON: show preferred rating/allied forms (expanded beyond ASRS-only).
+  const [preferredOnly, setPreferredOnly] = useState(true);
 
   const loadAttachments = useCallback(async () => {
     if (!patientId) return;
@@ -59,7 +63,9 @@ export function ClinikoCollateralImport({
       const list = data.attachments ?? [];
       setAttachments(list);
       const defaults = new Set(
-        list.filter((a) => a.processingCompleted && a.importable && a.likelyAsrs).map((a) => a.id)
+        list
+          .filter((a) => a.processingCompleted && a.importable && a.likelyAsrs)
+          .map((a) => a.id)
       );
       setSelectedIds(defaults);
     } catch {
@@ -81,13 +87,18 @@ export function ClinikoCollateralImport({
         return false;
       }
       if (!a.processingCompleted || !a.importable) return false;
-      if (asrsOnly && !a.likelyAsrs) return false;
+      if (preferredOnly && !a.likelyAsrs) return false;
       return true;
     });
-  }, [attachments, asrsOnly]);
+  }, [attachments, preferredOnly]);
 
   const alreadyImportedNames = useMemo(() => {
-    return new Set(collateralDocs.map((d) => d.filename.trim().toLowerCase()).filter(Boolean));
+    return new Set(
+      collateralDocs
+        .filter((d) => Boolean(d.pdfBase64) || !d.filename.toLowerCase().endsWith(".pdf"))
+        .map((d) => d.filename.trim().toLowerCase())
+        .filter(Boolean)
+    );
   }, [collateralDocs]);
 
   const toggleId = (id: string) => {
@@ -119,7 +130,7 @@ export function ClinikoCollateralImport({
     });
 
     if (result.additions.length > 0) {
-      setCollateralDocs((prev) => [...prev, ...result.additions]);
+      setCollateralDocs((prev) => mergeImportedCollateralDocs(prev, result.additions));
       setSelectedIds(new Set());
     }
     const msg = formatClinikoImportNotice(result);
@@ -136,7 +147,9 @@ export function ClinikoCollateralImport({
         <div>
           <p className="text-sm font-semibold text-foreground">Import from Cliniko</p>
           <p className="text-xs text-muted-foreground">
-            Pull ASRS forms and other patient files into collateral for review.
+            {engine === "adhd"
+              ? "Pull Vanderbilt, Conners, teacher, OT, speech, and ASRS files into collateral."
+              : "Pull ASRS, rating forms, and other patient files into collateral for review."}
           </p>
         </div>
         <Button
@@ -156,10 +169,12 @@ export function ClinikoCollateralImport({
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
-                checked={asrsOnly}
-                onChange={(e) => setAsrsOnly(e.target.checked)}
+                checked={preferredOnly}
+                onChange={(e) => setPreferredOnly(e.target.checked)}
               />
-              Show likely ASRS / rating forms first
+              {engine === "adhd"
+                ? "Show Vanderbilt / Conners / teacher / OT / speech / ASRS only"
+                : "Show preferred rating & allied-health forms only"}
             </label>
             <Button
               type="button"
@@ -186,8 +201,8 @@ export function ClinikoCollateralImport({
 
           {!loading && visible.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {asrsOnly
-                ? "No ASRS-named PDFs found. Untick the filter to see all importable files."
+              {preferredOnly
+                ? "No preferred forms found (Vanderbilt, Conners, teacher, OT, speech, ASRS). Untick the filter to see all importable files."
                 : "No importable Cliniko attachments found for this patient."}
             </p>
           ) : null}
@@ -216,7 +231,7 @@ export function ClinikoCollateralImport({
                           {attachment.filename}
                           {attachment.likelyAsrs ? (
                             <span className="ml-2 text-xs font-normal text-teal-700 dark:text-teal-300">
-                              ASRS?
+                              preferred
                             </span>
                           ) : null}
                           {already ? (

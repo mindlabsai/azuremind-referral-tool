@@ -59,6 +59,7 @@ export function CollateralDocumentsUpload({
   touch,
   inputClass,
   clinikoPatientId = null,
+  engine = null,
 }: {
   collateralDocs: CollateralDoc[];
   setCollateralDocs: Dispatch<SetStateAction<CollateralDoc[]>>;
@@ -66,6 +67,7 @@ export function CollateralDocumentsUpload({
   inputClass: string;
   /** When set, show Cliniko attachment browser (ASRS / forms import). */
   clinikoPatientId?: string | null;
+  engine?: "asd" | "adhd" | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -197,6 +199,7 @@ export function CollateralDocumentsUpload({
         collateralDocs={collateralDocs}
         setCollateralDocs={setCollateralDocs}
         touch={touch}
+        engine={engine}
       />
 
       <input
