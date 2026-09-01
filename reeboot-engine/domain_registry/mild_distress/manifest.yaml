@@ -1,0 +1,6 @@
+id: MILD_DISTRESS
+version: "1.0.0"
+title: Wellbeing Reframing
+intended_purpose: Digital mental health tool for mild wellbeing distress
+regulatory_target: Item 14E Exclusion (guideline display required before commercial release)
+clinical_actions_allowed: false

@@ -1,0 +1,3 @@
+amber_primitives: [MICRO_ACTION, GROUNDING]
+red_primitive: SAFETY_SIGNPOST
+emergency_primitive: CRISIS_LOCK

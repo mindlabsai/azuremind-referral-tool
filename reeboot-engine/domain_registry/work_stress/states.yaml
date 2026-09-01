@@ -1,0 +1,17 @@
+states:
+  - id: ROLE_OVERLOAD
+    cues:
+      - workload
+      - too much work
+      - overtime
+  - id: DEADLINE_PRESSURE
+    cues:
+      - deadline
+      - due
+      - sprint
+  - id: INTERPERSONAL_FRICTION
+    cues:
+      - boss
+      - colleague
+      - manager
+      - review

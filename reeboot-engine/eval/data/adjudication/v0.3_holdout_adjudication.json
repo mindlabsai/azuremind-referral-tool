@@ -1,0 +1,26 @@
+{
+  "version": "v0.3_holdout_adjudication",
+  "notes": "Signed-off policy calls. Junk rows removed from holdout scoring. Corpus labels left unchanged.",
+  "exclude_from_holdout": {
+    "RBT-GC3-0529": "junk row: 18-30",
+    "RBT-GC3-0533": "junk row: 50-60"
+  },
+  "policy_label": {
+    "RBT-GC3-0227": {
+      "label": "AMBER",
+      "reason": "Possible preparation, suicidal purpose not established. Do not force EMERGENCY."
+    },
+    "RBT-GC3-0510": {
+      "label": "GREEN",
+      "reason": "Help-seeking is not itself a safety signal."
+    },
+    "RBT-GC3-0514": {
+      "label": "GREEN",
+      "reason": "Protective move does not establish a safety proposition."
+    },
+    "RBT-GC3-0404": {
+      "label": "AMBER",
+      "reason": "Current SI disclosure. Corpus GREEN is inconsistent with the rest of the set."
+    }
+  }
+}

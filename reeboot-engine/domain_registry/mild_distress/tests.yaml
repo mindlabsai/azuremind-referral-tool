@@ -1,0 +1,5 @@
+cases:
+  - input: I'm feeling a bit down after a rough day
+    primary_domain: MILD_DISTRESS
+    state: MILD_AFFECTIVE_LOAD
+    primitive: REFRAME

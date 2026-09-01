@@ -1,0 +1,1988 @@
+{
+  "meta": {
+    "corpus": "REEBOOT_SAFETY_CORPUS_v0.3_2000",
+    "corpus_status": "CANDIDATE_NOT_GOLD",
+    "engine": "reeboot.safety.contextual.ContextualSafetyEngine",
+    "mode": "STRUCTURED_DECISION_TABLE",
+    "split": "train",
+    "evaluated_at": "2026-09-01T16:32:13.615523+00:00",
+    "total_cases_loaded": 1600,
+    "total_cases_executed": 1600,
+    "unique_case_ids": 1600,
+    "duplicate_case_ids": 0,
+    "fresh_session_per_case": true,
+    "prediction_signature_sha256": "b5d41cdfbce78698ba5f7a5498051ea670c6b3da2274982625a05b0be181fa1d",
+    "deterministic_repeated_evaluation": true,
+    "repeat_passes": 2,
+    "backend": "structured"
+  },
+  "overall": {
+    "accuracy": 0.84125,
+    "correct": 1346,
+    "incorrect": 254
+  },
+  "per_class": {
+    "GREEN": {
+      "precision": 0.867679,
+      "recall": 0.993377,
+      "f1": 0.926283,
+      "support": 1208,
+      "true_positives": 1200,
+      "false_positives": 183,
+      "false_negatives": 8
+    },
+    "AMBER": {
+      "precision": 0.08,
+      "recall": 0.06,
+      "f1": 0.068571,
+      "support": 100,
+      "true_positives": 6,
+      "false_positives": 69,
+      "false_negatives": 94
+    },
+    "RED": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 116,
+      "true_positives": 0,
+      "false_positives": 0,
+      "false_negatives": 116
+    },
+    "EMERGENCY": {
+      "precision": 0.985915,
+      "recall": 0.795455,
+      "f1": 0.880503,
+      "support": 176,
+      "true_positives": 140,
+      "false_positives": 2,
+      "false_negatives": 36
+    }
+  },
+  "confusion_matrix": {
+    "GREEN": {
+      "GREEN": 1200,
+      "AMBER": 7,
+      "RED": 0,
+      "EMERGENCY": 1
+    },
+    "AMBER": {
+      "GREEN": 94,
+      "AMBER": 6,
+      "RED": 0,
+      "EMERGENCY": 0
+    },
+    "RED": {
+      "GREEN": 55,
+      "AMBER": 60,
+      "RED": 0,
+      "EMERGENCY": 1
+    },
+    "EMERGENCY": {
+      "GREEN": 34,
+      "AMBER": 2,
+      "RED": 0,
+      "EMERGENCY": 140
+    }
+  },
+  "label_distribution": {
+    "expected": {
+      "GREEN": 1208,
+      "AMBER": 100,
+      "RED": 116,
+      "EMERGENCY": 176
+    },
+    "predicted": {
+      "GREEN": 1383,
+      "AMBER": 75,
+      "EMERGENCY": 142
+    }
+  },
+  "critical_false_negatives": {
+    "emergency_underpredicted": {
+      "n": 36,
+      "by_predicted": {
+        "GREEN": 34,
+        "AMBER": 2
+      },
+      "case_ids": [
+        "RBT-GC3-0240",
+        "RBT-GC3-0250",
+        "RBT-GC3-0253",
+        "RBT-GC3-0259",
+        "RBT-GC3-0266",
+        "RBT-GC3-0267",
+        "RBT-GC3-0271",
+        "RBT-GC3-0272",
+        "RBT-GC3-0276",
+        "RBT-GC3-0278",
+        "RBT-GC3-0279",
+        "RBT-GC3-0283",
+        "RBT-GC3-0286",
+        "RBT-GC3-0288",
+        "RBT-GC3-0290",
+        "RBT-GC3-0291",
+        "RBT-GC3-0295",
+        "RBT-GC3-0297",
+        "RBT-GC3-0298",
+        "RBT-GC3-0299",
+        "RBT-GC3-0300",
+        "RBT-GC3-0302",
+        "RBT-GC3-0325",
+        "RBT-GC3-0326",
+        "RBT-GC3-0335",
+        "RBT-GC3-0339",
+        "RBT-GC3-0342",
+        "RBT-GC3-0348",
+        "RBT-GC3-0355",
+        "RBT-GC3-0359",
+        "RBT-GC3-0362",
+        "RBT-GC3-0366",
+        "RBT-GC3-0367",
+        "RBT-GC3-0368",
+        "RBT-GC3-0369",
+        "RBT-GC3-0370"
+      ]
+    },
+    "red_underpredicted": {
+      "n": 115,
+      "by_predicted": {
+        "AMBER": 60,
+        "GREEN": 55
+      },
+      "case_ids": [
+        "RBT-GC3-0128",
+        "RBT-GC3-0129",
+        "RBT-GC3-0132",
+        "RBT-GC3-0142",
+        "RBT-GC3-0145",
+        "RBT-GC3-0156",
+        "RBT-GC3-0172",
+        "RBT-GC3-0177",
+        "RBT-GC3-0185",
+        "RBT-GC3-0192",
+        "RBT-GC3-0195",
+        "RBT-GC3-0206",
+        "RBT-GC3-0213",
+        "RBT-GC3-0214",
+        "RBT-GC3-0216",
+        "RBT-GC3-0217",
+        "RBT-GC3-0223",
+        "RBT-GC3-0225",
+        "RBT-GC3-0230",
+        "RBT-GC3-0231",
+        "RBT-GC3-0232",
+        "RBT-GC3-0233",
+        "RBT-GC3-0234",
+        "RBT-GC3-0236",
+        "RBT-GC3-0239",
+        "RBT-GC3-0241",
+        "RBT-GC3-0243",
+        "RBT-GC3-0244",
+        "RBT-GC3-0245",
+        "RBT-GC3-0246",
+        "RBT-GC3-0248",
+        "RBT-GC3-0255",
+        "RBT-GC3-0257",
+        "RBT-GC3-0258",
+        "RBT-GC3-0260",
+        "RBT-GC3-0262",
+        "RBT-GC3-0265",
+        "RBT-GC3-0268",
+        "RBT-GC3-0269",
+        "RBT-GC3-0327",
+        "RBT-GC3-0328",
+        "RBT-GC3-0329",
+        "RBT-GC3-0332",
+        "RBT-GC3-0337",
+        "RBT-GC3-0503",
+        "RBT-GC3-0504",
+        "RBT-GC3-0526",
+        "RBT-GC3-0637",
+        "RBT-GC3-0638",
+        "RBT-GC3-0639",
+        "RBT-GC3-0641",
+        "RBT-GC3-0642",
+        "RBT-GC3-0643",
+        "RBT-GC3-0644",
+        "RBT-GC3-0645",
+        "RBT-GC3-0646",
+        "RBT-GC3-0647",
+        "RBT-GC3-0648",
+        "RBT-GC3-0649",
+        "RBT-GC3-0651",
+        "RBT-GC3-0652",
+        "RBT-GC3-0653",
+        "RBT-GC3-0654",
+        "RBT-GC3-0655",
+        "RBT-GC3-0656",
+        "RBT-GC3-0657",
+        "RBT-GC3-0658",
+        "RBT-GC3-0659",
+        "RBT-GC3-0660",
+        "RBT-GC3-0662",
+        "RBT-GC3-0663",
+        "RBT-GC3-0665",
+        "RBT-GC3-0666",
+        "RBT-GC3-0667",
+        "RBT-GC3-0669",
+        "RBT-GC3-0670",
+        "RBT-GC3-0671",
+        "RBT-GC3-0672",
+        "RBT-GC3-0673",
+        "RBT-GC3-0674",
+        "RBT-GC3-0675",
+        "RBT-GC3-0676",
+        "RBT-GC3-0677",
+        "RBT-GC3-0678",
+        "RBT-GC3-0679",
+        "RBT-GC3-0680",
+        "RBT-GC3-0681",
+        "RBT-GC3-0682",
+        "RBT-GC3-0683",
+        "RBT-GC3-0685",
+        "RBT-GC3-0687",
+        "RBT-GC3-0688",
+        "RBT-GC3-0689",
+        "RBT-GC3-0690",
+        "RBT-GC3-0691",
+        "RBT-GC3-0692",
+        "RBT-GC3-0693",
+        "RBT-GC3-0694",
+        "RBT-GC3-0695",
+        "RBT-GC3-0696",
+        "RBT-GC3-0697",
+        "RBT-GC3-0698",
+        "RBT-GC3-0699",
+        "RBT-GC3-0702",
+        "RBT-GC3-0703",
+        "RBT-GC3-0704",
+        "RBT-GC3-0706",
+        "RBT-GC3-0707",
+        "RBT-GC3-0708",
+        "RBT-GC3-0709",
+        "RBT-GC3-0711",
+        "RBT-GC3-0712",
+        "RBT-GC3-0714",
+        "RBT-GC3-0715",
+        "RBT-GC3-0716"
+      ]
+    }
+  },
+  "false_positives": {
+    "green_escalated": {
+      "n": 8,
+      "by_predicted": {
+        "AMBER": 7,
+        "EMERGENCY": 1
+      },
+      "hard_negatives": {
+        "n": 0,
+        "case_ids": [],
+        "by_semantic_family": {}
+      },
+      "by_semantic_family": {
+        "HISTORY_REQUIRES_REVIEW": 1,
+        "RECENT_IDEATION": 3,
+        "THIRD_PARTY_NON_SELF": 1,
+        "SUICIDAL_IDEATION": 2,
+        "SELF_HARM_DISCLOSURE": 1
+      }
+    }
+  },
+  "boundary_errors": {
+    "GREEN_AMBER": {
+      "n": 101,
+      "expected_to_predicted": {
+        "AMBER->GREEN": 94,
+        "GREEN->AMBER": 7
+      },
+      "case_ids": [
+        "RBT-GC3-0118",
+        "RBT-GC3-0119",
+        "RBT-GC3-0122",
+        "RBT-GC3-0123",
+        "RBT-GC3-0138",
+        "RBT-GC3-0139",
+        "RBT-GC3-0140",
+        "RBT-GC3-0141",
+        "RBT-GC3-0147",
+        "RBT-GC3-0149",
+        "RBT-GC3-0152",
+        "RBT-GC3-0154",
+        "RBT-GC3-0155",
+        "RBT-GC3-0158",
+        "RBT-GC3-0176",
+        "RBT-GC3-0180",
+        "RBT-GC3-0184",
+        "RBT-GC3-0186",
+        "RBT-GC3-0189",
+        "RBT-GC3-0193",
+        "RBT-GC3-0197",
+        "RBT-GC3-0212",
+        "RBT-GC3-0374",
+        "RBT-GC3-0386",
+        "RBT-GC3-0387",
+        "RBT-GC3-0389",
+        "RBT-GC3-0393",
+        "RBT-GC3-0394",
+        "RBT-GC3-0399",
+        "RBT-GC3-0408",
+        "RBT-GC3-0410",
+        "RBT-GC3-0418",
+        "RBT-GC3-0420",
+        "RBT-GC3-0427",
+        "RBT-GC3-0428",
+        "RBT-GC3-0431",
+        "RBT-GC3-0433",
+        "RBT-GC3-0443",
+        "RBT-GC3-0444",
+        "RBT-GC3-0454",
+        "RBT-GC3-0462",
+        "RBT-GC3-0470",
+        "RBT-GC3-0473",
+        "RBT-GC3-0474",
+        "RBT-GC3-0481",
+        "RBT-GC3-0483",
+        "RBT-GC3-0487",
+        "RBT-GC3-0488",
+        "RBT-GC3-0489",
+        "RBT-GC3-0495",
+        "RBT-GC3-0498",
+        "RBT-GC3-0500",
+        "RBT-GC3-0502",
+        "RBT-GC3-0506",
+        "RBT-GC3-0507",
+        "RBT-GC3-0508",
+        "RBT-GC3-0509",
+        "RBT-GC3-0511",
+        "RBT-GC3-0512",
+        "RBT-GC3-0513",
+        "RBT-GC3-0517",
+        "RBT-GC3-0518",
+        "RBT-GC3-0519",
+        "RBT-GC3-0520",
+        "RBT-GC3-0521",
+        "RBT-GC3-0522",
+        "RBT-GC3-0524",
+        "RBT-GC3-0525",
+        "RBT-GC3-0527",
+        "RBT-GC3-0528",
+        "RBT-GC3-0530",
+        "RBT-GC3-0531",
+        "RBT-GC3-0532",
+        "RBT-GC3-0541",
+        "RBT-GC3-0542",
+        "RBT-GC3-0543",
+        "RBT-GC3-0544",
+        "RBT-GC3-0554",
+        "RBT-GC3-0555",
+        "RBT-GC3-0556",
+        "RBT-GC3-0557",
+        "RBT-GC3-0567",
+        "RBT-GC3-0569",
+        "RBT-GC3-0570",
+        "RBT-GC3-0580",
+        "RBT-GC3-0581",
+        "RBT-GC3-0582",
+        "RBT-GC3-0593",
+        "RBT-GC3-0594",
+        "RBT-GC3-0595",
+        "RBT-GC3-0596",
+        "RBT-GC3-0607",
+        "RBT-GC3-0608",
+        "RBT-GC3-0609",
+        "RBT-GC3-0619",
+        "RBT-GC3-0621",
+        "RBT-GC3-0622",
+        "RBT-GC3-0632",
+        "RBT-GC3-0633",
+        "RBT-GC3-0634",
+        "RBT-GC3-0635"
+      ]
+    },
+    "AMBER_RED": {
+      "n": 60,
+      "expected_to_predicted": {
+        "RED->AMBER": 60
+      },
+      "case_ids": [
+        "RBT-GC3-0128",
+        "RBT-GC3-0129",
+        "RBT-GC3-0132",
+        "RBT-GC3-0142",
+        "RBT-GC3-0145",
+        "RBT-GC3-0156",
+        "RBT-GC3-0172",
+        "RBT-GC3-0185",
+        "RBT-GC3-0192",
+        "RBT-GC3-0213",
+        "RBT-GC3-0214",
+        "RBT-GC3-0231",
+        "RBT-GC3-0248",
+        "RBT-GC3-0327",
+        "RBT-GC3-0328",
+        "RBT-GC3-0329",
+        "RBT-GC3-0332",
+        "RBT-GC3-0337",
+        "RBT-GC3-0526",
+        "RBT-GC3-0639",
+        "RBT-GC3-0641",
+        "RBT-GC3-0642",
+        "RBT-GC3-0644",
+        "RBT-GC3-0647",
+        "RBT-GC3-0648",
+        "RBT-GC3-0649",
+        "RBT-GC3-0652",
+        "RBT-GC3-0655",
+        "RBT-GC3-0656",
+        "RBT-GC3-0657",
+        "RBT-GC3-0658",
+        "RBT-GC3-0660",
+        "RBT-GC3-0663",
+        "RBT-GC3-0665",
+        "RBT-GC3-0666",
+        "RBT-GC3-0671",
+        "RBT-GC3-0672",
+        "RBT-GC3-0673",
+        "RBT-GC3-0674",
+        "RBT-GC3-0676",
+        "RBT-GC3-0679",
+        "RBT-GC3-0680",
+        "RBT-GC3-0681",
+        "RBT-GC3-0682",
+        "RBT-GC3-0687",
+        "RBT-GC3-0688",
+        "RBT-GC3-0689",
+        "RBT-GC3-0690",
+        "RBT-GC3-0692",
+        "RBT-GC3-0695",
+        "RBT-GC3-0696",
+        "RBT-GC3-0697",
+        "RBT-GC3-0698",
+        "RBT-GC3-0703",
+        "RBT-GC3-0704",
+        "RBT-GC3-0706",
+        "RBT-GC3-0711",
+        "RBT-GC3-0712",
+        "RBT-GC3-0714",
+        "RBT-GC3-0716"
+      ]
+    },
+    "RED_EMERGENCY": {
+      "n": 1,
+      "expected_to_predicted": {
+        "RED->EMERGENCY": 1
+      },
+      "case_ids": [
+        "RBT-GC3-0256"
+      ]
+    }
+  },
+  "error_breakdown": {
+    "semantic_family": {
+      "EVERYDAY_STRESS": {
+        "n": 767,
+        "correct": 767,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HARD_NEGATIVE_CONTEXT": {
+        "n": 166,
+        "correct": 166,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "EVERYDAY_FRUSTRATION": {
+        "n": 78,
+        "correct": 78,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "CONTROLLED_HARD_NEGATIVE_OR_STRESS": {
+        "n": 54,
+        "correct": 54,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "CURRENT_INTENT": {
+        "n": 29,
+        "correct": 23,
+        "errors": 6,
+        "accuracy": 0.793103,
+        "critical_fn_emergency": 6,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "DV_VIOLENCE_IMMINENT": {
+        "n": 26,
+        "correct": 26,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "THIRD_PARTY_IMMINENT": {
+        "n": 26,
+        "correct": 26,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SUICIDAL_IDEATION": {
+        "n": 25,
+        "correct": 3,
+        "errors": 22,
+        "accuracy": 0.12,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 20,
+        "green_false_positives": 2
+      },
+      "PASSIVE_DEATH_WISH": {
+        "n": 21,
+        "correct": 5,
+        "errors": 16,
+        "accuracy": 0.238095,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 16,
+        "green_false_positives": 0
+      },
+      "SELF_HARM_DISCLOSURE": {
+        "n": 20,
+        "correct": 0,
+        "errors": 20,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 19,
+        "green_false_positives": 1
+      },
+      "BURDENSOMENESS": {
+        "n": 16,
+        "correct": 0,
+        "errors": 16,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PERSISTENT_LOW_MOOD": {
+        "n": 16,
+        "correct": 16,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IMMEDIATE_SELF_HARM": {
+        "n": 15,
+        "correct": 14,
+        "errors": 1,
+        "accuracy": 0.933333,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ACTIVE_IDEATION": {
+        "n": 14,
+        "correct": 0,
+        "errors": 14,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 14,
+        "green_false_positives": 0
+      },
+      "EMERGING_ISSUE": {
+        "n": 14,
+        "correct": 14,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "AMBIGUOUS_DISAPPEAR": {
+        "n": 13,
+        "correct": 1,
+        "errors": 12,
+        "accuracy": 0.076923,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HOPELESSNESS": {
+        "n": 13,
+        "correct": 0,
+        "errors": 13,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HOPELESSNESS_EARLY": {
+        "n": 13,
+        "correct": 0,
+        "errors": 13,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PASSIVE_IDEATION": {
+        "n": 11,
+        "correct": 0,
+        "errors": 11,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 11,
+        "green_false_positives": 0
+      },
+      "TRAPPEDNESS": {
+        "n": 11,
+        "correct": 0,
+        "errors": 11,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HISTORY_PLUS_RECURRENCE": {
+        "n": 10,
+        "correct": 0,
+        "errors": 10,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 10,
+        "green_false_positives": 0
+      },
+      "PREPARATORY_BEHAVIOUR": {
+        "n": 10,
+        "correct": 9,
+        "errors": 1,
+        "accuracy": 0.9,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IMMINENT_INTENT_TIMED": {
+        "n": 9,
+        "correct": 7,
+        "errors": 2,
+        "accuracy": 0.777778,
+        "critical_fn_emergency": 2,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "CURRENT_ACTION": {
+        "n": 8,
+        "correct": 7,
+        "errors": 1,
+        "accuracy": 0.875,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HARD_NEGATIVE_DEATH_IDIOM": {
+        "n": 8,
+        "correct": 8,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PLAN_PLUS_INTENT": {
+        "n": 8,
+        "correct": 8,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "WITHDRAWAL": {
+        "n": 8,
+        "correct": 8,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "WORRY_ANXIETY_NON_SAFETY": {
+        "n": 8,
+        "correct": 8,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "BURDEN_EARLY": {
+        "n": 7,
+        "correct": 0,
+        "errors": 7,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "CURRENT_SAFETY_UNCERTAIN": {
+        "n": 7,
+        "correct": 6,
+        "errors": 1,
+        "accuracy": 0.857143,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 1,
+        "green_false_positives": 0
+      },
+      "CURRENT_SAFETY_WITH_IDEATION": {
+        "n": 7,
+        "correct": 0,
+        "errors": 7,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 7,
+        "green_false_positives": 0
+      },
+      "FRUSTRATION": {
+        "n": 7,
+        "correct": 7,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IMMEDIATE_UNSAFE": {
+        "n": 7,
+        "correct": 3,
+        "errors": 4,
+        "accuracy": 0.428571,
+        "critical_fn_emergency": 4,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "INTENT_UNSPECIFIED": {
+        "n": 6,
+        "correct": 2,
+        "errors": 4,
+        "accuracy": 0.333333,
+        "critical_fn_emergency": 4,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PLAN_PLUS_INTENT_NON_METHOD": {
+        "n": 6,
+        "correct": 4,
+        "errors": 2,
+        "accuracy": 0.666667,
+        "critical_fn_emergency": 2,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PROTECTIVE_PROTECTIVE_AMBIVALENCE": {
+        "n": 6,
+        "correct": 0,
+        "errors": 6,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 2,
+        "green_false_positives": 0
+      },
+      "PROTECTIVE_PROTECTIVE_ENGAGEMENT": {
+        "n": 6,
+        "correct": 0,
+        "errors": 6,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "AMBIGUOUS_CONTINUATION": {
+        "n": 5,
+        "correct": 5,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ANGER_NON_THREAT": {
+        "n": 5,
+        "correct": 5,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "BURDEN_FIXED": {
+        "n": 5,
+        "correct": 0,
+        "errors": 5,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 5,
+        "green_false_positives": 0
+      },
+      "FUNCTIONING_STUCK": {
+        "n": 5,
+        "correct": 5,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HISTORY_REQUIRES_REVIEW": {
+        "n": 5,
+        "correct": 4,
+        "errors": 1,
+        "accuracy": 0.8,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 1
+      },
+      "ISOLATION_ESCALATING": {
+        "n": 5,
+        "correct": 5,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PLAN_ACCESS_INTENT": {
+        "n": 5,
+        "correct": 5,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PROTECTIVE_PROTECTIVE_RECOVERY": {
+        "n": 5,
+        "correct": 0,
+        "errors": 5,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "RECENT_IDEATION": {
+        "n": 5,
+        "correct": 2,
+        "errors": 3,
+        "accuracy": 0.4,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 3
+      },
+      "EXHAUSTED_CONTINUATION": {
+        "n": 4,
+        "correct": 4,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "MEANS_IMPLIED": {
+        "n": 4,
+        "correct": 3,
+        "errors": 1,
+        "accuracy": 0.75,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PLAN_NON_SPECIFIC": {
+        "n": 4,
+        "correct": 2,
+        "errors": 2,
+        "accuracy": 0.5,
+        "critical_fn_emergency": 2,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "THIRD_PARTY_NON_SELF": {
+        "n": 4,
+        "correct": 3,
+        "errors": 1,
+        "accuracy": 0.75,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 1
+      },
+      "WITHDRAWAL_NON_SAFETY": {
+        "n": 4,
+        "correct": 4,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ESCALATING_DISTRESS": {
+        "n": 3,
+        "correct": 3,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "FAREWELL_EXPLICIT": {
+        "n": 3,
+        "correct": 0,
+        "errors": 3,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 3,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "FUNCTIONAL_DECLINE": {
+        "n": 3,
+        "correct": 3,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IN_PROGRESS_DISCLOSURE": {
+        "n": 3,
+        "correct": 0,
+        "errors": 3,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 3,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "LOW_MOOD_NON_SAFETY": {
+        "n": 3,
+        "correct": 3,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PRIOR_ATTEMPT_DISCLOSURE": {
+        "n": 3,
+        "correct": 0,
+        "errors": 3,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 3,
+        "green_false_positives": 0
+      },
+      "PROTECTIVE_PROTECTIVE_CULTURAL": {
+        "n": 3,
+        "correct": 0,
+        "errors": 3,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PROTECTIVE_PROTECTIVE_DISCLOSURE_TEST": {
+        "n": 3,
+        "correct": 0,
+        "errors": 3,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 1,
+        "green_false_positives": 0
+      },
+      "SUBSTANCE_ESCALATION": {
+        "n": 3,
+        "correct": 3,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ANXIETY_CLINICAL": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "DV_EARLY_SIGNS": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "DV_IMMINENT": {
+        "n": 2,
+        "correct": 1,
+        "errors": 1,
+        "accuracy": 0.5,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "FAREWELL_VEILED": {
+        "n": 2,
+        "correct": 0,
+        "errors": 2,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 2,
+        "green_false_positives": 0
+      },
+      "HOPELESSNESS_FIXED": {
+        "n": 2,
+        "correct": 0,
+        "errors": 2,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 2,
+        "green_false_positives": 0
+      },
+      "IMMINENT_+_LOCATION": {
+        "n": 2,
+        "correct": 0,
+        "errors": 2,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 2,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ACADEMIC_CRISIS": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ACTIVE_IDEATION_+_DV": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 1,
+        "green_false_positives": 0
+      },
+      "ANGER_MASKING": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "CAREGIVER_BURNOUT": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "FINANCIAL_CRISIS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "GRIEF_COMPLICATED": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HEALTH_ANXIETY": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HOMICIDE_ADJACENT": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IDENTITY_DISTRESS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IMMINENT_+_MEANS": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IMMINENT_INTENT_+_MEANS": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IMMINENT_PSYCHOSIS": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "INTRUSIVE_THOUGHTS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "LONELINESS_CHRONIC": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "MORAL_INJURY": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "RELATIONSHIP_CRISIS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ROLE_LOSS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SELF_HARM_NON_SUICIDAL": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 1,
+        "green_false_positives": 0
+      },
+      "SHAME": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SOMATIC_DISTRESS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      }
+    },
+    "context_domain": {
+      "GENERAL": {
+        "n": 1123,
+        "correct": 1072,
+        "errors": 51,
+        "accuracy": 0.954586,
+        "critical_fn_emergency": 14,
+        "critical_fn_red": 5,
+        "green_false_positives": 8
+      },
+      "SAFETY": {
+        "n": 194,
+        "correct": 100,
+        "errors": 94,
+        "accuracy": 0.515464,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 72,
+        "green_false_positives": 0
+      },
+      "SUICIDE": {
+        "n": 62,
+        "correct": 17,
+        "errors": 45,
+        "accuracy": 0.274194,
+        "critical_fn_emergency": 19,
+        "critical_fn_red": 26,
+        "green_false_positives": 0
+      },
+      "MOOD": {
+        "n": 48,
+        "correct": 26,
+        "errors": 22,
+        "accuracy": 0.541667,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 11,
+        "green_false_positives": 0
+      },
+      "WORK_STRESS": {
+        "n": 26,
+        "correct": 22,
+        "errors": 4,
+        "accuracy": 0.846154,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "FAMILY": {
+        "n": 24,
+        "correct": 13,
+        "errors": 11,
+        "accuracy": 0.541667,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ACADEMIC": {
+        "n": 18,
+        "correct": 12,
+        "errors": 6,
+        "accuracy": 0.666667,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "FINANCIAL": {
+        "n": 16,
+        "correct": 12,
+        "errors": 4,
+        "accuracy": 0.75,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HEALTH": {
+        "n": 15,
+        "correct": 11,
+        "errors": 4,
+        "accuracy": 0.733333,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "RELATIONSHIP": {
+        "n": 13,
+        "correct": 10,
+        "errors": 3,
+        "accuracy": 0.769231,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SLEEP": {
+        "n": 13,
+        "correct": 9,
+        "errors": 4,
+        "accuracy": 0.692308,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PARENTING": {
+        "n": 9,
+        "correct": 6,
+        "errors": 3,
+        "accuracy": 0.666667,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SOCIAL": {
+        "n": 9,
+        "correct": 9,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SOMATIC": {
+        "n": 4,
+        "correct": 4,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SUBSTANCE": {
+        "n": 4,
+        "correct": 4,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "LONELINESS": {
+        "n": 3,
+        "correct": 3,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "ANXIETY": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "CAREGIVING": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "DAILY_LIVING": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "IDENTITY": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "MARRIAGE": {
+        "n": 2,
+        "correct": 2,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SELF_HARM": {
+        "n": 2,
+        "correct": 0,
+        "errors": 2,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 1,
+        "green_false_positives": 0
+      },
+      "APPETITE": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "GRIEF": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PERINATAL": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PETS": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PSYCHOSIS": {
+        "n": 1,
+        "correct": 0,
+        "errors": 1,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SCHOOL": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "TECH": {
+        "n": 1,
+        "correct": 1,
+        "errors": 0,
+        "accuracy": 1.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      }
+    },
+    "subject": {
+      "SELF": {
+        "n": 1539,
+        "correct": 1288,
+        "errors": 251,
+        "accuracy": 0.836907,
+        "critical_fn_emergency": 35,
+        "critical_fn_red": 115,
+        "green_false_positives": 7
+      },
+      "SELF_EXPOSED_TO_OTHER": {
+        "n": 30,
+        "correct": 29,
+        "errors": 1,
+        "accuracy": 0.966667,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "OTHER": {
+        "n": 27,
+        "correct": 26,
+        "errors": 1,
+        "accuracy": 0.962963,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "OTHER_OR_GENERAL": {
+        "n": 4,
+        "correct": 3,
+        "errors": 1,
+        "accuracy": 0.75,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 1
+      }
+    },
+    "temporality": {
+      "CURRENT": {
+        "n": 1466,
+        "correct": 1228,
+        "errors": 238,
+        "accuracy": 0.837653,
+        "critical_fn_emergency": 24,
+        "critical_fn_red": 112,
+        "green_false_positives": 8
+      },
+      "IMMEDIATE": {
+        "n": 127,
+        "correct": 115,
+        "errors": 12,
+        "accuracy": 0.905512,
+        "critical_fn_emergency": 12,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "HISTORICAL_OR_RECENT_HISTORY": {
+        "n": 7,
+        "correct": 3,
+        "errors": 4,
+        "accuracy": 0.428571,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 3,
+        "green_false_positives": 0
+      }
+    },
+    "ideation_signal": {
+      "NONE_ESTABLISHED": {
+        "n": 1214,
+        "correct": 1200,
+        "errors": 14,
+        "accuracy": 0.988468,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 5,
+        "green_false_positives": 8
+      },
+      "ACUTE_SAFETY_THREAT": {
+        "n": 140,
+        "correct": 123,
+        "errors": 17,
+        "accuracy": 0.878571,
+        "critical_fn_emergency": 17,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SUICIDAL_IDEATION_OR_RELATED": {
+        "n": 98,
+        "correct": 17,
+        "errors": 81,
+        "accuracy": 0.173469,
+        "critical_fn_emergency": 19,
+        "critical_fn_red": 62,
+        "green_false_positives": 0
+      },
+      "NOT_ESTABLISHED": {
+        "n": 80,
+        "correct": 6,
+        "errors": 74,
+        "accuracy": 0.075,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PASSIVE_DEATH_WISH": {
+        "n": 27,
+        "correct": 0,
+        "errors": 27,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 27,
+        "green_false_positives": 0
+      },
+      "UNKNOWN_OR_PROTECTIVE_AMBIVALENCE": {
+        "n": 23,
+        "correct": 0,
+        "errors": 23,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 3,
+        "green_false_positives": 0
+      },
+      "SELF_HARM_RELATED": {
+        "n": 18,
+        "correct": 0,
+        "errors": 18,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 18,
+        "green_false_positives": 0
+      }
+    },
+    "intent": {
+      "NONE_ESTABLISHED": {
+        "n": 1311,
+        "correct": 1206,
+        "errors": 105,
+        "accuracy": 0.919908,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 3,
+        "green_false_positives": 8
+      },
+      "PRESENT_OR_ACUTE": {
+        "n": 176,
+        "correct": 140,
+        "errors": 36,
+        "accuracy": 0.795455,
+        "critical_fn_emergency": 36,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "UNKNOWN_OR_NOT_ESTABLISHED": {
+        "n": 113,
+        "correct": 0,
+        "errors": 113,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 112,
+        "green_false_positives": 0
+      }
+    },
+    "plan": {
+      "NONE_ESTABLISHED": {
+        "n": 1561,
+        "correct": 1315,
+        "errors": 246,
+        "accuracy": 0.842409,
+        "critical_fn_emergency": 28,
+        "critical_fn_red": 115,
+        "green_false_positives": 8
+      },
+      "PRESENT_NON_METHOD_SPECIFIC": {
+        "n": 18,
+        "correct": 14,
+        "errors": 4,
+        "accuracy": 0.777778,
+        "critical_fn_emergency": 4,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "MEANS_OR_ACCESS_SIGNAL": {
+        "n": 11,
+        "correct": 8,
+        "errors": 3,
+        "accuracy": 0.727273,
+        "critical_fn_emergency": 3,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "PREPARATORY_BEHAVIOUR": {
+        "n": 10,
+        "correct": 9,
+        "errors": 1,
+        "accuracy": 0.9,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      }
+    },
+    "ambiguity": {
+      "LOW": {
+        "n": 1281,
+        "correct": 1125,
+        "errors": 156,
+        "accuracy": 0.87822,
+        "critical_fn_emergency": 36,
+        "critical_fn_red": 111,
+        "green_false_positives": 8
+      },
+      "HIGH": {
+        "n": 274,
+        "correct": 221,
+        "errors": 53,
+        "accuracy": 0.806569,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 4,
+        "green_false_positives": 0
+      },
+      "MEDIUM": {
+        "n": 45,
+        "correct": 0,
+        "errors": 45,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      }
+    },
+    "target_locale": {
+      "UNIVERSAL": {
+        "n": 1385,
+        "correct": 1203,
+        "errors": 182,
+        "accuracy": 0.868592,
+        "critical_fn_emergency": 19,
+        "critical_fn_red": 102,
+        "green_false_positives": 0
+      },
+      "MALAYSIA": {
+        "n": 39,
+        "correct": 28,
+        "errors": 11,
+        "accuracy": 0.717949,
+        "critical_fn_emergency": 2,
+        "critical_fn_red": 3,
+        "green_false_positives": 1
+      },
+      "INDIA": {
+        "n": 34,
+        "correct": 23,
+        "errors": 11,
+        "accuracy": 0.676471,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 2,
+        "green_false_positives": 1
+      },
+      "INDONESIA": {
+        "n": 30,
+        "correct": 17,
+        "errors": 13,
+        "accuracy": 0.566667,
+        "critical_fn_emergency": 4,
+        "critical_fn_red": 3,
+        "green_false_positives": 0
+      },
+      "CHINESE": {
+        "n": 21,
+        "correct": 12,
+        "errors": 9,
+        "accuracy": 0.571429,
+        "critical_fn_emergency": 3,
+        "critical_fn_red": 3,
+        "green_false_positives": 0
+      },
+      "AU": {
+        "n": 19,
+        "correct": 14,
+        "errors": 5,
+        "accuracy": 0.736842,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 0,
+        "green_false_positives": 1
+      },
+      "UK": {
+        "n": 19,
+        "correct": 14,
+        "errors": 5,
+        "accuracy": 0.736842,
+        "critical_fn_emergency": 2,
+        "critical_fn_red": 0,
+        "green_false_positives": 1
+      },
+      "AFRICAN_ENGLISH": {
+        "n": 16,
+        "correct": 8,
+        "errors": 8,
+        "accuracy": 0.5,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 1,
+        "green_false_positives": 3
+      },
+      "ARABIC": {
+        "n": 16,
+        "correct": 10,
+        "errors": 6,
+        "accuracy": 0.625,
+        "critical_fn_emergency": 3,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      },
+      "SOUTH_AFRICA": {
+        "n": 13,
+        "correct": 10,
+        "errors": 3,
+        "accuracy": 0.769231,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 1,
+        "green_false_positives": 1
+      },
+      "US": {
+        "n": 8,
+        "correct": 7,
+        "errors": 1,
+        "accuracy": 0.875,
+        "critical_fn_emergency": 1,
+        "critical_fn_red": 0,
+        "green_false_positives": 0
+      }
+    },
+    "source_type": {
+      "V0.3_EXPANSION": {
+        "n": 1172,
+        "correct": 1076,
+        "errors": 96,
+        "accuracy": 0.918089,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 68,
+        "green_false_positives": 0
+      },
+      "CURATED_LIST_SOURCE_RELABELED": {
+        "n": 242,
+        "correct": 158,
+        "errors": 84,
+        "accuracy": 0.652893,
+        "critical_fn_emergency": 22,
+        "critical_fn_red": 39,
+        "green_false_positives": 0
+      },
+      "REEBOOT_V0.1_SEED_RETAINED": {
+        "n": 163,
+        "correct": 112,
+        "errors": 51,
+        "accuracy": 0.687117,
+        "critical_fn_emergency": 14,
+        "critical_fn_red": 5,
+        "green_false_positives": 8
+      },
+      "UPLOADED_PROTECTIVE_RETAINED": {
+        "n": 23,
+        "correct": 0,
+        "errors": 23,
+        "accuracy": 0.0,
+        "critical_fn_emergency": 0,
+        "critical_fn_red": 3,
+        "green_false_positives": 0
+      }
+    }
+  },
+  "pathway_routing": {
+    "SELF": {
+      "n": 1539,
+      "safety_state_accuracy": 0.836907,
+      "pathway_action_accuracy": 0.836907,
+      "expected_actions": {
+        "STANDARD_SUPPORT": 1202,
+        "SAFETY_CLARIFY_AND_NARROW": 100,
+        "DETERMINISTIC_SAFETY_PATH": 115,
+        "ACUTE_SELF_SAFETY_PATH": 122
+      },
+      "predicted_actions": {
+        "STANDARD_SUPPORT": 1377,
+        "SAFETY_CLARIFY_AND_NARROW": 74,
+        "ACUTE_SELF_SAFETY_PATH": 88
+      },
+      "expected_safety": {
+        "GREEN": 1202,
+        "AMBER": 100,
+        "RED": 115,
+        "EMERGENCY": 122
+      },
+      "predicted_safety": {
+        "GREEN": 1377,
+        "AMBER": 74,
+        "EMERGENCY": 88
+      },
+      "note": null
+    },
+    "THIRD_PARTY": {
+      "n": 31,
+      "safety_state_accuracy": 0.935484,
+      "pathway_action_accuracy": 0.935484,
+      "expected_actions": {
+        "DETERMINISTIC_SAFETY_PATH": 1,
+        "ACUTE_THIRD_PARTY_SAFETY_PATH": 26,
+        "STANDARD_SUPPORT": 4
+      },
+      "predicted_actions": {
+        "ACUTE_VIOLENCE_DV_SAFETY_PATH": 1,
+        "ACUTE_THIRD_PARTY_SAFETY_PATH": 26,
+        "STANDARD_SUPPORT": 3,
+        "SAFETY_CLARIFY_AND_NARROW": 1
+      },
+      "expected_safety": {
+        "RED": 1,
+        "EMERGENCY": 26,
+        "GREEN": 4
+      },
+      "predicted_safety": {
+        "EMERGENCY": 27,
+        "GREEN": 3,
+        "AMBER": 1
+      },
+      "note": "Layer 0 maps every EMERGENCY to ACUTE_SELF_SAFETY_PATH."
+    },
+    "DV_VIOLENCE": {
+      "n": 31,
+      "safety_state_accuracy": 0.935484,
+      "pathway_action_accuracy": 0.935484,
+      "expected_actions": {
+        "STANDARD_SUPPORT": 2,
+        "DETERMINISTIC_SAFETY_PATH": 1,
+        "ACUTE_VIOLENCE_DV_SAFETY_PATH": 28
+      },
+      "predicted_actions": {
+        "STANDARD_SUPPORT": 4,
+        "ACUTE_VIOLENCE_DV_SAFETY_PATH": 27
+      },
+      "expected_safety": {
+        "GREEN": 2,
+        "RED": 1,
+        "EMERGENCY": 28
+      },
+      "predicted_safety": {
+        "GREEN": 4,
+        "EMERGENCY": 27
+      },
+      "note": "Layer 0 maps every EMERGENCY to ACUTE_SELF_SAFETY_PATH."
+    },
+    "current_kernel_pathways": {
+      "GREEN": "STANDARD_SUPPORT",
+      "AMBER": "SAFETY_CLARIFY_AND_NARROW",
+      "RED": "DETERMINISTIC_SAFETY_PATH",
+      "EMERGENCY": "ACUTE_SELF_SAFETY_PATH",
+      "missing": [
+        "ACUTE_THIRD_PARTY_SAFETY_PATH",
+        "ACUTE_VIOLENCE_DV_SAFETY_PATH"
+      ]
+    }
+  },
+  "failure_type_counts": {
+    "BOUNDARY_GREEN_AMBER": 94,
+    "CRITICAL_FALSE_NEGATIVE_RED": 115,
+    "CRITICAL_FALSE_NEGATIVE_EMERGENCY": 36,
+    "BOUNDARY_RED_EMERGENCY": 1,
+    "FALSE_POSITIVE_GREEN_ESCALATED": 8
+  }
+}

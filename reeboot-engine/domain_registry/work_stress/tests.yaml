@@ -1,0 +1,5 @@
+cases:
+  - input: I have a work deadline and I need to pace this
+    primary_domain: WORK_STRESS
+    state: DEADLINE_PRESSURE
+    primitive: PACING

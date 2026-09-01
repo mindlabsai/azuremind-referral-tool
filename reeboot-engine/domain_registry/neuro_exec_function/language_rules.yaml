@@ -1,0 +1,8 @@
+green:
+  maximum_words: 18
+  allow_question: true
+  move: DIRECTIVE_MICRO_PROMPT
+amber:
+  maximum_words: 16
+  allow_question: false
+  move: DIRECTIVE_MICRO_PROMPT

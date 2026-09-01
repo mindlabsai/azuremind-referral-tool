@@ -1,0 +1,10 @@
+primitives:
+  - id: REFRAME
+    objective: CONTAIN_AFFECT
+    allowed_safety: [GREEN]
+  - id: GROUNDING
+    objective: CONTAIN_AFFECT
+    allowed_safety: [GREEN, AMBER]
+  - id: PACING
+    objective: HOLD_PACE
+    allowed_safety: [GREEN]

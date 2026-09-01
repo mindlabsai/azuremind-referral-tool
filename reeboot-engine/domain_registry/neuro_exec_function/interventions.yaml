@@ -1,0 +1,10 @@
+primitives:
+  - id: MICRO_ACTION
+    objective: REDUCE_INITIATION_THRESHOLD
+    constraints:
+      maximum_actions: 1
+      maximum_action_time_seconds: 5
+    allowed_safety: [GREEN, AMBER]
+  - id: EXTERNALIZE_STEP
+    objective: RESTORE_AGENCY
+    allowed_safety: [GREEN]
