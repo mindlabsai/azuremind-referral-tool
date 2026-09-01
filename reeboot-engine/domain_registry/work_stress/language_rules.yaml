@@ -1,8 +1,0 @@
-green:
-  maximum_words: 20
-  allow_question: true
-  move: PACING_PROMPT
-amber:
-  maximum_words: 16
-  allow_question: false
-  move: GROUNDING_PROMPT

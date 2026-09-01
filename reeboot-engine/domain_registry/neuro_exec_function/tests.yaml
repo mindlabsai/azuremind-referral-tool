@@ -1,5 +1,0 @@
-cases:
-  - input: I can't start this assignment, my brain won't begin
-    primary_domain: NEURO_EXEC_FUNCTION
-    state: TASK_INITIATION_BLOCK
-    primitive: MICRO_ACTION
