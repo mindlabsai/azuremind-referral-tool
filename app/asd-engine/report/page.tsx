@@ -37,6 +37,23 @@ import {
   buildLockedFormulationOpening,
   type FormulationCriterionSnapshot,
 } from "@/lib/prompts/formulation-template";
+import {
+  buildDefaultSeverityRationale,
+  buildSeveritySuggestion,
+  confirmSeverity,
+  parseStoredSeverityAudit,
+  severityAuditRecord,
+  severitySourceLabel,
+  type DsmLevel,
+  type SeverityAuditRecord,
+} from "@/lib/severity/severity-confirmation";
+import {
+  buildAssessmentContextModality,
+  ensureInPersonConfirmationText,
+  gateModality,
+  parseAsdAssessmentModality,
+  type AsdAssessmentModality,
+} from "@/lib/modality/asd-modality";
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
 import { ClinikoCollateralImport } from "./components/ClinikoCollateralImport";
 import { TexlexScribe } from "./components/TexlexScribe";
@@ -208,6 +225,10 @@ export type PatientDetails = {
   referringPractitionerEmail: string;
   assessmentType: string;
   assessmentDates: string[];
+  /** Aligned with ADHD: in-clinic | virtual | unset. */
+  assessmentModality: AsdAssessmentModality;
+  /** Required when assessmentModality is virtual. */
+  virtualCareReason: string;
   school: string;
   reportDate: string;
   yearLevel: string;
@@ -336,6 +357,8 @@ function isTexlexDraftEffectivelyEmpty(args: {
     details.referringPractitionerType.trim() ||
     details.referringPractitionerEmail.trim() ||
     details.assessmentType.trim() ||
+    details.assessmentModality ||
+    details.virtualCareReason.trim() ||
     details.school.trim() ||
     details.yearLevel.trim() ||
     details.phone.trim() ||
@@ -363,6 +386,8 @@ function emptyPatientDetails(): PatientDetails {
     referringPractitionerEmail: "",
     assessmentType: "",
     assessmentDates: [""],
+    assessmentModality: "",
+    virtualCareReason: "",
     school: "",
     reportDate: new Date().toISOString().slice(0, 10),
     yearLevel: "",
@@ -425,6 +450,8 @@ function migratePatientDetails(raw: unknown): PatientDetails {
           : next.referringPractitionerEmail,
       assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : next.assessmentType,
       assessmentDates: assessmentDatesMerged,
+      assessmentModality: parseAsdAssessmentModality(r.assessmentModality),
+      virtualCareReason: typeof r.virtualCareReason === "string" ? r.virtualCareReason : next.virtualCareReason,
       school: typeof r.school === "string" ? r.school : next.school,
       reportDate: typeof r.reportDate === "string" && r.reportDate ? r.reportDate : next.reportDate,
       yearLevel: typeof r.yearLevel === "string" ? r.yearLevel : next.yearLevel,
@@ -453,6 +480,8 @@ function migratePatientDetails(raw: unknown): PatientDetails {
       typeof r.referringPractitionerEmail === "string" ? r.referringPractitionerEmail : "",
     assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : "",
     assessmentDates: assessmentDatesMerged,
+    assessmentModality: parseAsdAssessmentModality(r.assessmentModality),
+    virtualCareReason: typeof r.virtualCareReason === "string" ? r.virtualCareReason : "",
     school: typeof r.school === "string" ? r.school : "",
     reportDate: typeof r.reportDate === "string" && r.reportDate ? r.reportDate : next.reportDate,
     yearLevel: typeof r.yearLevel === "string" ? r.yearLevel : "",
@@ -792,29 +821,8 @@ async function streamTexlexWithCriticSse(
   return content;
 }
 
-// Fallback: derive DSM-5-TR support levels from clinician-set criterion ratings
-// when the engine (deriveLevelOfSupport) returns determinable: false.
-// Per DSM-5-TR: Level A = max(A1, A2, A3); Level B = max(B1..B4).
-function deriveLevelsFromCriterionRatings(
-  criteriaState: Record<CriterionCode, CriterionState>
-): { levelA: number | null; levelB: number | null; determinable: boolean } {
-  const aCodes: CriterionCode[] = ["A1", "A2", "A3"] as CriterionCode[];
-  const bCodes: CriterionCode[] = ["B1", "B2", "B3", "B4"] as CriterionCode[];
-  const readRating = (code: CriterionCode): number | null => {
-    const r = criteriaState[code]?.rating;
-    if (typeof r === "number" && r >= 1 && r <= 3) return r;
-    return null;
-  };
-  const aRatings = aCodes.map(readRating).filter((v): v is number => v != null);
-  const bRatings = bCodes.map(readRating).filter((v): v is number => v != null);
-  // Require at least one rated criterion in each domain
-  if (aRatings.length === 0 || bRatings.length === 0) {
-    return { levelA: null, levelB: null, determinable: false };
-  }
-  const levelA = Math.max(...aRatings);
-  const levelB = Math.max(...bRatings);
-  return { levelA, levelB, determinable: true };
-}
+// Severity for formulation is clinician-confirmed (engine suggestion only).
+// Criterion ratings are evidence-strength and must never be mapped to DSM levels.
 
 function criteriaSnapshotForFormulationLock(
   criteriaState: Record<CriterionCode, CriterionState>
@@ -889,6 +897,8 @@ function normalizePatientDetailsForPdf(details: PatientDetails): PatientDetails 
     referringPractitionerEmail: normalizeTexlexTextForPdf(details.referringPractitionerEmail),
     assessmentType: normalizeTexlexTextForPdf(details.assessmentType),
     assessmentDates: dates.length ? dates : [""],
+    assessmentModality: parseAsdAssessmentModality(details.assessmentModality),
+    virtualCareReason: normalizeTexlexTextForPdf(details.virtualCareReason),
     school: normalizeTexlexTextForPdf(details.school),
     reportDate: normalizeTexlexTextForPdf(details.reportDate),
     yearLevel: normalizeTexlexTextForPdf(details.yearLevel),
@@ -1585,6 +1595,8 @@ export type TexlexReportDraftV1 = {
   lastSaved: string;
   /** Clinician-set diagnostic framing for formulation + auto-rating caps. Omitted in older saves = inconclusive. */
   diagnosticConclusion?: TexlexDiagnosticConclusion;
+  /** Audit trail for confirmed DSM severity used in formulation lock. */
+  severityAudit?: SeverityAuditRecord | null;
 };
 
 const A_CRITERION_CODES = ["A1", "A2", "A3"] as const satisfies readonly CriterionCode[];
@@ -1660,6 +1672,7 @@ function buildComparableDraftFromStorage(data: Partial<TexlexReportDraftV1>): Om
       data.diagnosticConclusion === "inconclusive"
         ? data.diagnosticConclusion
         : "inconclusive",
+    severityAudit: parseStoredSeverityAudit(data.severityAudit),
   };
 }
 
@@ -1678,6 +1691,7 @@ function defaultDraft(): Omit<TexlexReportDraftV1, "lastSaved"> {
     recommendations: "",
     limitationsText: TEXLEX_LIMITATIONS,
     diagnosticConclusion: "inconclusive",
+    severityAudit: null,
   };
 }
 
@@ -2008,6 +2022,10 @@ export default function TexlexReportPage() {
   const [diagnosticConclusion, setDiagnosticConclusion] = useState<TexlexDiagnosticConclusion>(
     base.diagnosticConclusion ?? "inconclusive"
   );
+  const [severityLevelA, setSeverityLevelA] = useState<DsmLevel | undefined>();
+  const [severityLevelB, setSeverityLevelB] = useState<DsmLevel | undefined>();
+  const [severityRationale, setSeverityRationale] = useState("");
+  const [severityAudit, setSeverityAudit] = useState<SeverityAuditRecord | null>(null);
   const [editLimitations, setEditLimitations] = useState(false);
 
   const [hydrated, setHydrated] = useState(false);
@@ -2047,6 +2065,27 @@ export default function TexlexReportPage() {
   const cloudResumeHandledPatientRef = useRef<string | null>(null);
   const debouncedRawNotes = useDebouncedValue(rawNotes, 400);
   const pipeline = useAsdEnginePipeline(debouncedRawNotes);
+
+  const severitySuggestion = useMemo(
+    () => buildSeveritySuggestion(pipeline.levelOfSupport),
+    [pipeline.levelOfSupport]
+  );
+  const severityRationaleTouchedRef = useRef(false);
+  const severityLevelsTouchedRef = useRef(false);
+
+  // Prefill editable Level A/B + rationale from engine when not clinician-locked.
+  useEffect(() => {
+    if (!severitySuggestion.determinable) return;
+    if (severityAudit) return;
+    if (!severityLevelsTouchedRef.current) {
+      setSeverityLevelA(severitySuggestion.levelA);
+      setSeverityLevelB(severitySuggestion.levelB);
+    }
+    if (!severityRationaleTouchedRef.current) {
+      const draft = buildDefaultSeverityRationale(severitySuggestion);
+      if (draft) setSeverityRationale(draft);
+    }
+  }, [severitySuggestion, severityAudit]);
 
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [sectionGenErrors, setSectionGenErrors] = useState<Partial<Record<string, string>>>({});
@@ -2117,6 +2156,15 @@ export default function TexlexReportPage() {
     if (typeof data.limitationsText === "string") setLimitationsText(data.limitationsText);
     if (data.diagnosticConclusion === "meets" || data.diagnosticConclusion === "does_not_meet" || data.diagnosticConclusion === "inconclusive") {
       setDiagnosticConclusion(data.diagnosticConclusion);
+    }
+    const restoredAudit = parseStoredSeverityAudit(data.severityAudit);
+    setSeverityAudit(restoredAudit);
+    if (restoredAudit) {
+      setSeverityLevelA(restoredAudit.confirmed_levelA);
+      setSeverityLevelB(restoredAudit.confirmed_levelB);
+      setSeverityRationale(restoredAudit.rationale);
+      severityRationaleTouchedRef.current = true;
+      severityLevelsTouchedRef.current = true;
     }
     if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
   }, []);
@@ -2759,6 +2807,19 @@ export default function TexlexReportPage() {
       }));
       return null;
     }
+
+    const modalityGate = gateModality({
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    });
+    if (!modalityGate.ok) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: modalityGate.errors.join(" "),
+      }));
+      return null;
+    }
+
     const source = snapshot ?? {
       presentingConcerns,
       background,
@@ -2769,22 +2830,33 @@ export default function TexlexReportPage() {
     };
     const effectiveConclusion = resolveTexlexDiagnosticConclusion(source.diagnosticConclusion);
     const criteriaLock = criteriaSnapshotForFormulationLock(source.criteria);
-    const los = pipeline.levelOfSupport;
-    // Use engine when determinable; otherwise fall back to clinician-set criterion ratings.
-    const engineDetermined = Boolean(los?.determinable) && los?.levelA != null && los?.levelB != null;
-    const fallback = engineDetermined ? null : deriveLevelsFromCriterionRatings(source.criteria);
-    const resolvedLevelA = engineDetermined ? (los?.levelA ?? null) : (fallback?.levelA ?? null);
-    const resolvedLevelB = engineDetermined ? (los?.levelB ?? null) : (fallback?.levelB ?? null);
-    const resolvedDeterminable = engineDetermined || Boolean(fallback?.determinable);
-
-    if (effectiveConclusion === "meets" && (!resolvedDeterminable || resolvedLevelA == null || resolvedLevelB == null)) {
+    const suggestion = buildSeveritySuggestion(pipeline.levelOfSupport);
+    const severityGate = confirmSeverity({
+      levelA: severityLevelA,
+      levelB: severityLevelB,
+      suggestion,
+      confirmedBy: patientDetails.assessor,
+      rationale: severityRationale,
+      conclusion: effectiveConclusion,
+    });
+    if (!severityGate.ok) {
       setSectionGenErrors((p) => ({
         ...p,
-        [sectionId]:
-          "Cannot generate formulation: diagnostic conclusion is 'meets' but Level A and/or Level B cannot be determined. Set criterion ratings (rating 1–3) for at least one A criterion and one B criterion.",
+        [sectionId]: severityGate.errors.join(" "),
       }));
       return null;
     }
+
+    const confirmed = severityGate.confirmed;
+    const resolvedLevelA = confirmed?.levelA ?? null;
+    const resolvedLevelB = confirmed?.levelB ?? null;
+    const resolvedDeterminable = Boolean(confirmed);
+
+    if (confirmed) {
+      const audit = severityAuditRecord(confirmed);
+      setSeverityAudit(audit);
+    }
+
     const lockedOpening = buildLockedFormulationOpening({
       conclusion: effectiveConclusion,
       clientName: patientDetails.clientName,
@@ -2877,6 +2949,9 @@ export default function TexlexReportPage() {
       presentingConcerns,
       rawNotes,
       setSectionVoiceCriticBadge,
+      severityLevelA,
+      severityLevelB,
+      severityRationale,
     ]
   );
 
@@ -2904,6 +2979,17 @@ export default function TexlexReportPage() {
       }));
       return;
     }
+    const modalityGate = gateModality({
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    });
+    if (!modalityGate.ok) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: modalityGate.errors.join(" "),
+      }));
+      return;
+    }
     streamAbortRef.current?.abort();
     const controller = new AbortController();
     streamAbortRef.current = controller;
@@ -2923,6 +3009,10 @@ export default function TexlexReportPage() {
     const criteriaState = buildCriteriaStateBlock(criteria);
     const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
     const chronologicalAge = computeChronologicalAge(patientDetails.dob);
+    const modalityInput = {
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    };
     try {
       await streamTexlexWithCriticSse(
         "/api/generate/recommendations",
@@ -2942,7 +3032,7 @@ export default function TexlexReportPage() {
         },
         (delta) => setRecommendations((prev) => prev + delta),
         (meta, finalContent) => {
-          setRecommendations(finalContent);
+          setRecommendations(ensureInPersonConfirmationText(finalContent, modalityInput));
           setSectionVoiceCriticBadge(sectionId, meta);
           logVoiceCriticComplete("Recommendations", meta);
         },
@@ -2996,6 +3086,36 @@ export default function TexlexReportPage() {
         "report-generation": GENERATION_MIN_NOTES_ERROR,
       }));
       return;
+    }
+
+    const modalityGate = gateModality({
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    });
+    if (!modalityGate.ok) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        "report-generation": modalityGate.errors.join(" "),
+      }));
+      return;
+    }
+
+    if (resolveTexlexDiagnosticConclusion(diagnosticConclusion) === "meets") {
+      const severityGate = confirmSeverity({
+        levelA: severityLevelA,
+        levelB: severityLevelB,
+        suggestion: buildSeveritySuggestion(pipeline.levelOfSupport),
+        confirmedBy: patientDetails.assessor,
+        rationale: severityRationale,
+        conclusion: "meets",
+      });
+      if (!severityGate.ok) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          "report-generation": severityGate.errors.join(" "),
+        }));
+        return;
+      }
     }
 
     setSectionGenErrors((p) => {
@@ -3081,6 +3201,13 @@ export default function TexlexReportPage() {
     runRecommendationsStream,
     startCriterionGeneration,
     diagnosticConclusion,
+    patientDetails.assessmentModality,
+    patientDetails.virtualCareReason,
+    patientDetails.assessor,
+    pipeline.levelOfSupport,
+    severityLevelA,
+    severityLevelB,
+    severityRationale,
   ]);
 
   const handleGenerateReport = useCallback(() => {
@@ -3341,6 +3468,7 @@ export default function TexlexReportPage() {
       limitationsText,
       lastSaved,
       diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
+      severityAudit,
     };
   }, [
     patientDetails,
@@ -3357,6 +3485,7 @@ export default function TexlexReportPage() {
     recommendations,
     limitationsText,
     diagnosticConclusion,
+    severityAudit,
   ]);
 
   const draftIsEffectivelyEmpty = useMemo(
@@ -3526,6 +3655,12 @@ export default function TexlexReportPage() {
     setRecommendations(fresh.recommendations);
     setLimitationsText(fresh.limitationsText);
     setDiagnosticConclusion(fresh.diagnosticConclusion ?? "inconclusive");
+    setSeverityLevelA(undefined);
+    setSeverityLevelB(undefined);
+    setSeverityRationale("");
+    setSeverityAudit(null);
+    severityRationaleTouchedRef.current = false;
+    severityLevelsTouchedRef.current = false;
     setEditLimitations(false);
     setGeneratingSectionId(null);
     setSectionGenErrors({});
@@ -3582,6 +3717,12 @@ export default function TexlexReportPage() {
       setRecommendations(fresh.recommendations);
       setLimitationsText(fresh.limitationsText);
       setDiagnosticConclusion(fresh.diagnosticConclusion ?? "inconclusive");
+      setSeverityLevelA(undefined);
+      setSeverityLevelB(undefined);
+      setSeverityRationale("");
+      setSeverityAudit(null);
+      severityRationaleTouchedRef.current = false;
+      severityLevelsTouchedRef.current = false;
       setEditLimitations(false);
       setGeneratingSectionId(null);
       setSectionGenErrors({});
@@ -4586,6 +4727,69 @@ export default function TexlexReportPage() {
                           </td>
                         </tr>
                         <tr className="border-b border-border/80">
+                          <td className="border-r border-border/80 p-3 align-top" colSpan={2}>
+                            <div className="space-y-2 font-medium text-foreground">
+                              <span className="block text-xs font-normal uppercase tracking-wide text-muted-foreground">
+                                Assessment modality
+                              </span>
+                              <div className="flex flex-wrap gap-4">
+                                {(
+                                  [
+                                    { value: "in-clinic" as const, label: "In-clinic" },
+                                    { value: "virtual" as const, label: "Virtual (video)" },
+                                  ]
+                                ).map((option) => (
+                                  <label key={option.value} className="flex items-center gap-2 text-sm font-normal">
+                                    <input
+                                      type="radio"
+                                      name="asd-assessment-modality"
+                                      checked={patientDetails.assessmentModality === option.value}
+                                      onChange={() => {
+                                        touch();
+                                        setPatientDetails((p) => ({
+                                          ...p,
+                                          assessmentModality: option.value,
+                                          virtualCareReason:
+                                            option.value === "virtual" ? p.virtualCareReason : "",
+                                        }));
+                                      }}
+                                    />
+                                    {option.label}
+                                  </label>
+                                ))}
+                              </div>
+                              {patientDetails.assessmentModality === "virtual" ? (
+                                <label className="mt-2 block space-y-1 text-sm font-normal">
+                                  <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                    Virtual care reason (required)
+                                  </span>
+                                  <input
+                                    maxLength={METADATA_INPUT_MAX_LENGTH}
+                                    className={cn(inputClass, "w-full")}
+                                    placeholder="e.g. absconding risk, geographic access, inability to remain in-room"
+                                    value={patientDetails.virtualCareReason}
+                                    onChange={(e) => {
+                                      touch();
+                                      setPatientDetails((p) => ({
+                                        ...p,
+                                        virtualCareReason: e.target.value,
+                                      }));
+                                    }}
+                                  />
+                                </label>
+                              ) : null}
+                              {patientDetails.assessmentModality ? (
+                                <p className="text-xs font-normal text-muted-foreground">
+                                  {buildAssessmentContextModality({
+                                    modality: patientDetails.assessmentModality,
+                                    virtualCareReason: patientDetails.virtualCareReason,
+                                  })}
+                                </p>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                        <tr className="border-b border-border/80">
                           <td className="border-r border-border/80 p-3 align-top">
                             <label className="block space-y-1.5 font-medium text-foreground">
                               <span className="text-xs font-normal uppercase tracking-wide text-muted-foreground">
@@ -5160,6 +5364,104 @@ export default function TexlexReportPage() {
                   ⚠ Diagnostic conclusion (&quot;Does Not Meet&quot;) may not align with narrative content. Multiple
                   criteria show emerging features. Review before generating.
                 </div>
+              ) : null}
+              {resolveTexlexDiagnosticConclusion(diagnosticConclusion) === "meets" ? (
+                <Card className={cn(TEXLEX_SECTION_CONTAINER_CLASS, "mb-3")}>
+                  <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">
+                        DSM severity (support needs)
+                      </p>
+                      {severityAudit ? (
+                        <Badge variant="secondary" className="text-xs font-normal">
+                          Severity: {severitySourceLabel(severityAudit.source)}
+                        </Badge>
+                      ) : severitySuggestion.determinable ? (
+                        <Badge variant="outline" className="text-xs font-normal">
+                          Engine-suggested — editable
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs font-normal">
+                          Set manually
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Engine pre-fills Level A/B from markers and adjuncts. Change either level if the
+                      clinical call differs — criterion ratings stay evidence-strength only.
+                    </p>
+                    {severitySuggestion.determinable && severitySuggestion.basis ? (
+                      <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        {severitySuggestion.basis}
+                      </p>
+                    ) : null}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block space-y-1 text-sm">
+                        <span className="text-muted-foreground">Level A (social communication)</span>
+                        <select
+                          className={cn(inputClass, "w-full")}
+                          value={severityLevelA ?? ""}
+                          onChange={(e) => {
+                            touch();
+                            const v = e.target.value;
+                            severityLevelsTouchedRef.current = true;
+                            setSeverityLevelA(v === "1" || v === "2" || v === "3" ? (Number(v) as DsmLevel) : undefined);
+                            setSeverityAudit(null);
+                          }}
+                        >
+                          <option value="">Select…</option>
+                          <option value="1">Level 1 — requiring support</option>
+                          <option value="2">Level 2 — requiring substantial support</option>
+                          <option value="3">Level 3 — requiring very substantial support</option>
+                        </select>
+                      </label>
+                      <label className="block space-y-1 text-sm">
+                        <span className="text-muted-foreground">Level B (RRB)</span>
+                        <select
+                          className={cn(inputClass, "w-full")}
+                          value={severityLevelB ?? ""}
+                          onChange={(e) => {
+                            touch();
+                            const v = e.target.value;
+                            severityLevelsTouchedRef.current = true;
+                            setSeverityLevelB(v === "1" || v === "2" || v === "3" ? (Number(v) as DsmLevel) : undefined);
+                            setSeverityAudit(null);
+                          }}
+                        >
+                          <option value="">Select…</option>
+                          <option value="1">Level 1 — requiring support</option>
+                          <option value="2">Level 2 — requiring substantial support</option>
+                          <option value="3">Level 3 — requiring very substantial support</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="block space-y-1 text-sm">
+                      <span className="text-muted-foreground">
+                        Rationale (auto-filled from engine — edit if you change levels)
+                      </span>
+                      <Textarea
+                        rows={3}
+                        className="rounded-lg text-sm"
+                        placeholder="Filled from the engine suggestion when available."
+                        value={severityRationale}
+                        onChange={(e) => {
+                          touch();
+                          severityRationaleTouchedRef.current = true;
+                          setSeverityRationale(e.target.value);
+                          setSeverityAudit(null);
+                        }}
+                      />
+                    </label>
+                    {severitySuggestion.determinable &&
+                    (severityLevelA !== severitySuggestion.levelA ||
+                      severityLevelB !== severitySuggestion.levelB) ? (
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        Levels differ from the engine suggestion — keep or edit the rationale so the
+                        override is documented.
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
               ) : null}
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>

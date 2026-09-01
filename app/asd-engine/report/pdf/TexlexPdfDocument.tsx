@@ -19,6 +19,7 @@ import { SectionCHeading } from "./sections/SectionCHeading";
 import { Signature } from "./sections/Signature";
 import { styles } from "./styles";
 import type { TexlexPdfDraft } from "./types";
+import { buildAssessmentContextModality } from "@/lib/modality/asd-modality";
 
 export type TexlexPdfDocumentProps = {
   draft: TexlexPdfDraft;
@@ -27,11 +28,16 @@ export type TexlexPdfDocumentProps = {
 };
 
 export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDocumentProps) {
+  const modalityLead = buildAssessmentContextModality({
+    modality: draft.patientDetails.assessmentModality,
+    virtualCareReason: draft.patientDetails.virtualCareReason,
+  });
+
   return (
     <Document>
       <Page size="A4" wrap={false} style={styles.page}>
         <Header draft={draft} logoSrc={logoSrc} />
-        <AssessmentContext />
+        <AssessmentContext modalityLead={modalityLead} />
       </Page>
       <Page size="A4" wrap style={styles.page}>
         <Footer />

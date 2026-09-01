@@ -8978,22 +8978,46 @@ function deriveLevelOfSupport(matrix: any, adjuncts: any = {}): any {
     !notesIndicateExplicitLevel3(adjuncts?.sourceNotes || "");
 
   if (meetsLevel1FloorConditions) {
-    levelOneFloorApplied = true;
-    levelA = 1;
-    levelB = 1;
-    overallLevel = 1;
-    derivationNote =
-      "Level 1 floor applied: external impairment markers <= 1, no safety markers, low primary IMPAIRMENT-domain count (cross-mapped sensory flags excluded). Presentation consistent with high-masking, mainstream-functioning, late-identified or AFAB profile.";
-    if (maskingMarkerHits >= 3) {
+    const heuristicAlreadyLevel2OrHigher =
+      (typeof levelA === "number" && levelA >= 2) ||
+      (typeof levelB === "number" && levelB >= 2) ||
+      (typeof overallLevel === "number" && overallLevel >= 2);
+
+    if (heuristicAlreadyLevel2OrHigher) {
+      // Do NOT force-downgrade a Level 2/3 domain call. The old floor stomped marked
+      // support-need profiles to L1 whenever external/safety markers were sparse,
+      // producing contradictory suggestions (L2 rationale text + L1 levels).
+      levelOneFloorApplied = false;
+      derivationNote =
+        "Level 1 floor conditions were present (sparse external impairment / no safety markers) but domain heuristics already assigned Level 2+. Floor NOT applied — clinician should confirm support needs.";
       levelOneFloorMaskingNote =
-        "Significant masking / camouflaging detected. Level 1 supports profile may underestimate true cost — consider supplementary masking-fatigue and burnout language in functional capacity statements.";
+        maskingMarkerHits >= 3
+          ? "Masking markers present alongside Level 2+ heuristic — observable presentation may still understate support needs; confirm levels clinically."
+          : "Sparse external-support markers alone do not justify downgrading a Level 2+ heuristic call.";
+      levelA_rationale.push(
+        "Level 1 floor considered but not applied: heuristic support needs remain Level 2+ pending clinician confirmation."
+      );
+      levelB_rationale.push(
+        "Level 1 floor considered but not applied: heuristic support needs remain Level 2+ pending clinician confirmation."
+      );
+    } else {
+      levelOneFloorApplied = true;
+      levelA = 1;
+      levelB = 1;
+      overallLevel = 1;
+      derivationNote =
+        "Level 1 floor applied: external impairment markers <= 1, no safety markers, low primary IMPAIRMENT-domain count (cross-mapped sensory flags excluded). Presentation consistent with high-masking, mainstream-functioning, late-identified or AFAB profile.";
+      if (maskingMarkerHits >= 3) {
+        levelOneFloorMaskingNote =
+          "Significant masking / camouflaging detected. Level 1 supports profile may underestimate true cost — consider supplementary masking-fatigue and burnout language in functional capacity statements.";
+      }
+      levelA_rationale.push(
+        "Level 1 floor: minimal external supports and no safety markers — designation aligned with mainstream presentation despite high A/B marker volume."
+      );
+      levelB_rationale.push(
+        "Level 1 floor: minimal external supports and no safety markers — designation aligned with mainstream presentation despite high A/B marker volume."
+      );
     }
-    levelA_rationale.push(
-      "Level 1 floor: minimal external supports and no safety markers — designation aligned with mainstream presentation despite high A/B marker volume."
-    );
-    levelB_rationale.push(
-      "Level 1 floor: minimal external supports and no safety markers — designation aligned with mainstream presentation despite high A/B marker volume."
-    );
   }
 
   const levelLabels: Record<number, string> = {

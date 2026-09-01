@@ -13,27 +13,14 @@ This section is read closely by NDIS planners, school psychologists, paediatrici
 
 # CONTENT
 
-This section must serve two readers: NDIS access delegates, who read for substantially reduced functional capacity and sustained support need, and schools, who read for educational and participation impact and the accommodations required. Organise the summary by functional-capacity domain, not by setting. Within each domain, carry the setting-specific consequence (home, current school, community) so both readers find what they need.
+Write a short functional-capacity summary for NDIS and school readers in one integrated voice — not two essays. Cover only domains the evidence supports; omit unsupported domains silently. Prefer merging related impacts into dense paragraphs over one paragraph per domain.
 
-Work through EACH of the following functional-capacity domains in turn. For every domain where the source material contains supporting evidence, you MUST address it as its own distinct domain with its own statement of reduced capacity and consequence; do not merge it into another domain or omit it. For any domain where the evidence does not establish impairment, omit it silently (do not assert impairment that is not documented, and do not mention mobility or any domain the evidence does not support). The domains to work through:
-- Communication (expressive, receptive, reciprocal, non-literal)
-- Social interaction and relationships (initiation, reciprocity, peer connection)
-- Learning and functional academics (task completion, homework, organisation, classroom learning capacity), where the evidence supports it
-- Self-management and self-regulation (transitions, flexibility, regulation of behaviour and emotion across the day)
-- Self-care and daily living: personal care, grooming, feeding and diet, and daily routines, where these require adult scaffolding beyond age expectation. Treat this as its own capacity domain; do not fold grooming, feeding, or personal-care impact into the sensory paragraph. Where the evidence shows reduced independent self-care (for example, support needed for haircuts or grooming, a narrow or negotiated diet, reliance on adults to manage daily routines), state it explicitly as reduced self-care capacity.
-- Community and social participation (activities, group settings, access)
+Domains to consider (include only when evidenced):
+- Communication; social participation; learning / classroom access; self-management / regulation; self-care / daily living; community access
 
-Before finishing, check each domain above against the evidence: if the source documents impairment in that domain, it must appear as its own stated reduced-capacity point. Self-care (grooming, haircuts, feeding, diet, daily personal routines) and learning (task completion, homework, organisation, classroom learning) are frequently under-stated; if the evidence supports them, state them explicitly and do not absorb them into the sensory or self-management paragraphs.
+For each included impact, state what the client cannot do independently (or can only do with sustained support) relative to same-age expectation, and name the setting consequence (home, current school, community) briefly. Use NDIS-readable capacity language where evidenced (substantially reduced capacity; sustained rather than episodic support). Do not invent impairments for funding strength.
 
-For each domain addressed, state the impact in functional-capacity terms: what the client cannot do, or can only do with sustained support, relative to same-age expectation. Where the evidence supports it, use the register NDIS reads for: substantially reduced capacity to [communicate / interact / manage daily routines] without support, and support that is sustained rather than episodic. Make the educational consequence explicit within the relevant domains (classroom access, unstructured periods, peer participation) so the school reader can act on it.
-
-ANALYTIC METHOD: analyse functional impact the way a structured adaptive-behaviour assessment does. For each domain above that the evidence supports, judge the client's typical independent performance relative to same-age expectation, what they actually do without assistance, not what they can do when prompted or supported, and state the resulting reduced capacity and its functional consequence. Then integrate across domains into a single coherent functional picture, identifying the cross-domain pattern and the overall level of adaptive support required. This integration is expressed as clinical synthesis only; never assign, imply, or imitate a standardised score, composite, percentile, or adaptive-age equivalent, and never name or quote a standardised adaptive instrument unless one was actually administered and appears in the source material.
-
-CROSS-REFERENCE: where the collateral contains standardised screening data, use that profile internally to corroborate which domains show reduced capacity (for example, elevations in the sensory and rigidity cluster reinforce the daily-living and self-management domains; social-communication elevations reinforce the communication and social domains). Do NOT name the instrument, quote its scores, or attribute any statement to it in this section; that data is reported in the collateral section. Here it only sharpens the domain analysis. Every stated impairment must still be grounded in the clinical and parent-report evidence; the screening data corroborates, it never generates a conclusion on its own.
-
-GROUNDING (mandatory): functional impairment must be drawn only from the supplied material. Do NOT manufacture, exaggerate, or inflate any deficit to strengthen an access or funding case. If the evidence does not establish impairment in a domain, that domain does not appear. Overstating functional impact is a serious integrity failure, state only what the assessment documented.
-
-Open with the client's first name. Use third person. Do not introduce new clinical evidence; consolidate what the preceding sections established. Do not list recommendations, but you may close by noting the integrated, sustained support load the family and system are currently carrying, and that this load reflects functional need rather than episodic difficulty.
+Do not name screening instruments or quote scores here. Do not assign adaptive scores or age-equivalents. Open with the client's first name. Third person. No recommendations list.
 
 # EVIDENCE RECENCY (MANDATORY)
 
@@ -47,7 +34,7 @@ ${CLINICAL_RECENCY_GATE_FUNCTIONAL_IMPACT}
 
 # LENGTH
 
-Two to four short paragraphs, organised by functional-capacity domain. Long enough to establish reduced capacity and support need across the supported domains for both NDIS and school readers, but no padding: every sentence states a real functional consequence drawn from the evidence. Dense synthesis over length.
+Two to three short paragraphs (about 150–280 words). Every sentence states a real functional consequence. No padding, no domain-by-domain essay.
 
 # PARAGRAPH FORMAT (PDF)
 
