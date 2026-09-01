@@ -2797,7 +2797,10 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runFunctionalImpactStream]);
 
   const runFormulationStream = useCallback(
-    async (snapshot?: ReportGenerationSnapshot): Promise<string | null> => {
+    async (
+      snapshot?: ReportGenerationSnapshot,
+      options?: { mode?: "first" | "regenerate" }
+    ): Promise<string | null> => {
     const sectionId = "clinical-formulation";
     const masterInput = rawNotes.trim();
     if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
@@ -2828,6 +2831,9 @@ export default function TexlexReportPage() {
       clinicalFormulation,
       diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
     };
+    const existingFormulation = source.clinicalFormulation.trim();
+    const severityMode: "first" | "regenerate" =
+      options?.mode ?? (existingFormulation || severityAudit ? "regenerate" : "first");
     const effectiveConclusion = resolveTexlexDiagnosticConclusion(source.diagnosticConclusion);
     const criteriaLock = criteriaSnapshotForFormulationLock(source.criteria);
     const suggestion = buildSeveritySuggestion(pipeline.levelOfSupport);
@@ -2838,6 +2844,7 @@ export default function TexlexReportPage() {
       confirmedBy: patientDetails.assessor,
       rationale: severityRationale,
       conclusion: effectiveConclusion,
+      mode: severityMode,
     });
     if (!severityGate.ok) {
       setSectionGenErrors((p) => ({
@@ -2952,6 +2959,8 @@ export default function TexlexReportPage() {
       severityLevelA,
       severityLevelB,
       severityRationale,
+      severityAudit,
+      clinicalFormulation,
     ]
   );
 
@@ -2961,12 +2970,14 @@ export default function TexlexReportPage() {
       streamAbortRef.current?.abort();
       return;
     }
-    void runFormulationStream();
-  }, [generatingSectionId, runFormulationStream]);
+    const mode: "first" | "regenerate" =
+      clinicalFormulation.trim() || severityAudit ? "regenerate" : "first";
+    void runFormulationStream(undefined, { mode });
+  }, [clinicalFormulation, generatingSectionId, runFormulationStream, severityAudit]);
 
   const handleRegenerateFormulation = useCallback(() => {
     if (generatingSectionId === "clinical-formulation") return;
-    void runFormulationStream();
+    void runFormulationStream(undefined, { mode: "regenerate" });
   }, [generatingSectionId, runFormulationStream]);
 
   const runRecommendationsStream = useCallback(async () => {
@@ -3108,6 +3119,7 @@ export default function TexlexReportPage() {
         confirmedBy: patientDetails.assessor,
         rationale: severityRationale,
         conclusion: "meets",
+        mode: clinicalFormulation.trim() || severityAudit ? "regenerate" : "first",
       });
       if (!severityGate.ok) {
         setSectionGenErrors((p) => ({
@@ -3180,7 +3192,9 @@ export default function TexlexReportPage() {
         await applyCriterionNarrative(code);
       }
 
-      const formulationGenerated = await runFormulationStream(snapshot);
+      const formulationGenerated = await runFormulationStream(snapshot, {
+        mode: snapshot.clinicalFormulation.trim() || severityAudit ? "regenerate" : "first",
+      });
       if (formulationGenerated) snapshot.clinicalFormulation = formulationGenerated;
 
       await runRecommendationsStream();
@@ -3208,6 +3222,8 @@ export default function TexlexReportPage() {
     severityLevelA,
     severityLevelB,
     severityRationale,
+    clinicalFormulation,
+    severityAudit,
   ]);
 
   const handleGenerateReport = useCallback(() => {
@@ -5388,7 +5404,11 @@ export default function TexlexReportPage() {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Engine pre-fills Level A/B from markers and adjuncts. Change either level if the
-                      clinical call differs — criterion ratings stay evidence-strength only.
+                      clinical call differs — criterion ratings stay evidence-strength only.{" "}
+                      <span className="text-foreground/80">
+                        After the report exists, use Regenerate — it trusts your current levels without
+                        re-justifying an override.
+                      </span>
                     </p>
                     {severitySuggestion.determinable && severitySuggestion.basis ? (
                       <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">

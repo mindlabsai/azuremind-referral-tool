@@ -133,7 +133,16 @@ export function buildSeveritySuggestion(
   return { determinable: false };
 }
 
-/** The only path to a usable severity when conclusion is meets. */
+/** Prefill when clinician sets levels with no usable engine suggestion. */
+export function buildManualSeverityRationale(levelA: DsmLevel, levelB: DsmLevel): string {
+  return `Clinician-set support needs: Level A ${levelA}, Level B ${levelB}.`;
+}
+
+/**
+ * The only path to a usable severity when conclusion is meets.
+ * - first: engine accept is light; overriding a real engine suggestion needs a short rationale
+ * - regenerate: after report/formulation exists — trust current A/B; no override tax
+ */
 export function confirmSeverity(input: {
   levelA: DsmLevel | undefined;
   levelB: DsmLevel | undefined;
@@ -141,8 +150,11 @@ export function confirmSeverity(input: {
   confirmedBy: string | undefined;
   rationale: string | undefined;
   conclusion: "meets" | "does_not_meet" | "inconclusive";
+  /** first = initial lock; regenerate = post-report refine (clinician levels win). */
+  mode?: "first" | "regenerate";
 }): SeverityGateResult {
   const errors: string[] = [];
+  const mode = input.mode ?? "first";
 
   if (input.conclusion !== "meets") {
     return { ok: true, errors: [] };
@@ -158,6 +170,8 @@ export function confirmSeverity(input: {
     errors.push("Severity has no clinician attribution (assessor field is empty).");
   }
 
+  if (errors.length) return { ok: false, errors };
+
   const s = input.suggestion;
   const acceptingEngine =
     Boolean(s.determinable) && s.levelA === input.levelA && s.levelB === input.levelB;
@@ -166,15 +180,17 @@ export function confirmSeverity(input: {
   if (!rationale && acceptingEngine) {
     rationale = buildDefaultSeverityRationale(s);
   }
+  if (!rationale && (!s.determinable || mode === "regenerate")) {
+    rationale = buildManualSeverityRationale(input.levelA!, input.levelB!);
+  }
 
-  if (!acceptingEngine && rationale.length < MIN_RATIONALE_CHARS) {
+  const overridingEngine = Boolean(s.determinable) && !acceptingEngine;
+  if (mode === "first" && overridingEngine && rationale.length < MIN_RATIONALE_CHARS) {
     errors.push(
-      `Severity was changed from the engine suggestion — add a short rationale (min ${MIN_RATIONALE_CHARS} characters) for the override.`
+      `Severity was changed from the engine suggestion — add a short rationale (min ${MIN_RATIONALE_CHARS} characters) for the override, or use Regenerate after the report exists to refine with your levels.`
     );
   } else if (!rationale) {
-    errors.push(
-      "Severity levels are not set. Wait for an engine suggestion or choose Level A and Level B."
-    );
+    errors.push("Choose Level A and Level B before generating formulation.");
   }
 
   if (errors.length) return { ok: false, errors };
