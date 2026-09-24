@@ -1,0 +1,122 @@
+/** Finalize Review — audit findings only; never invent clinical content. */
+
+export type ReviewSectionId =
+  | "presenting-concerns"
+  | "background-pregnancy-birth"
+  | "background-early-development"
+  | "background-educational-history"
+  | "background-emotional-behavioural-sensory"
+  | "collateral"
+  | "criterion-A1"
+  | "criterion-A2"
+  | "criterion-A3"
+  | "criterion-B1"
+  | "criterion-B2"
+  | "criterion-B3"
+  | "criterion-B4"
+  | "criterion-C"
+  | "criterion-D"
+  | "criterion-E"
+  | "functional-impact"
+  | "clinical-formulation"
+  | "recommendations"
+  | "limitations";
+
+export type ReviewSeverity = "blocking" | "major" | "minor";
+
+export type ReviewCheckKind =
+  | "name_mismatch"
+  | "pronoun_mismatch"
+  | "level_ab_vs_opening"
+  | "modality_mismatch"
+  | "major_inconsistency"
+  | "differential_consistency";
+
+export type ReviewFindingStatus = "open" | "accepted" | "rejected" | "resolved";
+
+export type ReviewFindingSource = "deterministic" | "llm";
+
+export type ReviewApplyHint = {
+  mode: "replace_all_in_section" | "replace_opening_sentence";
+  find: string;
+  replace: string;
+};
+
+export type ReviewFinding = {
+  id: string;
+  runId: string;
+  source: ReviewFindingSource;
+  kind: ReviewCheckKind;
+  severity: ReviewSeverity;
+  sectionId: ReviewSectionId;
+  title: string;
+  detail: string;
+  evidenceExcerpt: string | null;
+  suggestedEdit: string | null;
+  applyHint: ReviewApplyHint | null;
+  status: ReviewFindingStatus;
+  decidedAt: string | null;
+};
+
+export type ReviewRunStatus = "running" | "complete" | "failed" | "cancelled";
+
+export type ReviewRunSnapshot = {
+  diagnosticConclusion: string;
+  confirmedLevelA: number | null;
+  confirmedLevelB: number | null;
+  assessmentModality: "" | "in-clinic" | "virtual";
+  clientName: string;
+  pronouns: string;
+};
+
+export type ReviewRun = {
+  id: string;
+  createdAt: string;
+  completedAt: string | null;
+  status: ReviewRunStatus;
+  modelUsed: string | null;
+  llmSkipped: boolean;
+  error: string | null;
+  snapshot: ReviewRunSnapshot;
+  findings: ReviewFinding[];
+  summary: {
+    blockingCount: number;
+    majorCount: number;
+    minorCount: number;
+    openBlockingCount: number;
+  };
+};
+
+export type ReviewSectionInput = {
+  sectionId: ReviewSectionId;
+  text: string;
+};
+
+export function emptyReviewSummary(): ReviewRun["summary"] {
+  return { blockingCount: 0, majorCount: 0, minorCount: 0, openBlockingCount: 0 };
+}
+
+export function computeReviewSummary(findings: ReviewFinding[]): ReviewRun["summary"] {
+  const summary = emptyReviewSummary();
+  for (const f of findings) {
+    if (f.severity === "blocking") summary.blockingCount++;
+    else if (f.severity === "major") summary.majorCount++;
+    else summary.minorCount++;
+    if (f.severity === "blocking" && (f.status === "open" || f.status === "accepted")) {
+      // accepted but not yet edited still blocks until resolved on re-run
+      if (f.status === "open") summary.openBlockingCount++;
+    }
+  }
+  // Recalculate open blocking only for status open
+  summary.openBlockingCount = findings.filter(
+    (f) => f.severity === "blocking" && f.status === "open"
+  ).length;
+  return summary;
+}
+
+export function newReviewId(prefix = "rev"): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}_${crypto.randomUUID()}`;
+  }
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}

@@ -25,6 +25,13 @@ type TexlexReportHeaderProps = {
   onPreviewPdf: () => void;
   onNewReport: () => void;
   onSaveDraft: () => void;
+  onFinalizeReview?: () => void;
+  /** When false, Final PDF actions stay available as draft download but show gate hint. */
+  finalPdfUnlocked?: boolean;
+  onFinalPdfDownload?: () => void;
+  /** After Final PDF — jump to Send via Texlex. */
+  sendUnlocked?: boolean;
+  onOpenSend?: () => void;
   statusExtras?: ReactNode;
 };
 
@@ -155,6 +162,11 @@ export function TexlexReportHeader({
   onPreviewPdf,
   onNewReport,
   onSaveDraft,
+  onFinalizeReview,
+  finalPdfUnlocked = true,
+  onFinalPdfDownload,
+  sendUnlocked = false,
+  onOpenSend,
   statusExtras,
 }: TexlexReportHeaderProps) {
   const displayName = clientName.trim() || "Client name not set";
@@ -190,6 +202,16 @@ export function TexlexReportHeader({
           >
             Save
           </button>
+          {onFinalizeReview ? (
+            <button
+              type="button"
+              className={TEXLEX_SECONDARY_BUTTON_CLASS}
+              disabled={pdfDownloading}
+              onClick={onFinalizeReview}
+            >
+              Finalize review
+            </button>
+          ) : null}
           <button
             type="button"
             className={TEXLEX_SECONDARY_BUTTON_CLASS}
@@ -203,17 +225,44 @@ export function TexlexReportHeader({
             className={TEXLEX_SECONDARY_BUTTON_CLASS}
             disabled={pdfDownloading}
             onClick={onDownloadOnly}
+            title="Draft download (still available while review findings are open)"
           >
-            {pdfBusyMode === "only" ? "Preparing…" : "Download only"}
+            {pdfBusyMode === "only" ? "Preparing…" : "Download draft"}
           </button>
           <button
             type="button"
             className={TEXLEX_PRIMARY_BUTTON_CLASS}
-            disabled={pdfDownloading}
-            onClick={onDownloadAndSave}
+            disabled={pdfDownloading || (onFinalPdfDownload ? !finalPdfUnlocked : false)}
+            title={
+              onFinalPdfDownload && !finalPdfUnlocked
+                ? "Clear blocking Finalize review findings first"
+                : undefined
+            }
+            onClick={onFinalPdfDownload ?? onDownloadAndSave}
           >
-            {pdfBusyMode === "save" ? "Preparing…" : "Download & save to Cliniko"}
+            {pdfBusyMode === "save"
+              ? "Preparing…"
+              : onFinalPdfDownload
+                ? finalPdfUnlocked
+                  ? "Final PDF"
+                  : "Final PDF (blocked)"
+                : "Download & save to Cliniko"}
           </button>
+          {onOpenSend ? (
+            <button
+              type="button"
+              className={TEXLEX_SECONDARY_BUTTON_CLASS}
+              disabled={pdfDownloading || !sendUnlocked}
+              title={
+                sendUnlocked
+                  ? "Email parents, Dr Muru, or referrers via Texlex"
+                  : "Complete Final PDF first"
+              }
+              onClick={onOpenSend}
+            >
+              Send
+            </button>
+          ) : null}
           <TexlexHeaderOverflowMenu
             saveFailed={saveFailed}
             pdfDownloading={pdfDownloading}

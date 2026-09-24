@@ -43,6 +43,8 @@ const NAV_GROUPS: readonly NavGroup[] = [
       { id: "formulation", label: "Formulation" },
       { id: "recommendations", label: "Recommendations" },
       { id: "limitations", label: "Limitations" },
+      { id: "finalize-review", label: "Finalize review" },
+      { id: "texlex-send", label: "Send via Texlex" },
       { id: "signature", label: "Signature" },
     ],
   },

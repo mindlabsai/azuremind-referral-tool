@@ -69,6 +69,17 @@ import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import { SavedDraftsByName } from "./components/SavedDraftsByName";
 import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
 import { TexlexReportImport } from "./components/TexlexReportImport";
+import { TexlexFinalizeReviewPanel } from "./components/TexlexFinalizeReviewPanel";
+import { TexlexSendPanel } from "./components/TexlexSendPanel";
+import type { LetterMergeFields } from "@/lib/texlex-comms/letters";
+import { parseRecipientList } from "@/lib/texlex-comms/letters";
+import { buildAsdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
+import { applyReviewHintToText } from "@/lib/texlex-finalize-review/apply-minimal";
+import {
+  computeReviewSummary,
+  type ReviewFinding,
+  type ReviewRun,
+} from "@/lib/texlex-finalize-review/types";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import {
   clearAsdLegacyLocalDraftKeys,
@@ -1597,6 +1608,10 @@ export type TexlexReportDraftV1 = {
   diagnosticConclusion?: TexlexDiagnosticConclusion;
   /** Audit trail for confirmed DSM severity used in formulation lock. */
   severityAudit?: SeverityAuditRecord | null;
+  /** Finalize review passes (newest last). */
+  finalizeReviewRuns?: ReviewRun[];
+  /** True after Final PDF downloaded (+ Cliniko attempt). Unlocks Send via Texlex. */
+  finalPackageReady?: boolean;
 };
 
 const A_CRITERION_CODES = ["A1", "A2", "A3"] as const satisfies readonly CriterionCode[];
@@ -1673,6 +1688,10 @@ function buildComparableDraftFromStorage(data: Partial<TexlexReportDraftV1>): Om
         ? data.diagnosticConclusion
         : "inconclusive",
     severityAudit: parseStoredSeverityAudit(data.severityAudit),
+    finalizeReviewRuns: Array.isArray(data.finalizeReviewRuns)
+      ? (data.finalizeReviewRuns as ReviewRun[]).slice(-20)
+      : [],
+    finalPackageReady: data.finalPackageReady === true,
   };
 }
 
@@ -1692,6 +1711,8 @@ function defaultDraft(): Omit<TexlexReportDraftV1, "lastSaved"> {
     limitationsText: TEXLEX_LIMITATIONS,
     diagnosticConclusion: "inconclusive",
     severityAudit: null,
+    finalizeReviewRuns: [],
+    finalPackageReady: false,
   };
 }
 
@@ -2026,6 +2047,10 @@ export default function TexlexReportPage() {
   const [severityLevelB, setSeverityLevelB] = useState<DsmLevel | undefined>();
   const [severityRationale, setSeverityRationale] = useState("");
   const [severityAudit, setSeverityAudit] = useState<SeverityAuditRecord | null>(null);
+  const [finalizeReviewRuns, setFinalizeReviewRuns] = useState<ReviewRun[]>([]);
+  const [finalizeReviewing, setFinalizeReviewing] = useState(false);
+  const [finalizeReviewError, setFinalizeReviewError] = useState<string | null>(null);
+  const [finalPackageReady, setFinalPackageReady] = useState(false);
   const [editLimitations, setEditLimitations] = useState(false);
 
   const [hydrated, setHydrated] = useState(false);
@@ -2165,6 +2190,12 @@ export default function TexlexReportPage() {
       setSeverityRationale(restoredAudit.rationale);
       severityRationaleTouchedRef.current = true;
       severityLevelsTouchedRef.current = true;
+    }
+    if (Array.isArray(data.finalizeReviewRuns)) {
+      setFinalizeReviewRuns(data.finalizeReviewRuns.slice(-20) as ReviewRun[]);
+    }
+    if (typeof data.finalPackageReady === "boolean") {
+      setFinalPackageReady(data.finalPackageReady);
     }
     if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
   }, []);
@@ -3485,6 +3516,8 @@ export default function TexlexReportPage() {
       lastSaved,
       diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
       severityAudit,
+      finalizeReviewRuns: finalizeReviewRuns.slice(-20),
+      finalPackageReady,
     };
   }, [
     patientDetails,
@@ -3502,6 +3535,8 @@ export default function TexlexReportPage() {
     limitationsText,
     diagnosticConclusion,
     severityAudit,
+    finalizeReviewRuns,
+    finalPackageReady,
   ]);
 
   const draftIsEffectivelyEmpty = useMemo(
@@ -3677,6 +3712,9 @@ export default function TexlexReportPage() {
     setSeverityAudit(null);
     severityRationaleTouchedRef.current = false;
     severityLevelsTouchedRef.current = false;
+    setFinalizeReviewRuns([]);
+    setFinalizeReviewError(null);
+    setFinalPackageReady(false);
     setEditLimitations(false);
     setGeneratingSectionId(null);
     setSectionGenErrors({});
@@ -3739,6 +3777,9 @@ export default function TexlexReportPage() {
       setSeverityAudit(null);
       severityRationaleTouchedRef.current = false;
       severityLevelsTouchedRef.current = false;
+      setFinalizeReviewRuns([]);
+      setFinalizeReviewError(null);
+      setFinalPackageReady(false);
       setEditLimitations(false);
       setGeneratingSectionId(null);
       setSectionGenErrors({});
@@ -3899,6 +3940,237 @@ export default function TexlexReportPage() {
       setPdfBusyMode(null);
     }
   }, [buildAsdPdfBlob, pdfBusyMode, triggerPdfDownload]);
+
+  const finalPdfUnlocked = useMemo(() => {
+    if (!finalizeReviewRuns.length) return false;
+    const latest = finalizeReviewRuns[finalizeReviewRuns.length - 1]!;
+    return latest.summary.openBlockingCount === 0;
+  }, [finalizeReviewRuns]);
+
+  const scrollToFinalizeReview = useCallback(() => {
+    document.getElementById("finalize-review")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const scrollToSend = useCallback(() => {
+    document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const letterMergeFields = useMemo((): LetterMergeFields => {
+    const conclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+    const levelA = severityAudit?.confirmed_levelA ?? severityLevelA ?? null;
+    const levelB = severityAudit?.confirmed_levelB ?? severityLevelB ?? null;
+    let severityLine = "";
+    if (conclusion === "meets" && levelA != null && levelB != null) {
+      severityLine = `DSM-5-TR severity: Level ${levelA} (social communication) / Level ${levelB} (restricted, repetitive behaviours).`;
+    }
+    const modality =
+      patientDetails.assessmentModality === "in-clinic"
+        ? "in-clinic"
+        : patientDetails.assessmentModality === "virtual"
+          ? "via secure video (telehealth virtual care)"
+          : "";
+    return {
+      clientName: patientDetails.clientName.trim(),
+      clientFirstName: clientFirstName(patientDetails.clientName),
+      pronouns: patientDetails.pronouns.trim(),
+      dob: patientDetails.dob.trim(),
+      chronologicalAge: computeChronologicalAge(patientDetails.dob),
+      parent1: patientDetails.parent1.trim(),
+      parent2: patientDetails.parent2.trim(),
+      school: patientDetails.school.trim(),
+      yearLevel: patientDetails.yearLevel.trim(),
+      referringPractitioner: patientDetails.referringPractitioner.trim(),
+      referringPractitionerType: patientDetails.referringPractitionerType.trim(),
+      assessor: patientDetails.assessor.trim() || DEFAULT_ASSESSOR,
+      reportDate: patientDetails.reportDate.trim(),
+      assessmentModality: modality,
+      diagnosticConclusionLabel: DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL[conclusion],
+      severityLine,
+      practiceName: TEXLEX_SIGNATURE.practice,
+      practicePhone: "",
+    };
+  }, [
+    diagnosticConclusion,
+    patientDetails,
+    severityAudit,
+    severityLevelA,
+    severityLevelB,
+  ]);
+
+  const defaultSendRecipients = useMemo(() => {
+    return parseRecipientList(patientDetails.referringPractitionerEmail);
+  }, [patientDetails.referringPractitionerEmail]);
+
+  const buildReportPdfBase64ForSend = useCallback(async () => {
+    const { blob, filename } = await buildAsdPdfBlob();
+    const buf = await blob.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return { filename, contentBase64: btoa(binary) };
+  }, [buildAsdPdfBlob]);
+
+  const runFinalizeReview = useCallback(async () => {
+    setFinalizeReviewing(true);
+    setFinalizeReviewError(null);
+    touch();
+    try {
+      const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+      const levelA = severityAudit?.confirmed_levelA ?? severityLevelA ?? null;
+      const levelB = severityAudit?.confirmed_levelB ?? severityLevelB ?? null;
+      let expectedFormulationOpening = "";
+      try {
+        expectedFormulationOpening = buildLockedFormulationOpening({
+          conclusion: effectiveConclusion,
+          clientName: patientDetails.clientName,
+          criteria: criteriaSnapshotForFormulationLock(criteria),
+          levelA,
+          levelB,
+          determinable: levelA != null && levelB != null,
+        });
+      } catch {
+        expectedFormulationOpening = "";
+      }
+
+      const sections = buildAsdReviewSections({
+        presentingConcerns,
+        background: {
+          pregnancyBirth: background.pregnancyBirth,
+          earlyDevelopment: background.earlyDevelopment,
+          educationalHistory: background.educationalHistory,
+          emotionalBehaviouralSensory: background.emotionalBehaviouralSensory,
+        },
+        collateralSummary,
+        criteria,
+        functionalImpactSummary,
+        clinicalFormulation,
+        recommendations,
+        limitationsText,
+      });
+
+      const res = await fetch("/api/generate/finalize-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientDetails,
+          diagnosticConclusion: effectiveConclusion,
+          confirmedLevelA: levelA,
+          confirmedLevelB: levelB,
+          expectedFormulationOpening,
+          ratingsAssigned: buildRatingsAssignedSnapshot(criteria),
+          sections,
+        }),
+      });
+      const data = (await res.json()) as { run?: ReviewRun; error?: string };
+      if (!res.ok || !data.run) {
+        throw new Error(data.error || "Finalize review failed");
+      }
+      setFinalizeReviewRuns((prev) => [...prev, data.run!].slice(-20));
+      scrollToFinalizeReview();
+    } catch (err) {
+      setFinalizeReviewError(err instanceof Error ? err.message : "Finalize review failed");
+    } finally {
+      setFinalizeReviewing(false);
+    }
+  }, [
+    background.earlyDevelopment,
+    background.educationalHistory,
+    background.emotionalBehaviouralSensory,
+    background.pregnancyBirth,
+    clinicalFormulation,
+    collateralSummary,
+    criteria,
+    diagnosticConclusion,
+    functionalImpactSummary,
+    limitationsText,
+    patientDetails,
+    presentingConcerns,
+    recommendations,
+    scrollToFinalizeReview,
+    severityAudit,
+    severityLevelA,
+    severityLevelB,
+    touch,
+  ]);
+
+  const updateLatestFindingStatus = useCallback(
+    (findingId: string, status: ReviewFinding["status"]) => {
+      touch();
+      setFinalizeReviewRuns((prev) => {
+        if (!prev.length) return prev;
+        const next = [...prev];
+        const last = { ...next[next.length - 1]! };
+        last.findings = last.findings.map((f) =>
+          f.id === findingId ? { ...f, status, decidedAt: new Date().toISOString() } : f
+        );
+        last.summary = computeReviewSummary(last.findings);
+        next[next.length - 1] = last;
+        return next;
+      });
+    },
+    [touch]
+  );
+
+  const applyFinalizeFinding = useCallback(
+    (finding: ReviewFinding) => {
+      if (!finding.applyHint) {
+        updateLatestFindingStatus(finding.id, "accepted");
+        return;
+      }
+      touch();
+      const hint = finding.applyHint;
+      const applyTo = (text: string) => applyReviewHintToText(text, hint);
+
+      switch (finding.sectionId) {
+        case "clinical-formulation":
+          setClinicalFormulation((t) => applyTo(t));
+          break;
+        case "presenting-concerns":
+          setPresentingConcerns((t) => applyTo(t));
+          break;
+        case "functional-impact":
+          setFunctionalImpactSummary((t) => applyTo(t));
+          break;
+        case "recommendations":
+          setRecommendations((t) => applyTo(t));
+          break;
+        case "collateral":
+          setCollateralSummary((t) => applyTo(t));
+          break;
+        case "limitations":
+          setLimitationsText((t) => applyTo(t));
+          break;
+        case "background-pregnancy-birth":
+          setBackground((b) => ({ ...b, pregnancyBirth: applyTo(b.pregnancyBirth) }));
+          break;
+        case "background-early-development":
+          setBackground((b) => ({ ...b, earlyDevelopment: applyTo(b.earlyDevelopment) }));
+          break;
+        case "background-educational-history":
+          setBackground((b) => ({ ...b, educationalHistory: applyTo(b.educationalHistory) }));
+          break;
+        case "background-emotional-behavioural-sensory":
+          setBackground((b) => ({
+            ...b,
+            emotionalBehaviouralSensory: applyTo(b.emotionalBehaviouralSensory),
+          }));
+          break;
+        default: {
+          const m = finding.sectionId.match(/^criterion-(.+)$/);
+          if (m) {
+            const code = m[1] as CriterionCode;
+            setCriteria((c) => ({
+              ...c,
+              [code]: { ...c[code], indicators: applyTo(c[code].indicators) },
+            }));
+          }
+          break;
+        }
+      }
+      updateLatestFindingStatus(finding.id, "resolved");
+    },
+    [touch, updateLatestFindingStatus]
+  );
 
   const closePdfPreview = useCallback(() => {
     setPdfPreviewOpen(false);
@@ -4100,6 +4372,7 @@ export default function TexlexReportPage() {
       const { blob, filename } = await buildAsdPdfBlob();
       triggerPdfDownload(blob, filename);
       const finalisePatientId = cliniko?.patientId;
+      let clinikoFileOk = !finalisePatientId;
       if (finalisePatientId) {
         try {
           const buf = await blob.arrayBuffer();
@@ -4107,7 +4380,7 @@ export default function TexlexReportPage() {
           const bytes = new Uint8Array(buf);
           for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
           const base64 = btoa(binary);
-          await fetch("/api/cliniko/files", {
+          const uploadRes = await fetch("/api/cliniko/files", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -4119,11 +4392,28 @@ export default function TexlexReportPage() {
               description: "Texlex finalised report",
             }),
           });
+          if (!uploadRes.ok) {
+            const errBody = (await uploadRes.json().catch(() => ({}))) as { error?: string };
+            throw new Error(errBody.error || `Cliniko upload failed (${uploadRes.status})`);
+          }
+          clinikoFileOk = true;
           setClinikoSyncNotice("Report saved to Cliniko");
         } catch (uploadErr) {
           console.error("Cliniko PDF upload failed (download succeeded):", uploadErr);
+          setClinikoSyncNotice("Downloaded — Cliniko file upload failed (retry Final PDF).");
         }
       }
+      // Unlock Send after Final PDF download (Cliniko upload best-effort).
+      setFinalPackageReady(true);
+      if (finalisePatientId && !clinikoFileOk) {
+        /* notice already set */
+      } else if (!finalisePatientId) {
+        setClinikoSyncNotice((prev) => prev || "Final PDF ready — send via Texlex below.");
+      }
+      // Low-admin: land on Send after Final PDF
+      globalThis.setTimeout(() => {
+        document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 250);
     } catch (error) {
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");
@@ -4264,6 +4554,27 @@ export default function TexlexReportPage() {
         onPreviewPdf={() => void handlePreviewPdf()}
         onNewReport={handleNewReportClick}
         onSaveDraft={() => saveDraftNow()}
+        onFinalizeReview={() => {
+          scrollToFinalizeReview();
+          if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
+        }}
+        finalPdfUnlocked={finalPdfUnlocked}
+        onFinalPdfDownload={() => {
+          if (!finalPdfUnlocked) {
+            scrollToFinalizeReview();
+            window.alert("Clear blocking Finalize review findings (or run review and resolve them) before Final PDF.");
+            return;
+          }
+          void handleDownloadAndSave();
+        }}
+        sendUnlocked={finalPackageReady}
+        onOpenSend={() => {
+          if (!finalPackageReady) {
+            window.alert("Complete Final PDF first, then send via Texlex.");
+            return;
+          }
+          scrollToSend();
+        }}
         statusExtras={
           <>
             {saveToast ? (
@@ -5623,6 +5934,25 @@ export default function TexlexReportPage() {
                 </CardContent>
               </Card>
             </section>
+
+            <TexlexFinalizeReviewPanel
+              runs={finalizeReviewRuns}
+              reviewing={finalizeReviewing}
+              error={finalizeReviewError}
+              onRunReview={() => void runFinalizeReview()}
+              onAccept={(id) => updateLatestFindingStatus(id, "accepted")}
+              onReject={(id) => updateLatestFindingStatus(id, "rejected")}
+              onApply={applyFinalizeFinding}
+              finalPdfUnlocked={finalPdfUnlocked}
+            />
+
+            <TexlexSendPanel
+              unlocked={finalPackageReady}
+              mergeFields={letterMergeFields}
+              defaultRecipients={defaultSendRecipients}
+              buildReportPdfBase64={buildReportPdfBase64ForSend}
+              onScrollToFinalize={scrollToFinalizeReview}
+            />
 
             <section id="signature">
               <TexlexSectionHeading className="mb-3">Signature block</TexlexSectionHeading>
