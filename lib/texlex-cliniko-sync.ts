@@ -15,6 +15,7 @@ export type TexlexPatientDetailsForCliniko = {
   referringPractitioner: string;
   referringPractitionerType: string;
   referringPractitionerEmail: string;
+  parentEmail: string;
   assessmentType: string;
   school: string;
   yearLevel: string;
@@ -73,6 +74,7 @@ export function applyClinikoPatientToForm(
     referringPractitioner: customFields.referrerName ?? "",
     referringPractitionerType: customFields.referrerType ?? "",
     referringPractitionerEmail: customFields.referrerEmail ?? "",
+    parentEmail: patient.email?.trim() ?? "",
     assessmentType: customFields.assessmentType ?? "",
     school: customFields.schoolName ?? "",
     yearLevel: customFields.yearLevel ?? "",

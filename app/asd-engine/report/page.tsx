@@ -71,7 +71,7 @@ import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
 import { TexlexReportImport } from "./components/TexlexReportImport";
 import { TexlexFinalizeReviewPanel } from "./components/TexlexFinalizeReviewPanel";
 import { TexlexSendPanel } from "./components/TexlexSendPanel";
-import type { LetterMergeFields } from "@/lib/texlex-comms/letters";
+import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
 import { buildAsdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
 import { applyReviewHintToText } from "@/lib/texlex-finalize-review/apply-minimal";
@@ -234,6 +234,9 @@ export type PatientDetails = {
   referringPractitioner: string;
   referringPractitionerType: string;
   referringPractitionerEmail: string;
+  /** Parent/carer email(s) for Texlex send — often Cliniko patient email. */
+  parentEmail: string;
+  parent2Email: string;
   assessmentType: string;
   assessmentDates: string[];
   /** Aligned with ADHD: in-clinic | virtual | unset. */
@@ -367,6 +370,8 @@ function isTexlexDraftEffectivelyEmpty(args: {
     details.referringPractitioner.trim() ||
     details.referringPractitionerType.trim() ||
     details.referringPractitionerEmail.trim() ||
+    details.parentEmail.trim() ||
+    details.parent2Email.trim() ||
     details.assessmentType.trim() ||
     details.assessmentModality ||
     details.virtualCareReason.trim() ||
@@ -395,6 +400,8 @@ function emptyPatientDetails(): PatientDetails {
     referringPractitioner: "",
     referringPractitionerType: "",
     referringPractitionerEmail: "",
+    parentEmail: "",
+    parent2Email: "",
     assessmentType: "",
     assessmentDates: [""],
     assessmentModality: "",
@@ -459,6 +466,8 @@ function migratePatientDetails(raw: unknown): PatientDetails {
         typeof r.referringPractitionerEmail === "string"
           ? r.referringPractitionerEmail
           : next.referringPractitionerEmail,
+      parentEmail: typeof r.parentEmail === "string" ? r.parentEmail : next.parentEmail,
+      parent2Email: typeof r.parent2Email === "string" ? r.parent2Email : next.parent2Email,
       assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : next.assessmentType,
       assessmentDates: assessmentDatesMerged,
       assessmentModality: parseAsdAssessmentModality(r.assessmentModality),
@@ -489,6 +498,8 @@ function migratePatientDetails(raw: unknown): PatientDetails {
     referringPractitionerType: typeof r.referringPractitionerType === "string" ? r.referringPractitionerType : "",
     referringPractitionerEmail:
       typeof r.referringPractitionerEmail === "string" ? r.referringPractitionerEmail : "",
+    parentEmail: typeof r.parentEmail === "string" ? r.parentEmail : "",
+    parent2Email: typeof r.parent2Email === "string" ? r.parent2Email : "",
     assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : "",
     assessmentDates: assessmentDatesMerged,
     assessmentModality: parseAsdAssessmentModality(r.assessmentModality),
@@ -906,6 +917,8 @@ function normalizePatientDetailsForPdf(details: PatientDetails): PatientDetails 
     referringPractitioner: normalizeTexlexTextForPdf(details.referringPractitioner),
     referringPractitionerType: normalizeTexlexTextForPdf(details.referringPractitionerType),
     referringPractitionerEmail: normalizeTexlexTextForPdf(details.referringPractitionerEmail),
+    parentEmail: normalizeTexlexTextForPdf(details.parentEmail),
+    parent2Email: normalizeTexlexTextForPdf(details.parent2Email),
     assessmentType: normalizeTexlexTextForPdf(details.assessmentType),
     assessmentDates: dates.length ? dates : [""],
     assessmentModality: parseAsdAssessmentModality(details.assessmentModality),
@@ -3997,9 +4010,18 @@ export default function TexlexReportPage() {
     severityLevelB,
   ]);
 
-  const defaultSendRecipients = useMemo(() => {
-    return parseRecipientList(patientDetails.referringPractitionerEmail);
-  }, [patientDetails.referringPractitionerEmail]);
+  const sendRecipientBuckets = useMemo(() => {
+    return {
+      parentEmails: parseRecipientList(
+        [patientDetails.parentEmail, patientDetails.parent2Email].filter(Boolean).join(", ")
+      ),
+      clinicianEmails: parseRecipientList(patientDetails.referringPractitionerEmail),
+    };
+  }, [
+    patientDetails.parentEmail,
+    patientDetails.parent2Email,
+    patientDetails.referringPractitionerEmail,
+  ]);
 
   const buildReportPdfBase64ForSend = useCallback(async () => {
     const { blob, filename } = await buildAsdPdfBlob();
@@ -4009,6 +4031,50 @@ export default function TexlexReportPage() {
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
     return { filename, contentBase64: btoa(binary) };
   }, [buildAsdPdfBlob]);
+
+  const buildLetterPdfBase64ForSend = useCallback(
+    async (args: { kind: LetterKind; body: string }) => {
+      const [{ pdf }, { TexlexLetterPdfDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("./pdf/TexlexLetterPdfDocument"),
+      ]);
+      const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
+      let signatureSrc = await resolveTexlexSignatureSrc();
+      let blob: Blob;
+      try {
+        blob = await pdf(
+          <TexlexLetterPdfDocument
+            kind={args.kind}
+            body={args.body}
+            fields={letterMergeFields}
+            logoSrc={logoSrc}
+            signatureSrc={signatureSrc}
+          />
+        ).toBlob();
+      } catch (firstError) {
+        console.warn("Texlex letter PDF: retry without signature image.", firstError);
+        signatureSrc = null;
+        blob = await pdf(
+          <TexlexLetterPdfDocument
+            kind={args.kind}
+            body={args.body}
+            fields={letterMergeFields}
+            logoSrc={logoSrc}
+            signatureSrc={signatureSrc}
+          />
+        ).toBlob();
+      }
+      const buf = await blob.arrayBuffer();
+      let binary = "";
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+      const stem = safeFilenamePart(letterMergeFields.clientName || "client");
+      const kindSlug = args.kind.replace(/_/g, "-");
+      const filename = `${stem}-TexlexLetter-${kindSlug}-${letterMergeFields.reportDate || "draft"}.pdf`;
+      return { filename, contentBase64: btoa(binary) };
+    },
+    [letterMergeFields]
+  );
 
   const runFinalizeReview = useCallback(async () => {
     setFinalizeReviewing(true);
@@ -4847,6 +4913,17 @@ export default function TexlexReportPage() {
                                   setPatientDetails((p) => ({ ...p, parent1: e.target.value }));
                                 }}
                               />
+                              <input
+                                type="email"
+                                maxLength={METADATA_INPUT_MAX_LENGTH}
+                                className={cn(inputClass, "w-full")}
+                                placeholder="Parent/carer 1 email"
+                                value={patientDetails.parentEmail}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, parentEmail: e.target.value }));
+                                }}
+                              />
                               <select
                                 className={cn(inputClass, "w-full")}
                                 value={patientDetails.parent1Relationship}
@@ -4880,6 +4957,17 @@ export default function TexlexReportPage() {
                                 onChange={(e) => {
                                   touch();
                                   setPatientDetails((p) => ({ ...p, parent2: e.target.value }));
+                                }}
+                              />
+                              <input
+                                type="email"
+                                maxLength={METADATA_INPUT_MAX_LENGTH}
+                                className={cn(inputClass, "w-full")}
+                                placeholder="Parent/carer 2 email (optional)"
+                                value={patientDetails.parent2Email}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, parent2Email: e.target.value }));
                                 }}
                               />
                               <select
@@ -5949,8 +6037,9 @@ export default function TexlexReportPage() {
             <TexlexSendPanel
               unlocked={finalPackageReady}
               mergeFields={letterMergeFields}
-              defaultRecipients={defaultSendRecipients}
+              recipientBuckets={sendRecipientBuckets}
               buildReportPdfBase64={buildReportPdfBase64ForSend}
+              buildLetterPdfBase64={buildLetterPdfBase64ForSend}
               onScrollToFinalize={scrollToFinalizeReview}
             />
 

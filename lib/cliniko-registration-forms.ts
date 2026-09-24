@@ -288,6 +288,7 @@ export function mergeRegistrationIntoPatientDetails(
       registration.referringPractitionerEmail,
       mode
     ),
+    parentEmail: prefer(base.parentEmail, "", mode),
     assessmentType: prefer(base.assessmentType, registration.assessmentType, mode),
     parent1: prefer(base.parent1, registration.parent1, mode),
     parent1Relationship: prefer(base.parent1Relationship, registration.parent1Relationship, mode),

@@ -1,6 +1,11 @@
 import { TEXLEX_NO_FABRICATION_RULE } from "@/lib/prompts/factual-integrity";
 
-export const FINALIZE_REVIEW_SYSTEM_PROMPT = `You are a Texlex Finalize Review auditor for ASD clinical reports.
+export type FinalizeReviewPathway = "asd" | "adhd";
+
+export function finalizeReviewSystemPrompt(pathway: FinalizeReviewPathway = "asd"): string {
+  const reportKind =
+    pathway === "adhd" ? "ADHD clinical reports" : "ASD clinical reports";
+  return `You are a Texlex Finalize Review auditor for ${reportKind}.
 
 YOUR ONLY JOB: find MAJOR inconsistencies among the supplied sections and demographics. Output structured findings only.
 
@@ -31,6 +36,10 @@ Return ONLY valid JSON of the form:
     }
   ]
 }`;
+}
+
+/** @deprecated Use finalizeReviewSystemPrompt(pathway) */
+export const FINALIZE_REVIEW_SYSTEM_PROMPT = finalizeReviewSystemPrompt("asd");
 
 export function buildFinalizeReviewUserPrompt(args: {
   demographicsLock: string;
@@ -41,13 +50,15 @@ export function buildFinalizeReviewUserPrompt(args: {
   expectedFormulationOpening: string;
   ratingsAssigned: Record<string, number | null>;
   sectionsBlock: string;
+  pathway?: FinalizeReviewPathway;
 }): string {
-  return `# DEMOGRAPHICS LOCK (source of truth for names / pronouns / modality)
-
-${args.demographicsLock}
-
-# DIAGNOSTIC LOCK
-Conclusion: ${args.diagnosticConclusion}
+  const pathway = args.pathway ?? "asd";
+  const lockExtra =
+    pathway === "adhd"
+      ? `Pathway: ADHD
+Severity / presentation note: ${args.diagnosticConclusion || "n/a"}
+Assessment modality: ${args.assessmentModality || "unset"}`
+      : `Conclusion: ${args.diagnosticConclusion}
 Confirmed Level A: ${args.confirmedLevelA ?? "n/a"}
 Confirmed Level B: ${args.confirmedLevelB ?? "n/a"}
 Assessment modality: ${args.assessmentModality || "unset"}
@@ -56,7 +67,14 @@ Assessment modality: ${args.assessmentModality || "unset"}
 ${args.expectedFormulationOpening || "[none]"}
 
 # CRITERION RATINGS (clinician)
-${JSON.stringify(args.ratingsAssigned, null, 2)}
+${JSON.stringify(args.ratingsAssigned, null, 2)}`;
+
+  return `# DEMOGRAPHICS LOCK (source of truth for names / pronouns / modality)
+
+${args.demographicsLock}
+
+# DIAGNOSTIC LOCK
+${lockExtra}
 
 # REPORT SECTIONS
 ${args.sectionsBlock}

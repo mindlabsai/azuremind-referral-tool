@@ -5,7 +5,8 @@ import { runDeterministicReview } from "@/lib/texlex-finalize-review/determinist
 import { formatSectionsBlock } from "@/lib/texlex-finalize-review/assemble-corpus";
 import {
   buildFinalizeReviewUserPrompt,
-  FINALIZE_REVIEW_SYSTEM_PROMPT,
+  finalizeReviewSystemPrompt,
+  type FinalizeReviewPathway,
 } from "@/lib/texlex-finalize-review/llm-prompt";
 import { parseLlmFinalizeFindings } from "@/lib/texlex-finalize-review/parse-llm-findings";
 import {
@@ -19,6 +20,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 type FinalizeReviewBody = {
+  pathway?: FinalizeReviewPathway;
   patientDetails?: {
     clientName?: string;
     pronouns?: string;
@@ -47,6 +49,7 @@ function isLlmEnabled(): boolean {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as FinalizeReviewBody;
+    const pathway: FinalizeReviewPathway = body.pathway === "adhd" ? "adhd" : "asd";
     const sections = Array.isArray(body.sections) ? body.sections : [];
     const pd = body.patientDetails ?? {};
     const runId = newReviewId("run");
@@ -115,12 +118,13 @@ export async function POST(req: NextRequest) {
             expectedFormulationOpening: body.expectedFormulationOpening ?? "",
             ratingsAssigned: body.ratingsAssigned ?? {},
             sectionsBlock: formatSectionsBlock(sections),
+            pathway,
           });
 
           const message = await anthropic.messages.create({
             model: MODELS.OPUS,
             max_tokens: 4096,
-            system: FINALIZE_REVIEW_SYSTEM_PROMPT,
+            system: finalizeReviewSystemPrompt(pathway),
             messages: [{ role: "user", content: userPrompt }],
           });
           modelUsed = MODELS.OPUS;

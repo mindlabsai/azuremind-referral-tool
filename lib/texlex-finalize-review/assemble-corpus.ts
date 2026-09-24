@@ -53,3 +53,33 @@ export function buildAsdReviewSections(args: {
     { sectionId: "limitations", text: args.limitationsText },
   ];
 }
+
+/** ADHD narrative sections only — no ASD DSM criterion blocks. */
+export function buildAdhdReviewSections(args: {
+  presentingConcerns: string;
+  background: {
+    pregnancyBirth: string;
+    earlyDevelopment: string;
+    educationalHistory: string;
+    emotionalBehaviouralSensory: string;
+  };
+  collateralSummary: string;
+  clinicalFormulation: string;
+  recommendations: string;
+  limitationsText: string;
+}): ReviewSectionInput[] {
+  return [
+    { sectionId: "presenting-concerns", text: args.presentingConcerns },
+    { sectionId: "background-pregnancy-birth", text: args.background.pregnancyBirth },
+    { sectionId: "background-early-development", text: args.background.earlyDevelopment },
+    { sectionId: "background-educational-history", text: args.background.educationalHistory },
+    {
+      sectionId: "background-emotional-behavioural-sensory",
+      text: args.background.emotionalBehaviouralSensory,
+    },
+    { sectionId: "collateral", text: args.collateralSummary },
+    { sectionId: "clinical-formulation", text: args.clinicalFormulation },
+    { sectionId: "recommendations", text: args.recommendations },
+    { sectionId: "limitations", text: args.limitationsText },
+  ];
+}

@@ -67,7 +67,19 @@ import {
   resolveTexlexSignatureSrc,
   TEXLEX_LOGO_PATH,
 } from "@/app/asd-engine/report/pdf/assets";
-import { safeFilenamePart } from "@/app/asd-engine/report/pdf/utils";
+import { safeFilenamePart, clientFirstName, computeChronologicalAge } from "@/app/asd-engine/report/pdf/utils";
+import { TEXLEX_SIGNATURE } from "@/app/asd-engine/report/constants/texlexBoilerplate";
+import { TexlexSendPanel } from "@/app/asd-engine/report/components/TexlexSendPanel";
+import { TexlexFinalizeReviewPanel } from "@/app/asd-engine/report/components/TexlexFinalizeReviewPanel";
+import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
+import { parseRecipientList } from "@/lib/texlex-comms/letters";
+import { buildAdhdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
+import { applyReviewHintToText } from "@/lib/texlex-finalize-review/apply-minimal";
+import {
+  computeReviewSummary,
+  type ReviewFinding,
+  type ReviewRun,
+} from "@/lib/texlex-finalize-review/types";
 import type { AdhdPdfDraft, AssessmentModality } from "./pdf/types";
 
 type AttendingParent = "mother" | "father";
@@ -108,6 +120,8 @@ export type PatientDetails = {
   referringPractitioner: string;
   referringPractitionerType: string;
   referringPractitionerEmail: string;
+  parentEmail: string;
+  parent2Email: string;
   assessmentType: string;
   school: string;
   reportDate: string;
@@ -193,6 +207,8 @@ function emptyPatientDetails(): PatientDetails {
     referringPractitioner: "",
     referringPractitionerType: "",
     referringPractitionerEmail: "",
+    parentEmail: "",
+    parent2Email: "",
     assessmentType: "ADHD",
     assessmentDates: [],
     school: "",
@@ -296,6 +312,8 @@ function isAdhdDraftEffectivelyEmpty(args: {
     d.referringPractitioner.trim() ||
     d.referringPractitionerType.trim() ||
     d.referringPractitionerEmail.trim() ||
+    d.parentEmail.trim() ||
+    d.parent2Email.trim() ||
     d.school.trim() ||
     d.yearLevel.trim() ||
     d.phone.trim() ||
@@ -651,6 +669,8 @@ type AdhdSavedState = {
   sectionText?: Partial<Record<SectionId, string>>;
   collateralDocs?: unknown;
   lastSaved?: string;
+  finalPackageReady?: boolean;
+  finalizeReviewRuns?: ReviewRun[];
 };
 
 function adhdSavedStateHasResumableContent(state: AdhdSavedState): boolean {
@@ -805,6 +825,10 @@ export default function AdhdReportPage() {
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
+  const [finalPackageReady, setFinalPackageReady] = useState(false);
+  const [finalizeReviewRuns, setFinalizeReviewRuns] = useState<ReviewRun[]>([]);
+  const [finalizeReviewing, setFinalizeReviewing] = useState(false);
+  const [finalizeReviewError, setFinalizeReviewError] = useState<string | null>(null);
 
   const [saveFailed, setSaveFailed] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -1393,6 +1417,8 @@ export default function AdhdReportPage() {
       attendingParents,
       formulation,
       lastSaved: new Date().toISOString(),
+      finalPackageReady,
+      finalizeReviewRuns: finalizeReviewRuns.slice(-20),
     }),
     [
       patientDetails,
@@ -1413,6 +1439,8 @@ export default function AdhdReportPage() {
       assessmentModality,
       attendingParents,
       formulation,
+      finalPackageReady,
+      finalizeReviewRuns,
     ]
   );
 
@@ -1543,6 +1571,9 @@ export default function AdhdReportPage() {
     setClinikoNotice(null);
     setPdfPreviewOpen(false);
     setPdfPreviewError(null);
+    setFinalPackageReady(false);
+    setFinalizeReviewRuns([]);
+    setFinalizeReviewError(null);
     setPdfPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -1582,6 +1613,9 @@ export default function AdhdReportPage() {
       setAssessmentModality("");
       setAttendingParents([]);
       setFormulation("");
+      setFinalPackageReady(false);
+      setFinalizeReviewRuns([]);
+      setFinalizeReviewError(null);
       setSaveFailed(false);
       setSaveStatus("idle");
       setLastEditAt(0);
@@ -1815,6 +1849,17 @@ export default function AdhdReportPage() {
 
   const downloadAndSave = useCallback(async () => {
     if (pdfBusyMode !== null) return;
+    if (!finalizeReviewRuns.length) {
+      document.getElementById("finalize-review")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.alert("Run Finalize review and clear blocking findings before Final PDF.");
+      return;
+    }
+    const latest = finalizeReviewRuns[finalizeReviewRuns.length - 1]!;
+    if (latest.summary.openBlockingCount > 0) {
+      document.getElementById("finalize-review")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.alert("Clear blocking Finalize review findings before Final PDF.");
+      return;
+    }
     setPdfBusyMode("save");
     try {
       const { blob, filename } = await buildAdhdPdfBlob();
@@ -1823,9 +1868,13 @@ export default function AdhdReportPage() {
       // Mirror ASD Download finalise: same PDF bytes → base64 → /api/cliniko/files
       const finalisePatientId = cliniko?.patientId;
       if (!finalisePatientId) {
+        setFinalPackageReady(true);
         setClinikoNotice(
-          "PDF downloaded. Load a Cliniko patient to save the report to Cliniko."
+          "PDF downloaded. Load a Cliniko patient to save the report to Cliniko — Send is unlocked."
         );
+        globalThis.setTimeout(() => {
+          document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 250);
         return;
       }
       try {
@@ -1850,20 +1899,261 @@ export default function AdhdReportPage() {
           const data = (await uploadRes.json().catch(() => null)) as { error?: string } | null;
           throw new Error(data?.error || "Cliniko PDF upload failed");
         }
-        setClinikoNotice("Report saved to Cliniko");
+        setClinikoNotice("Report saved to Cliniko — Send unlocked.");
       } catch (uploadErr) {
         console.error("Cliniko PDF upload failed (download succeeded):", uploadErr);
         setClinikoNotice(
-          "Couldn't save report to Cliniko — PDF was still downloaded."
+          "Couldn't save report to Cliniko — PDF was still downloaded. Send is unlocked."
         );
       }
+      setFinalPackageReady(true);
+      globalThis.setTimeout(() => {
+        document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 250);
     } catch (error) {
       console.error("ADHD PDF export failed:", error);
       setClinikoNotice("Could not prepare the PDF. Please try again.");
     } finally {
       setPdfBusyMode(null);
     }
-  }, [buildAdhdPdfBlob, cliniko?.patientId, pdfBusyMode, triggerPdfDownload]);
+  }, [buildAdhdPdfBlob, cliniko?.patientId, finalizeReviewRuns, pdfBusyMode, triggerPdfDownload]);
+
+  const letterMergeFields = useMemo((): LetterMergeFields => {
+    const modality =
+      assessmentModality === "in-clinic"
+        ? "in-clinic"
+        : assessmentModality === "virtual"
+          ? "via secure video (telehealth virtual care)"
+          : "";
+    const severity = severityStated.trim();
+    return {
+      clientName: patientDetails.clientName.trim(),
+      clientFirstName: clientFirstName(patientDetails.clientName),
+      pronouns: patientDetails.pronouns.trim(),
+      dob: patientDetails.dob.trim(),
+      chronologicalAge: computeChronologicalAge(patientDetails.dob),
+      parent1: patientDetails.parent1.trim(),
+      parent2: patientDetails.parent2.trim(),
+      school: patientDetails.school.trim(),
+      yearLevel: patientDetails.yearLevel.trim(),
+      referringPractitioner: patientDetails.referringPractitioner.trim(),
+      referringPractitionerType: patientDetails.referringPractitionerType.trim(),
+      assessor: patientDetails.assessor.trim() || DEFAULT_ASSESSOR,
+      reportDate: patientDetails.reportDate.trim(),
+      assessmentModality: modality,
+      diagnosticConclusionLabel: severity
+        ? `ADHD assessment — ${severity}`
+        : "ADHD assessment completed",
+      severityLine: severity ? `Clinician severity / presentation: ${severity}.` : "",
+      practiceName: TEXLEX_SIGNATURE.practice,
+      practicePhone: "",
+      pathway: "adhd",
+    };
+  }, [assessmentModality, patientDetails, severityStated]);
+
+  const sendRecipientBuckets = useMemo(
+    () => ({
+      parentEmails: parseRecipientList(
+        [patientDetails.parentEmail, patientDetails.parent2Email].filter(Boolean).join(", ")
+      ),
+      clinicianEmails: parseRecipientList(patientDetails.referringPractitionerEmail),
+    }),
+    [
+      patientDetails.parentEmail,
+      patientDetails.parent2Email,
+      patientDetails.referringPractitionerEmail,
+    ]
+  );
+
+  const buildReportPdfBase64ForSend = useCallback(async () => {
+    const { blob, filename } = await buildAdhdPdfBlob();
+    const buf = await blob.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return { filename, contentBase64: btoa(binary) };
+  }, [buildAdhdPdfBlob]);
+
+  const buildLetterPdfBase64ForSend = useCallback(
+    async (args: { kind: LetterKind; body: string }) => {
+      const [{ pdf }, { TexlexLetterPdfDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("@/app/asd-engine/report/pdf/TexlexLetterPdfDocument"),
+      ]);
+      const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
+      let signatureSrc = await resolveTexlexSignatureSrc();
+      let blob: Blob;
+      try {
+        blob = await pdf(
+          <TexlexLetterPdfDocument
+            kind={args.kind}
+            body={args.body}
+            fields={letterMergeFields}
+            logoSrc={logoSrc}
+            signatureSrc={signatureSrc}
+          />
+        ).toBlob();
+      } catch (firstError) {
+        console.warn("ADHD letter PDF: retry without signature image.", firstError);
+        signatureSrc = null;
+        blob = await pdf(
+          <TexlexLetterPdfDocument
+            kind={args.kind}
+            body={args.body}
+            fields={letterMergeFields}
+            logoSrc={logoSrc}
+            signatureSrc={signatureSrc}
+          />
+        ).toBlob();
+      }
+      const buf = await blob.arrayBuffer();
+      let binary = "";
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+      const stem = safeFilenamePart(letterMergeFields.clientName || "client");
+      const kindSlug = args.kind.replace(/_/g, "-");
+      const filename = `${stem}-TexlexLetter-${kindSlug}-${letterMergeFields.reportDate || "draft"}.pdf`;
+      return { filename, contentBase64: btoa(binary) };
+    },
+    [letterMergeFields]
+  );
+
+  const scrollToSend = useCallback(() => {
+    document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const scrollToFinalizeReview = useCallback(() => {
+    document.getElementById("finalize-review")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const finalPdfUnlocked = useMemo(() => {
+    if (!finalizeReviewRuns.length) return false;
+    const latest = finalizeReviewRuns[finalizeReviewRuns.length - 1]!;
+    return latest.summary.openBlockingCount === 0;
+  }, [finalizeReviewRuns]);
+
+  const runFinalizeReview = useCallback(async () => {
+    setFinalizeReviewing(true);
+    setFinalizeReviewError(null);
+    touch();
+    try {
+      const sections = buildAdhdReviewSections({
+        presentingConcerns: sectionTexts["presenting-concerns"] ?? "",
+        background: {
+          pregnancyBirth: sectionTexts["background-pregnancy-birth"] ?? "",
+          earlyDevelopment: sectionTexts["background-early-development"] ?? "",
+          educationalHistory: sectionTexts["background-educational-history"] ?? "",
+          emotionalBehaviouralSensory:
+            sectionTexts["background-emotional-behavioural-sensory"] ?? "",
+        },
+        collateralSummary: sectionTexts["collateral-summary"] ?? "",
+        clinicalFormulation: formulation,
+        recommendations: sectionTexts.recommendations ?? "",
+        limitationsText: TEXLEX_LIMITATIONS,
+      });
+
+      const diagnosticNote = [
+        severityStated.trim() ? `Severity/presentation: ${severityStated.trim()}` : "",
+        asdActive ? "ASD differential flagged active" : "",
+        clinicianStatedFraming.trim() ? `Clinician framing: ${clinicianStatedFraming.trim()}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || "ADHD assessment";
+
+      const res = await fetch("/api/generate/finalize-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pathway: "adhd",
+          patientDetails: {
+            ...patientDetails,
+            assessmentModality,
+            assessmentDates: assessmentDate.trim() ? [assessmentDate.trim()] : [],
+          },
+          diagnosticConclusion: diagnosticNote,
+          confirmedLevelA: null,
+          confirmedLevelB: null,
+          expectedFormulationOpening: "",
+          ratingsAssigned: {},
+          sections,
+        }),
+      });
+      const data = (await res.json()) as { run?: ReviewRun; error?: string };
+      if (!res.ok || !data.run) {
+        throw new Error(data.error || "Finalize review failed");
+      }
+      setFinalizeReviewRuns((prev) => [...prev, data.run!].slice(-20));
+      scrollToFinalizeReview();
+    } catch (err) {
+      setFinalizeReviewError(err instanceof Error ? err.message : "Finalize review failed");
+    } finally {
+      setFinalizeReviewing(false);
+    }
+  }, [
+    assessmentDate,
+    assessmentModality,
+    asdActive,
+    clinicianStatedFraming,
+    formulation,
+    patientDetails,
+    scrollToFinalizeReview,
+    sectionTexts,
+    severityStated,
+    touch,
+  ]);
+
+  const updateLatestFindingStatus = useCallback(
+    (findingId: string, status: ReviewFinding["status"]) => {
+      touch();
+      setFinalizeReviewRuns((prev) => {
+        if (!prev.length) return prev;
+        const next = [...prev];
+        const last = { ...next[next.length - 1]! };
+        last.findings = last.findings.map((f) =>
+          f.id === findingId ? { ...f, status, decidedAt: new Date().toISOString() } : f
+        );
+        last.summary = computeReviewSummary(last.findings);
+        next[next.length - 1] = last;
+        return next;
+      });
+    },
+    [touch]
+  );
+
+  const applyFinalizeFinding = useCallback(
+    (finding: ReviewFinding) => {
+      if (!finding.applyHint) {
+        updateLatestFindingStatus(finding.id, "accepted");
+        return;
+      }
+      touch();
+      const hint = finding.applyHint;
+      const applyTo = (text: string) => applyReviewHintToText(text, hint);
+
+      if (finding.sectionId === "clinical-formulation") {
+        setFormulation((t) => applyTo(t));
+      } else if (
+        finding.sectionId === "presenting-concerns" ||
+        finding.sectionId === "background-pregnancy-birth" ||
+        finding.sectionId === "background-early-development" ||
+        finding.sectionId === "background-educational-history" ||
+        finding.sectionId === "background-emotional-behavioural-sensory" ||
+        finding.sectionId === "recommendations"
+      ) {
+        setSectionTexts((prev) => ({
+          ...prev,
+          [finding.sectionId]: applyTo(prev[finding.sectionId as SectionId] ?? ""),
+        }));
+      } else if (finding.sectionId === "collateral") {
+        setSectionTexts((prev) => ({
+          ...prev,
+          "collateral-summary": applyTo(prev["collateral-summary"] ?? ""),
+        }));
+      }
+      updateLatestFindingStatus(finding.id, "resolved");
+    },
+    [touch, updateLatestFindingStatus]
+  );
 
   const applyAdhdSavedState = useCallback((state: AdhdSavedState, opts?: { restoreCliniko?: boolean }) => {
     // When restoring under an already-linked Cliniko patient, keep live demographics
@@ -1929,6 +2219,10 @@ export default function AdhdReportPage() {
     }
     setSectionTexts(nextSections);
     if (typeof state.lastSaved === "string") setLastSavedAt(state.lastSaved);
+    setFinalPackageReady(state.finalPackageReady === true);
+    if (Array.isArray(state.finalizeReviewRuns)) {
+      setFinalizeReviewRuns(state.finalizeReviewRuns.slice(-20) as ReviewRun[]);
+    }
     setSaveFailed(false);
     setSaveStatus("saved");
   }, []);
@@ -2278,8 +2572,29 @@ export default function AdhdReportPage() {
                 )}
               </Button>
               <Button
+                variant="outline"
                 size="sm"
-                disabled={pdfDownloading || bulkRunning || workflowBusy}
+                disabled={pdfDownloading || bulkRunning || workflowBusy || finalizeReviewing}
+                onClick={() => {
+                  scrollToFinalizeReview();
+                  if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
+                }}
+              >
+                Finalize review
+              </Button>
+              <Button
+                size="sm"
+                disabled={
+                  pdfDownloading ||
+                  bulkRunning ||
+                  workflowBusy ||
+                  !finalPdfUnlocked
+                }
+                title={
+                  finalPdfUnlocked
+                    ? "Download final PDF and save to Cliniko"
+                    : "Clear blocking Finalize review findings first"
+                }
                 onClick={() => void downloadAndSave()}
               >
                 {pdfBusyMode === "save" ? (
@@ -2287,9 +2602,24 @@ export default function AdhdReportPage() {
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Preparing…
                   </>
+                ) : finalPdfUnlocked ? (
+                  "Final PDF"
                 ) : (
-                  "Download & save to Cliniko"
+                  "Final PDF (blocked)"
                 )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pdfDownloading || bulkRunning || workflowBusy || !finalPackageReady}
+                title={
+                  finalPackageReady
+                    ? "Email parents, Dr Muru, or referrers via Texlex"
+                    : "Complete Final PDF first"
+                }
+                onClick={scrollToSend}
+              >
+                Send
               </Button>
               <AdhdHeaderOverflowMenu
                 pdfDownloading={pdfDownloading}
@@ -2531,11 +2861,29 @@ export default function AdhdReportPage() {
                     }}
                   />
                   <DetailField
+                    label="Parent 1 email"
+                    value={patientDetails.parentEmail}
+                    placeholder="parent@email.com"
+                    onChange={(parentEmail) => {
+                      touch();
+                      setPatientDetails((prev) => ({ ...prev, parentEmail }));
+                    }}
+                  />
+                  <DetailField
                     label="Parent 2"
                     value={patientDetails.parent2}
                     onChange={(parent2) => {
                       touch();
                       setPatientDetails((prev) => ({ ...prev, parent2 }));
+                    }}
+                  />
+                  <DetailField
+                    label="Parent 2 email"
+                    value={patientDetails.parent2Email}
+                    placeholder="optional"
+                    onChange={(parent2Email) => {
+                      touch();
+                      setPatientDetails((prev) => ({ ...prev, parent2Email }));
                     }}
                   />
                   <div className="space-y-2 sm:col-span-2">
@@ -2609,6 +2957,15 @@ export default function AdhdReportPage() {
                     onChange={(referringPractitionerType) => {
                       touch();
                       setPatientDetails((prev) => ({ ...prev, referringPractitionerType }));
+                    }}
+                  />
+                  <DetailField
+                    label="Referrer email"
+                    value={patientDetails.referringPractitionerEmail}
+                    placeholder="referrer@clinic.com.au"
+                    onChange={(referringPractitionerEmail) => {
+                      touch();
+                      setPatientDetails((prev) => ({ ...prev, referringPractitionerEmail }));
                     }}
                   />
                   <DetailField
@@ -2955,6 +3312,27 @@ export default function AdhdReportPage() {
                 )}
               </CardContent>
             </Card>
+
+            <TexlexFinalizeReviewPanel
+              runs={finalizeReviewRuns}
+              reviewing={finalizeReviewing}
+              error={finalizeReviewError}
+              onRunReview={() => void runFinalizeReview()}
+              onAccept={(id) => updateLatestFindingStatus(id, "accepted")}
+              onReject={(id) => updateLatestFindingStatus(id, "rejected")}
+              onApply={applyFinalizeFinding}
+              finalPdfUnlocked={finalPdfUnlocked}
+            />
+
+            <TexlexSendPanel
+              unlocked={finalPackageReady}
+              mergeFields={letterMergeFields}
+              recipientBuckets={sendRecipientBuckets}
+              buildReportPdfBase64={buildReportPdfBase64ForSend}
+              buildLetterPdfBase64={buildLetterPdfBase64ForSend}
+              reportAttachLabel="Attach final ADHD report PDF"
+              onScrollToFinalize={scrollToFinalizeReview}
+            />
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
