@@ -46,6 +46,7 @@ export type DemographicsLockInput = {
   yearLevel?: string;
   school?: string;
   assessmentDate?: string;
+  reportDate?: string;
   assessmentModality?: string;
 };
 
@@ -74,6 +75,7 @@ export function formatDemographicsLock(vars: DemographicsLockInput): string {
     `- Date of birth: ${quoteFixed(vars.dob)}`,
     `- Year level: ${quoteFixed(vars.yearLevel)}`,
     `- Assessment date (date seen): ${quoteFixed(vars.assessmentDate)}`,
+    `- Date of report: ${quoteFixed(vars.reportDate)}`,
     `- Assessment modality: ${quoteFixed(vars.assessmentModality)}`,
   ].join("\n");
 }
