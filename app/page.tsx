@@ -3,9 +3,16 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignOutButton } from "@/components/SignOutButton";
+import { ReferralReaderPanel } from "@/components/ReferralReaderPanel";
+import type { ReferralReaderExtract } from "@/lib/referral-reader/types";
+import {
+  buildParentBookingEmailHtml,
+  DEFAULT_CLINIKO_BOOKINGS,
+  getParentBookingSms,
+  getParentBookingSubject,
+} from "@/lib/referral-comms/parent-booking-email";
 
-const DEFAULT_BOOKING_LINK =
-  "https://azurepsychology-cockburn.au1.cliniko.com/bookings";
+const DEFAULT_BOOKING_LINK = DEFAULT_CLINIKO_BOOKINGS;
 const DEFAULT_CLINIC_PHONE = "0422 182 967";
 
 type AssessmentType = "ADHD" | "ASD" | "SLD";
@@ -764,9 +771,13 @@ function buildParentEmailHtml(fields: {
   bookingLink: string;
   clinicPhone: string;
 }): string {
-  const data = toTemplateData(fields);
-  const template = TEMPLATES[fields.assessmentType];
-  return buildFullEmailHtmlString(data, template);
+  return buildParentBookingEmailHtml({
+    childFirst: fields.childFirst,
+    parentFirst: fields.parentFirst,
+    assessmentType: fields.assessmentType,
+    bookingLink: fields.bookingLink,
+    clinicPhone: fields.clinicPhone,
+  });
 }
 
 function buildSmsText(fields: {
@@ -781,9 +792,13 @@ function buildSmsText(fields: {
   bookingLink: string;
   clinicPhone: string;
 }): string {
-  const data = toTemplateData(fields);
-  const template = TEMPLATES[fields.assessmentType];
-  return renderTemplate(template.sms_body, data);
+  return getParentBookingSms({
+    childFirst: fields.childFirst,
+    parentFirst: fields.parentFirst,
+    assessmentType: fields.assessmentType,
+    bookingLink: fields.bookingLink,
+    clinicPhone: fields.clinicPhone,
+  });
 }
 
 
@@ -906,9 +921,13 @@ export default function Home() {
       bookingLink,
       clinicPhone,
     };
-    const data = toTemplateData(fields);
-    const selectedTemplate = TEMPLATES[assessmentType];
-    const subject = renderTemplate(selectedTemplate.email_subject, data);
+    const subject = getParentBookingSubject({
+      childFirst: fields.childFirst,
+      parentFirst: fields.parentFirst,
+      assessmentType: fields.assessmentType,
+      bookingLink: fields.bookingLink,
+      clinicPhone: fields.clinicPhone,
+    });
 
     let currentEmailHtml = previewEmailHtml;
     if (!previewReady || !currentEmailHtml) {
@@ -923,9 +942,11 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          purpose: "referral",
           to: parentEmail,
           subject,
           html: currentEmailHtml,
+          replyTo: "admin@azuremind.com.au",
         }),
       });
       const json = (await res.json()) as { success?: boolean };
@@ -1745,6 +1766,58 @@ export default function Home() {
           className="referral-col-left"
           style={{ display: "flex", flexDirection: "column", gap: 0 }}
         >
+          <ReferralReaderPanel
+            cardStyle={card}
+            sectionTitleStyle={sectionTitle}
+            inputStyle={inputStyle}
+            textareaStyle={textareaStyle}
+            btnPrimaryStyle={btnPrimary}
+            btnSecondaryStyle={btnSecondary}
+            onApply={(extract: ReferralReaderExtract) => {
+              if (extract.childFirst) setChildFirst(extract.childFirst);
+              if (extract.childLast) setChildLast(extract.childLast);
+              if (extract.childDob) setChildDob(extract.childDob);
+              if (extract.parentFirst) setParentFirst(extract.parentFirst);
+              if (extract.parentLast) setParentLast(extract.parentLast);
+              if (extract.parentEmail) setParentEmail(extract.parentEmail);
+              if (extract.parentMobile) setParentMobile(extract.parentMobile);
+              if (extract.assessmentType) setAssessmentType(extract.assessmentType);
+              if (extract.referrerName) setReferrerName(extract.referrerName);
+              if (extract.referrerType) setReferrerType(extract.referrerType);
+              if (extract.referrerEmail) setReferrerEmail(extract.referrerEmail);
+              if (extract.internalNotes) {
+                setInternalNotes((prev) =>
+                  prev.trim()
+                    ? `${prev.trim()}\n\n${extract.internalNotes}`
+                    : extract.internalNotes
+                );
+              }
+              const resolvedType: AssessmentType = extract.assessmentType || assessmentType;
+              const fields = {
+                childFirst: extract.childFirst || childFirst,
+                childLast: extract.childLast || childLast,
+                childDob: extract.childDob || childDob,
+                parentFirst: extract.parentFirst || parentFirst,
+                parentLast: extract.parentLast || parentLast,
+                parentEmail: extract.parentEmail || parentEmail,
+                parentMobile: extract.parentMobile || parentMobile,
+                assessmentType: resolvedType,
+                bookingLink,
+                clinicPhone,
+              };
+              setPreviewEmailHtml(buildParentEmailHtml(fields));
+              setPreviewSms(buildSmsText(fields));
+              setPreviewReady(true);
+              setSendStatus({
+                type: "success",
+                message: extract.assessmentType
+                  ? "Referral applied — check details, then send the parent email / SMS."
+                  : "Referral applied — pick ADHD, ASD, or SLD below, then send.",
+              });
+              setTimeout(() => setSendStatus(null), 5000);
+            }}
+          />
+
           <section style={card}>
             <h2 style={sectionTitle}>
               Referral details
@@ -1842,9 +1915,15 @@ export default function Home() {
                     gap: 10,
                   }}
                 >
-                  {(["ADHD", "ASD", "SLD"] as const).map((t) => (
+                  {(
+                    [
+                      { value: "ADHD" as const, label: "ADHD" },
+                      { value: "ASD" as const, label: "ASD" },
+                      { value: "SLD" as const, label: "SLD" },
+                    ] as const
+                  ).map((t) => (
                     <label
-                      key={t}
+                      key={t.value}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -1858,10 +1937,27 @@ export default function Home() {
                       <input
                         type="radio"
                         name="assessment"
-                        checked={assessmentType === t}
-                        onChange={() => setAssessmentType(t)}
+                        checked={assessmentType === t.value}
+                        onChange={() => {
+                          setAssessmentType(t.value);
+                          const fields = {
+                            childFirst,
+                            childLast,
+                            childDob,
+                            parentFirst,
+                            parentLast,
+                            parentEmail,
+                            parentMobile,
+                            assessmentType: t.value,
+                            bookingLink,
+                            clinicPhone,
+                          };
+                          setPreviewEmailHtml(buildParentEmailHtml(fields));
+                          setPreviewSms(buildSmsText(fields));
+                          setPreviewReady(true);
+                        }}
                       />
-                      {t}
+                      {t.label}
                     </label>
                   ))}
                 </div>
@@ -2246,7 +2342,7 @@ export default function Home() {
           className="referral-col-right"
           style={{ display: "flex", flexDirection: "column", gap: 0 }}
         >
-          <section style={card}>
+          <section id="referral-email-preview" style={card}>
             <h2 style={sectionTitle}>
               Email preview (parent-facing)
             </h2>
@@ -2257,23 +2353,23 @@ export default function Home() {
             ) : null}
             {!previewReady ? (
               <p style={{ fontSize: 13, color: "#64748b" }}>
-                Click &quot;Generate Preview&quot; to build parent-facing content.
+                Use Referral reader (or Generate Preview) to build parent-facing content.
                 Internal referrer fields are excluded.
               </p>
             ) : (
               <div className="email-preview-scroll">
-              <EmailPreviewPlain
-                childFirst={childFirst}
-                childLast={childLast}
-                childDob={childDob}
-                parentFirst={parentFirst}
-                parentLast={parentLast}
-                parentEmail={parentEmail}
-                parentMobile={parentMobile}
-                assessmentType={assessmentType}
-                bookingLink={bookingLink}
-                clinicPhone={clinicPhone}
-              />
+                <EmailPreviewPlain
+                  childFirst={childFirst}
+                  childLast={childLast}
+                  childDob={childDob}
+                  parentFirst={parentFirst}
+                  parentLast={parentLast}
+                  parentEmail={parentEmail}
+                  parentMobile={parentMobile}
+                  assessmentType={assessmentType}
+                  bookingLink={bookingLink}
+                  clinicPhone={clinicPhone}
+                />
               </div>
             )}
           </section>
@@ -2824,8 +2920,7 @@ function EmailPreviewPlain({
   bookingLink: string;
   clinicPhone: string;
 }) {
-  const template = TEMPLATES[assessmentType];
-  const data = toTemplateData({
+  const html = buildParentEmailHtml({
     childFirst,
     childLast,
     childDob,
@@ -2837,149 +2932,27 @@ function EmailPreviewPlain({
     bookingLink,
     clinicPhone,
   });
-  const renderedPlain = renderTemplate(template.email_body_plain, data);
-  const bodyContent = parsePlainEmailBodyToReact(
-    renderedPlain,
-    data.booking_link,
-    data.clinic_phone
-  );
 
   return (
     <div
       style={{
-        padding: 12,
-        background: "#fff",
         borderRadius: 12,
         border: "1px solid #B7E1DE",
-        overflow: "auto",
+        overflow: "hidden",
+        background: "#F3F8F8",
       }}
     >
-      <table
-        width="100%"
-        cellPadding={0}
-        cellSpacing={0}
+      <iframe
+        title="Parent email preview"
+        srcDoc={html}
         style={{
-          background: "#F4F7F7",
-          fontFamily:
-            "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif",
+          width: "100%",
+          minHeight: 720,
+          border: "none",
+          display: "block",
+          background: "#F3F8F8",
         }}
-      >
-        <tbody>
-          <tr>
-            <td
-              align="center"
-              style={{ padding: "28px 12px 40px", background: "#F4F7F7" }}
-            >
-              <table
-                width="100%"
-                style={{ maxWidth: 580 }}
-                cellPadding={0}
-                cellSpacing={0}
-              >
-                <tbody>
-                  <tr>
-                    <td
-                      style={{
-                        background: "#0E5F63",
-                        borderRadius: "12px 12px 0 0",
-                        padding: "26px 32px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "inline-block",
-                          background: "rgba(255,255,255,0.15)",
-                          borderRadius: 8,
-                          padding: "6px 16px",
-                          fontSize: 22,
-                          fontWeight: 800,
-                          color: "#fff",
-                          letterSpacing: -0.5,
-                        }}
-                      >
-                        Azure Mind
-                      </div>
-                      <div
-                        style={{
-                          color: "rgba(255,255,255,0.68)",
-                          fontSize: 12,
-                          marginTop: 6,
-                        }}
-                      >
-                        Psychology &amp; Assessment
-                      </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td
-                      style={{
-                        background: "#0A474A",
-                        padding: "14px 32px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 16,
-                          fontWeight: 700,
-                          color: "#fff",
-                        }}
-                      >
-                        {template.email_title}
-                      </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td
-                      style={{
-                        background: "#fff",
-                        padding: "32px 32px 28px",
-                        borderLeft: "1px solid #D9E5E5",
-                        borderRight: "1px solid #D9E5E5",
-                      }}
-                    >
-                      {bodyContent}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td
-                      style={{
-                        background: "#F8FBFB",
-                        border: "1px solid #D9E5E5",
-                        borderTop: "none",
-                        borderRadius: "0 0 12px 12px",
-                        padding: "18px 32px",
-                      }}
-                    >
-                      <p
-                        style={{
-                          fontSize: 11,
-                          color: "#647477",
-                          lineHeight: 1.65,
-                          margin: 0,
-                        }}
-                      >
-                        Azure Mind Psychology | Perth, Western Australia
-                        <br />
-                        Vishal Maharaj is a Registered Psychologist registered
-                        with AHPRA.
-                        <br />
-                        This communication contains general information about our
-                        assessment services and is not clinical advice.
-                        <br />
-                        For assistance, contact us at{" "}
-                        <strong style={{ color: "#0E5F63" }}>
-                          {data.clinic_phone}
-                        </strong>
-                        .
-                      </p>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      />
     </div>
   );
 }

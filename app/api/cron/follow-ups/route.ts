@@ -99,7 +99,13 @@ async function sendFollowUpEmail(origin: string, to: string, subject: string, ht
   const response = await fetch(`${origin}/api/send-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to, subject, html }),
+    body: JSON.stringify({
+      purpose: "correspondence",
+      to,
+      subject,
+      html,
+      replyTo: "admin@azuremind.com.au",
+    }),
   });
   const json = (await response.json().catch(() => ({}))) as { success?: boolean };
   return response.ok && json.success === true;

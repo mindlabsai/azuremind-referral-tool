@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type { AuditChecklistItem } from "@/lib/texlex-finalize-review/audit-checklist";
 import type { ReviewFinding, ReviewRun } from "@/lib/texlex-finalize-review/types";
 import { TEXLEX_SECTION_CONTAINER_CLASS, TEXLEX_SECTION_CONTENT_CLASS } from "../constants/texlexSectionSurface";
 
@@ -16,6 +17,8 @@ type Props = {
   onReject: (findingId: string) => void;
   onApply: (finding: ReviewFinding) => void;
   finalPdfUnlocked: boolean;
+  /** ASD AHPRA pre-audit checklist derived from draft + latest findings */
+  auditChecklist?: AuditChecklistItem[] | null;
 };
 
 function severityBadge(sev: ReviewFinding["severity"]) {
@@ -33,6 +36,7 @@ export function TexlexFinalizeReviewPanel({
   onReject,
   onApply,
   finalPdfUnlocked,
+  auditChecklist,
 }: Props) {
   const latest = runs.length ? runs[runs.length - 1]! : null;
   const openFindings = latest?.findings.filter((f) => f.status === "open") ?? [];
@@ -49,10 +53,41 @@ export function TexlexFinalizeReviewPanel({
       <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
         <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
           <p className="text-sm text-muted-foreground">
-            Checks names, pronouns, severity opening, modality, and major / differential
-            inconsistencies across the draft. Suggested edits align existing text only — nothing new
-            is invented. Run again after you apply fixes.
+            Checks names, pronouns, severity opening, modality, dates, observation vs parent-report
+            labelling, broader differentials, cognitive overclaim hedges, collateral gaps,
+            limitations honesty, and major inconsistencies. Suggested edits align existing text
+            only — nothing new is invented. Run again after you apply fixes.
           </p>
+
+          {auditChecklist && auditChecklist.length > 0 ? (
+            <div className="space-y-2 rounded-lg border border-border/70 bg-muted/10 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Pre-audit checklist
+              </p>
+              <ul className="space-y-1.5">
+                {auditChecklist.map((item) => (
+                  <li key={item.id} className="flex gap-2 text-sm">
+                    <span
+                      className={cn(
+                        "mt-0.5 shrink-0 font-mono text-xs",
+                        item.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"
+                      )}
+                      aria-hidden
+                    >
+                      {item.ok ? "✓" : "○"}
+                    </span>
+                    <span>
+                      <span className="text-foreground">{item.label}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{item.hint}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                Checklist updates after each review pass. Clear blocking findings before Final PDF.
+              </p>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" onClick={onRunReview} disabled={reviewing}>
@@ -101,6 +136,7 @@ export function TexlexFinalizeReviewPanel({
                   <div className="flex flex-wrap items-center gap-2">
                     {severityBadge(f.severity)}
                     <Badge variant="outline">{f.source}</Badge>
+                    <Badge variant="outline">{f.kind}</Badge>
                     <span className="text-sm font-medium text-foreground">{f.title}</span>
                     <span className="text-xs text-muted-foreground">{f.sectionId}</span>
                   </div>

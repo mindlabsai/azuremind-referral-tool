@@ -69,8 +69,10 @@ import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
 import { SavedDraftsByName } from "./components/SavedDraftsByName";
 import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
 import { TexlexReportImport } from "./components/TexlexReportImport";
+import { TexlexAuditorCaseListPanel } from "./components/TexlexAuditorCaseListPanel";
 import { TexlexFinalizeReviewPanel } from "./components/TexlexFinalizeReviewPanel";
 import { TexlexSendPanel } from "./components/TexlexSendPanel";
+import { buildAsdAuditChecklist } from "@/lib/texlex-finalize-review/audit-checklist";
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
 import { buildAsdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
@@ -1749,6 +1751,13 @@ function formatSavedAgo(iso: string | null, now: number): string {
   return `${h}h ago`;
 }
 
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  );
+}
+
 function countWords(s: string): number {
   const t = s.trim();
   if (!t) return 0;
@@ -2149,6 +2158,7 @@ export default function TexlexReportPage() {
   );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
+  const reportStoppedRef = useRef(false);
   /** Bumped on New Report / full reset so stale autosave/unmount cannot revive an old draft. */
   const draftWriteEpochRef = useRef(0);
   /** >0 while calendar/search load (+ file import) is in flight — blocks draft restore races. */
@@ -2312,8 +2322,10 @@ export default function TexlexReportPage() {
           controller.signal
         );
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return null;
-        if (err instanceof Error && err.name === "AbortError") return null;
+        if (isAbortError(err)) {
+          reportStoppedRef.current = true;
+          return null;
+        }
         console.error(`${code} generation error:`, err);
         if (genSessionRef.current === session) {
           setSectionGenErrors((p) => ({
@@ -2375,6 +2387,7 @@ export default function TexlexReportPage() {
   const handleGenerateCriterion = useCallback(
     (code: CriterionCode) => {
       const sid = criterionSectionId(code);
+      if (generatingSectionId && generatingSectionId !== sid) return;
       if (generatingSectionId === sid) {
         streamAbortRef.current?.abort();
         return;
@@ -2386,8 +2399,7 @@ export default function TexlexReportPage() {
 
   const handleRegenerateCriterion = useCallback(
     (code: CriterionCode) => {
-      const sid = criterionSectionId(code);
-      if (generatingSectionId === sid) return;
+      if (generatingSectionId) return;
       void startCriterionGeneration(code);
     },
     [generatingSectionId, startCriterionGeneration]
@@ -2431,8 +2443,10 @@ export default function TexlexReportPage() {
       );
       return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return null;
-      if (err instanceof Error && err.name === "AbortError") return null;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return null;
+      }
       console.error("Presenting concerns generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -2451,6 +2465,7 @@ export default function TexlexReportPage() {
 
   const handleGeneratePresentingConcerns = useCallback(() => {
     const sectionId = "presenting-concerns";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2459,7 +2474,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runPresentingConcernsStream]);
 
   const handleRegeneratePresentingConcerns = useCallback(() => {
-    if (generatingSectionId === "presenting-concerns") return;
+    if (generatingSectionId) return;
     void runPresentingConcernsStream();
   }, [generatingSectionId, runPresentingConcernsStream]);
 
@@ -2513,8 +2528,10 @@ export default function TexlexReportPage() {
         );
         return generated;
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return null;
-        if (err instanceof Error && err.name === "AbortError") return null;
+        if (isAbortError(err)) {
+          reportStoppedRef.current = true;
+          return null;
+        }
         console.error("Background generation error:", err);
         if (genSessionRef.current === session) {
           setSectionGenErrors((p) => ({
@@ -2536,6 +2553,7 @@ export default function TexlexReportPage() {
   const handleGenerateBackground = useCallback(
     (key: BackgroundSectionKey) => {
       const sectionId = BACKGROUND_STREAM_SLUG[key];
+      if (generatingSectionId && generatingSectionId !== sectionId) return;
       if (generatingSectionId === sectionId) {
         streamAbortRef.current?.abort();
         return;
@@ -2547,8 +2565,7 @@ export default function TexlexReportPage() {
 
   const handleRegenerateBackground = useCallback(
     (key: BackgroundSectionKey) => {
-      const sectionId = BACKGROUND_STREAM_SLUG[key];
-      if (generatingSectionId === sectionId) return;
+      if (generatingSectionId) return;
       void runBackgroundStream(key);
     },
     [generatingSectionId, runBackgroundStream]
@@ -2668,8 +2685,10 @@ export default function TexlexReportPage() {
       );
       return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return null;
-      if (err instanceof Error && err.name === "AbortError") return null;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return null;
+      }
       console.error("Collateral summary generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -2696,6 +2715,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateCollateralSummary = useCallback(() => {
     const sectionId = "collateral-summary";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2704,7 +2724,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runCollateralSummaryStream]);
 
   const handleRegenerateCollateralSummary = useCallback(() => {
-    if (generatingSectionId === "collateral-summary") return;
+    if (generatingSectionId) return;
     void runCollateralSummaryStream();
   }, [generatingSectionId, runCollateralSummaryStream]);
 
@@ -2795,8 +2815,10 @@ export default function TexlexReportPage() {
         }
         return generated;
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return null;
-        if (err instanceof Error && err.name === "AbortError") return null;
+        if (isAbortError(err)) {
+          reportStoppedRef.current = true;
+          return null;
+        }
         console.error("Functional impact generation error:", err);
         if (genSessionRef.current === session) {
           setFunctionalImpactSummary(FUNCTIONAL_IMPACT_RENDER_FALLBACK);
@@ -2828,6 +2850,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateFunctionalImpact = useCallback(() => {
     const sectionId = "functional-impact-summary";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2836,7 +2859,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runFunctionalImpactStream]);
 
   const handleRegenerateFunctionalImpact = useCallback(() => {
-    if (generatingSectionId === "functional-impact-summary") return;
+    if (generatingSectionId) return;
     void runFunctionalImpactStream();
   }, [generatingSectionId, runFunctionalImpactStream]);
 
@@ -2972,8 +2995,10 @@ export default function TexlexReportPage() {
       );
       return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return null;
-      if (err instanceof Error && err.name === "AbortError") return null;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return null;
+      }
       console.error("Formulation generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -3010,6 +3035,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateFormulation = useCallback(() => {
     const sectionId = "clinical-formulation";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -3020,7 +3046,7 @@ export default function TexlexReportPage() {
   }, [clinicalFormulation, generatingSectionId, runFormulationStream, severityAudit]);
 
   const handleRegenerateFormulation = useCallback(() => {
-    if (generatingSectionId === "clinical-formulation") return;
+    if (generatingSectionId) return;
     void runFormulationStream(undefined, { mode: "regenerate" });
   }, [generatingSectionId, runFormulationStream]);
 
@@ -3094,8 +3120,10 @@ export default function TexlexReportPage() {
         controller.signal
       );
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return;
+      }
       console.error("Recommendations generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -3121,6 +3149,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateRecommendations = useCallback(() => {
     const sectionId = "recommendations";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -3129,7 +3158,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runRecommendationsStream]);
 
   const handleRegenerateRecommendations = useCallback(() => {
-    if (generatingSectionId === "recommendations") return;
+    if (generatingSectionId) return;
     void runRecommendationsStream();
   }, [generatingSectionId, runRecommendationsStream]);
 
@@ -3181,6 +3210,7 @@ export default function TexlexReportPage() {
     });
 
     try {
+      reportStoppedRef.current = false;
       const snapshot: ReportGenerationSnapshot = {
         presentingConcerns,
         background: cloneBackgroundState(background),
@@ -3191,6 +3221,7 @@ export default function TexlexReportPage() {
       };
 
       const presentingGenerated = await runPresentingConcernsStream();
+      if (reportStoppedRef.current) return;
       if (presentingGenerated) snapshot.presentingConcerns = presentingGenerated;
 
       const backgroundKeys: BackgroundSectionKey[] = [
@@ -3201,10 +3232,12 @@ export default function TexlexReportPage() {
       ];
       for (const key of backgroundKeys) {
         const generated = await runBackgroundStream(key);
+        if (reportStoppedRef.current) return;
         if (generated) snapshot.background[key] = generated;
       }
 
       const collateralGenerated = await runCollateralSummaryStream();
+      if (reportStoppedRef.current) return;
       if (collateralGenerated) snapshot.collateralSummary = collateralGenerated;
 
       const applyCriterionNarrative = async (code: CriterionCode) => {
@@ -3225,20 +3258,24 @@ export default function TexlexReportPage() {
 
       for (const code of [...A_CRITERION_CODES, ...B_CRITERION_CODES]) {
         await applyCriterionNarrative(code);
+        if (reportStoppedRef.current) return;
       }
 
       const functionalImpactGenerated = await runFunctionalImpactStream(snapshot);
+      if (reportStoppedRef.current) return;
       if (!functionalImpactGenerated) {
         throw new Error("Functional impact generation did not return prose");
       }
 
       for (const code of C_CRITERION_CODES) {
         await applyCriterionNarrative(code);
+        if (reportStoppedRef.current) return;
       }
 
       const formulationGenerated = await runFormulationStream(snapshot, {
         mode: snapshot.clinicalFormulation.trim() || severityAudit ? "regenerate" : "first",
       });
+      if (reportStoppedRef.current) return;
       if (formulationGenerated) snapshot.clinicalFormulation = formulationGenerated;
 
       await runRecommendationsStream();
@@ -3272,6 +3309,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateReport = useCallback(() => {
     if (generatingSectionId) {
+      reportStoppedRef.current = true;
       streamAbortRef.current?.abort();
       return;
     }
@@ -3382,7 +3420,8 @@ export default function TexlexReportPage() {
       return {
         onGenerate: () => handleGenerateCriterion(code),
         onRegenerate: () => handleRegenerateCriterion(code),
-        regenerateDisabled: active,
+        generateDisabled: Boolean(generatingSectionId) && !active,
+        regenerateDisabled: Boolean(generatingSectionId),
         generateLabel: active ? ("Stop" as const) : ("Generate" as const),
         topSlot: active ? (
           <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
@@ -3960,6 +3999,39 @@ export default function TexlexReportPage() {
     return latest.summary.openBlockingCount === 0;
   }, [finalizeReviewRuns]);
 
+  const asdAuditChecklist = useMemo(() => {
+    const latest = finalizeReviewRuns.length
+      ? finalizeReviewRuns[finalizeReviewRuns.length - 1]!
+      : null;
+    const criterionAbText = ["A1", "A2", "A3", "B1", "B2", "B3", "B4"]
+      .map((code) => criteria[code as CriterionCode]?.indicators ?? "")
+      .join("\n");
+    return buildAsdAuditChecklist({
+      assessmentModality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+      diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
+      school: patientDetails.school,
+      collateralSummary,
+      clinicalFormulation,
+      criterionE: criteria.E?.indicators ?? "",
+      functionalImpactSummary,
+      limitationsText,
+      criterionAbText,
+      openFindings: latest?.findings ?? [],
+    });
+  }, [
+    clinicalFormulation,
+    collateralSummary,
+    criteria,
+    diagnosticConclusion,
+    finalizeReviewRuns,
+    functionalImpactSummary,
+    limitationsText,
+    patientDetails.assessmentModality,
+    patientDetails.school,
+    patientDetails.virtualCareReason,
+  ]);
+
   const scrollToFinalizeReview = useCallback(() => {
     document.getElementById("finalize-review")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
@@ -4118,6 +4190,7 @@ export default function TexlexReportPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          pathway: "asd",
           patientDetails,
           diagnosticConclusion: effectiveConclusion,
           confirmedLevelA: levelA,
@@ -4858,6 +4931,8 @@ export default function TexlexReportPage() {
               className="mb-2"
             />
 
+            <TexlexAuditorCaseListPanel className="mb-2" />
+
             <section id="patient-details">
               <TexlexSectionHeading className="mb-3">Client details</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
@@ -5395,7 +5470,6 @@ export default function TexlexReportPage() {
                       size="lg"
                       className="px-5 text-sm font-semibold"
                       onClick={handleGenerateReport}
-                      disabled={Boolean(generatingSectionId)}
                     >
                       {generatingSectionId ? "Stop generation" : "Generate Report"}
                     </Button>
@@ -5435,7 +5509,8 @@ export default function TexlexReportPage() {
                     modelName={TEXLEX_SECTION_MODELS.presentingConcerns}
                     onGenerate={handleGeneratePresentingConcerns}
                     onRegenerate={handleRegeneratePresentingConcerns}
-                    regenerateDisabled={generatingSectionId === "presenting-concerns"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "presenting-concerns"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "presenting-concerns" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "presenting-concerns" ? (
@@ -5520,7 +5595,8 @@ export default function TexlexReportPage() {
                       modelName={modelName}
                       onGenerate={() => handleGenerateBackground(key)}
                       onRegenerate={() => handleRegenerateBackground(key)}
-                      regenerateDisabled={generatingSectionId === sectionId}
+                      generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== sectionId}
+                      regenerateDisabled={Boolean(generatingSectionId)}
                       generateLabel={generatingSectionId === sectionId ? "Stop" : "Generate"}
                       topSlot={
                         generatingSectionId === sectionId ? (
@@ -5604,7 +5680,8 @@ export default function TexlexReportPage() {
                     modelName={TEXLEX_SECTION_MODELS.collateralSummary}
                     onGenerate={handleGenerateCollateralSummary}
                     onRegenerate={handleRegenerateCollateralSummary}
-                    regenerateDisabled={generatingSectionId === "collateral-summary"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "collateral-summary"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "collateral-summary" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "collateral-summary" ? (
@@ -5732,7 +5809,8 @@ export default function TexlexReportPage() {
                     refinementModel={TEXLEX_SECTION_MODELS.functionalImpactSummary.refinement}
                     onGenerate={handleGenerateFunctionalImpact}
                     onRegenerate={handleRegenerateFunctionalImpact}
-                    regenerateDisabled={generatingSectionId === "functional-impact-summary"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "functional-impact-summary"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "functional-impact-summary" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "functional-impact-summary" ? (
@@ -5901,7 +5979,8 @@ export default function TexlexReportPage() {
                     refinementModel={TEXLEX_SECTION_MODELS.clinicalFormulation.refinement}
                     onGenerate={handleGenerateFormulation}
                     onRegenerate={handleRegenerateFormulation}
-                    regenerateDisabled={generatingSectionId === "clinical-formulation"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "clinical-formulation"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "clinical-formulation" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "clinical-formulation" ? (
@@ -5955,7 +6034,8 @@ export default function TexlexReportPage() {
                     refinementModel={TEXLEX_SECTION_MODELS.recommendations.refinement}
                     onGenerate={handleGenerateRecommendations}
                     onRegenerate={handleRegenerateRecommendations}
-                    regenerateDisabled={generatingSectionId === "recommendations"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "recommendations"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "recommendations" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "recommendations" ? (
@@ -6032,6 +6112,7 @@ export default function TexlexReportPage() {
               onReject={(id) => updateLatestFindingStatus(id, "rejected")}
               onApply={applyFinalizeFinding}
               finalPdfUnlocked={finalPdfUnlocked}
+              auditChecklist={asdAuditChecklist}
             />
 
             <TexlexSendPanel

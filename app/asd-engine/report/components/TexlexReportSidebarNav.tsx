@@ -14,6 +14,8 @@ const NAV_GROUPS: readonly NavGroup[] = [
       { id: "report-header", label: "Report header" },
       { id: "assessment-context", label: "Assessment context" },
       { id: "consent", label: "Consent" },
+      { id: "import-finished-report", label: "Import finished report" },
+      { id: "auditor-case-list", label: "Auditor case list" },
       { id: "patient-details", label: "Client details" },
       { id: "diagnostic-conclusion", label: "Diagnostic conclusion" },
       { id: "raw-notes", label: "Raw notes" },
@@ -135,6 +137,7 @@ export function TexlexReportSidebarNav() {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
       setActiveId(id);
       history.replaceState(null, "", "#" + id);
+      window.dispatchEvent(new CustomEvent("texlex-nav-jump", { detail: { id } }));
     }
   };
 

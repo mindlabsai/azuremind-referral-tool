@@ -20,7 +20,8 @@ export type ReviewSectionId =
   | "functional-impact"
   | "clinical-formulation"
   | "recommendations"
-  | "limitations";
+  | "limitations"
+  | "patient-details";
 
 export type ReviewSeverity = "blocking" | "major" | "minor";
 
@@ -29,8 +30,17 @@ export type ReviewCheckKind =
   | "pronoun_mismatch"
   | "level_ab_vs_opening"
   | "modality_mismatch"
+  | "date_mismatch"
   | "major_inconsistency"
-  | "differential_consistency";
+  | "differential_consistency"
+  /** AHPRA-oriented audit scans */
+  | "observation_source"
+  | "differential_coverage"
+  | "cognitive_overclaim"
+  | "collateral_gap"
+  | "modality_limits"
+  | "limitations_honesty"
+  | "severity_support";
 
 export type ReviewFindingStatus = "open" | "accepted" | "rejected" | "resolved";
 

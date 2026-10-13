@@ -1,4 +1,10 @@
 import { clientFirstName } from "@/app/asd-engine/report/pdf/utils";
+import {
+  calendarDays,
+  formatCalendarDay,
+  headerDateConflict,
+  proseDateConflicts,
+} from "./assessment-report-dates";
 import type {
   ReviewFinding,
   ReviewSectionId,
@@ -18,6 +24,8 @@ export type DeterministicReviewInput = {
   confirmedLevelA: number | null;
   confirmedLevelB: number | null;
   expectedFormulationOpening: string;
+  assessmentDates: string[];
+  reportDate: string;
   sections: ReviewSectionInput[];
 };
 
@@ -458,5 +466,55 @@ export function runDeterministicReview(input: DeterministicReviewInput): ReviewF
     }
   }
 
+  const dates = headerDateConflict(input.assessmentDates, input.reportDate);
+  if (dates) {
+    const assessmentLabel = dates.assessmentDays.map(formatCalendarDay).join(", ");
+    const reportLabel = formatCalendarDay(dates.reportDay);
+    out.push(
+      finding(input.runId, {
+        kind: "date_mismatch",
+        severity: "blocking",
+        sectionId: "patient-details",
+        title: "Date of report is before the date of assessment",
+        detail: `Date of assessment is ${assessmentLabel}. Date of report is ${reportLabel}. The report is dated before the assessment was completed.`,
+        evidenceExcerpt: `Date of assessment: ${assessmentLabel}. Date of report: ${reportLabel}.`,
+        suggestedEdit:
+          "Set the date of report on or after the last date of assessment, or correct the date of assessment if the report date is the one that is right.",
+        applyHint: null,
+      })
+    );
+  }
+
+  for (const conflict of proseDateConflicts(input.sections, input.assessmentDates, input.reportDate)) {
+    const stated = formatCalendarDay(conflict.statedDay);
+    const locked =
+      conflict.which === "assessment"
+        ? calendarLabel(input.assessmentDates)
+        : formatCalendarDay(input.reportDate);
+    out.push(
+      finding(input.runId, {
+        kind: "date_mismatch",
+        severity: "major",
+        sectionId: conflict.sectionId,
+        title:
+          conflict.which === "assessment"
+            ? "Section date of assessment conflicts with the report header"
+            : "Section date of report conflicts with the report header",
+        detail:
+          conflict.which === "assessment"
+            ? `This section states a date of assessment of ${stated}. The report header has ${locked}.`
+            : `This section states a date of report of ${stated}. The report header has ${locked}.`,
+        evidenceExcerpt: conflict.excerpt,
+        suggestedEdit: "Use the date from the report header, or correct the header if this section is right.",
+        applyHint: null,
+      })
+    );
+  }
+
   return out;
+}
+
+function calendarLabel(values: string[]): string {
+  const days = calendarDays(values);
+  return days.length ? days.map(formatCalendarDay).join(", ") : "no date of assessment";
 }

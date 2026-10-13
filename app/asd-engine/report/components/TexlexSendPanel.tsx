@@ -212,12 +212,14 @@ export function TexlexSendPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          purpose: "correspondence",
           to: toList,
           ...(ccList.length ? { cc: ccList } : {}),
           subject,
           html: buildLetterEmailHtml(letterKind, letterBody, mergeFields),
           text: `${docTitle}\n${docSubtitle}\n\n${regarding}\n\n${letterBody}\n\nKind Regards,\n${mergeFields.assessor || "Vishal Maharaj"}\nAzure Mind`,
           attachments,
+          replyTo: "admin@azuremind.com.au",
         }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
@@ -246,7 +248,9 @@ export function TexlexSendPanel({
         <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
           <p className="text-sm text-muted-foreground">
             Send the final report to parents, clinicians, or both. Parent cover goes to carers;
-            clinician letters go to the referrer / Dr Muru. Cliniko keeps the file; Texlex sends mail.
+            clinician letters go to the referrer / Dr Muru. Sends from{" "}
+            <span className="text-foreground">admin@azuremind.com.au</span> (post-referral
+            correspondence). Cliniko keeps the file; Texlex sends mail.
           </p>
 
           {!unlocked ? (

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { anthropic, MODELS } from "@/lib/anthropic-client";
 import { formatDemographicsLock } from "@/lib/prompts/factual-integrity";
+import { runAhpraAuditChecks } from "@/lib/texlex-finalize-review/ahpra-audit-checks";
 import { runDeterministicReview } from "@/lib/texlex-finalize-review/deterministic";
 import { formatSectionsBlock } from "@/lib/texlex-finalize-review/assemble-corpus";
 import {
@@ -32,6 +33,7 @@ type FinalizeReviewBody = {
     assessmentModality?: "" | "in-clinic" | "virtual";
     virtualCareReason?: string;
     assessmentDates?: string[];
+    reportDate?: string;
   };
   diagnosticConclusion?: string;
   confirmedLevelA?: number | null;
@@ -70,20 +72,38 @@ export async function POST(req: NextRequest) {
       pronouns: typeof pd.pronouns === "string" ? pd.pronouns : "",
     };
 
-    const deterministic = runDeterministicReview({
+    const school = typeof pd.school === "string" ? pd.school : "";
+    const deterministicBase = runDeterministicReview({
       runId,
       clientName: snapshot.clientName,
       pronouns: snapshot.pronouns,
       parent1: typeof pd.parent1 === "string" ? pd.parent1 : "",
       parent2: typeof pd.parent2 === "string" ? pd.parent2 : "",
-      school: typeof pd.school === "string" ? pd.school : "",
+      school,
       assessmentModality: snapshot.assessmentModality,
       diagnosticConclusion: snapshot.diagnosticConclusion,
       confirmedLevelA: snapshot.confirmedLevelA,
       confirmedLevelB: snapshot.confirmedLevelB,
       expectedFormulationOpening: body.expectedFormulationOpening ?? "",
+      assessmentDates: Array.isArray(pd.assessmentDates)
+        ? pd.assessmentDates.filter((date): date is string => typeof date === "string")
+        : [],
+      reportDate: typeof pd.reportDate === "string" ? pd.reportDate : "",
       sections,
     });
+
+    const ahpraFindings =
+      pathway === "asd"
+        ? runAhpraAuditChecks({
+            runId,
+            assessmentModality: snapshot.assessmentModality,
+            diagnosticConclusion: snapshot.diagnosticConclusion,
+            school,
+            sections,
+          })
+        : [];
+
+    const deterministic = [...deterministicBase, ...ahpraFindings];
 
     let llmFindings: ReturnType<typeof parseLlmFinalizeFindings> = [];
     let modelUsed: string | null = null;
@@ -108,6 +128,7 @@ export async function POST(req: NextRequest) {
             assessmentDate: Array.isArray(pd.assessmentDates)
               ? pd.assessmentDates.filter(Boolean).join(", ")
               : undefined,
+            reportDate: typeof pd.reportDate === "string" ? pd.reportDate : undefined,
           });
           const userPrompt = buildFinalizeReviewUserPrompt({
             demographicsLock,

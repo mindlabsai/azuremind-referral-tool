@@ -1,4 +1,4 @@
-import type { ReviewFinding, ReviewSectionId } from "./types";
+import type { ReviewCheckKind, ReviewFinding, ReviewSectionId } from "./types";
 import { newReviewId } from "./types";
 
 const ALLOWED_SECTIONS = new Set<string>([
@@ -22,6 +22,28 @@ const ALLOWED_SECTIONS = new Set<string>([
   "clinical-formulation",
   "recommendations",
   "limitations",
+  "patient-details",
+]);
+
+const ALLOWED_KINDS = new Set<ReviewCheckKind>([
+  "major_inconsistency",
+  "differential_consistency",
+  "observation_source",
+  "differential_coverage",
+  "cognitive_overclaim",
+  "collateral_gap",
+  "modality_limits",
+  "limitations_honesty",
+  "severity_support",
+]);
+
+/** Empty-section findings may omit excerpt; all others require a grounded quote. */
+const EMPTY_OK_KINDS = new Set<ReviewCheckKind>([
+  "collateral_gap",
+  "modality_limits",
+  "limitations_honesty",
+  "severity_support",
+  "differential_coverage",
 ]);
 
 function extractJsonObject(raw: string): unknown {
@@ -47,30 +69,37 @@ export function parseLlmFinalizeFindings(raw: string, runId: string): ReviewFind
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
     const kind = row.kind;
-    if (kind !== "major_inconsistency" && kind !== "differential_consistency") continue;
+    if (typeof kind !== "string" || !ALLOWED_KINDS.has(kind as ReviewCheckKind)) continue;
+    const checkKind = kind as ReviewCheckKind;
     const sectionId = typeof row.sectionId === "string" ? row.sectionId : "";
     if (!ALLOWED_SECTIONS.has(sectionId)) continue;
     const evidence =
       typeof row.evidenceExcerpt === "string" && row.evidenceExcerpt.trim()
         ? row.evidenceExcerpt.trim().slice(0, 500)
         : null;
-    if (!evidence) continue; // require grounded excerpt
-    const title = typeof row.title === "string" && row.title.trim() ? row.title.trim().slice(0, 160) : "Major inconsistency";
+    if (!evidence && !EMPTY_OK_KINDS.has(checkKind)) continue;
+    const title =
+      typeof row.title === "string" && row.title.trim()
+        ? row.title.trim().slice(0, 160)
+        : checkKind === "major_inconsistency"
+          ? "Major inconsistency"
+          : "Audit documentation gap";
     const detail =
       typeof row.detail === "string" && row.detail.trim()
         ? row.detail.trim().slice(0, 800)
-        : "Conflict detected among existing report sections.";
+        : "Conflict or documentation gap among existing report sections.";
     const suggestedEdit =
       typeof row.suggestedEdit === "string" && row.suggestedEdit.trim()
         ? row.suggestedEdit.trim().slice(0, 600)
         : null;
-    const severity = row.severity === "blocking" ? "blocking" : "major";
+    const severity =
+      row.severity === "blocking" || checkKind === "cognitive_overclaim" ? "blocking" : "major";
 
     out.push({
       id: newReviewId("find"),
       runId,
       source: "llm",
-      kind,
+      kind: checkKind,
       severity,
       sectionId: sectionId as ReviewSectionId,
       title,
