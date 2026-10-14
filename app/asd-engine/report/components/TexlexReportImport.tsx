@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { TexlexEngineId } from "@/lib/texlex-report-state";
 import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
+
+const IMPORT_SECTION_ID = "import-finished-report";
 
 type TexlexReportImportProps = {
   engine: TexlexEngineId;
@@ -30,6 +32,27 @@ export function TexlexReportImport({
   const [preview, setPreview] = useState<TexlexImportedReport | null>(null);
   const [overwritePatientDetails, setOverwritePatientDetails] = useState(false);
   const [open, setOpen] = useState(false);
+
+  // Open panel when jumped to from sidebar / hash
+  useEffect(() => {
+    const expandIfTargeted = () => {
+      if (typeof window === "undefined") return;
+      if (window.location.hash.replace(/^#/, "") === IMPORT_SECTION_ID) {
+        setOpen(true);
+      }
+    };
+    const onNavJump = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (id === IMPORT_SECTION_ID) setOpen(true);
+    };
+    expandIfTargeted();
+    window.addEventListener("hashchange", expandIfTargeted);
+    window.addEventListener("texlex-nav-jump", onNavJump);
+    return () => {
+      window.removeEventListener("hashchange", expandIfTargeted);
+      window.removeEventListener("texlex-nav-jump", onNavJump);
+    };
+  }, []);
 
   const resetSource = useCallback(() => {
     setFile(null);
@@ -94,7 +117,10 @@ export function TexlexReportImport({
   }, [hasExistingContent, onApply, overwritePatientDetails, preview, resetSource]);
 
   return (
-    <div className={cn("rounded-lg border border-border/80 bg-muted/20", className)}>
+    <div
+      id={IMPORT_SECTION_ID}
+      className={cn("rounded-lg border border-border/80 bg-muted/20", className)}
+    >
       <button
         type="button"
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"

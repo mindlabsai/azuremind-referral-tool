@@ -5,17 +5,21 @@ import Link from "next/link";
 import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
 
-const TEXLEX_PRIMARY_BUTTON_CLASS =
-  "inline-flex items-center justify-center rounded-md border-0 bg-[#1A1A1A] px-3 py-[5px] text-xs text-white transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60";
+const BTN_GHOST =
+  "inline-flex items-center justify-center rounded-lg border border-[#B7E1DE] bg-white px-4 py-2.5 text-[15px] font-semibold text-[#075E63] transition-colors hover:bg-[#E8F6F5] disabled:cursor-not-allowed disabled:opacity-50";
 
-const TEXLEX_SECONDARY_BUTTON_CLASS =
-  "inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60";
+const BTN_PRIMARY =
+  "inline-flex items-center justify-center rounded-lg border-0 bg-[#0E9F98] px-5 py-2.5 text-[16px] font-bold text-white transition-colors hover:bg-[#075E63] disabled:cursor-not-allowed disabled:opacity-50";
 
 export type TexlexPdfBusyMode = "only" | "save" | "preview" | null;
 
 type TexlexReportHeaderProps = {
   clientName: string;
+  /** e.g. "ASD assessment" / "ADHD assessment" */
+  assessmentLabel?: string;
   statusLabel: string;
+  /** High-level workflow status shown as plain text (no capsules). */
+  workflowStatus?: "draft" | "ready" | "sent" | string;
   saveFailed: boolean;
   editing: boolean;
   pdfDownloading: boolean;
@@ -26,13 +30,19 @@ type TexlexReportHeaderProps = {
   onNewReport: () => void;
   onSaveDraft: () => void;
   onFinalizeReview?: () => void;
-  /** When false, Final PDF actions stay available as draft download but show gate hint. */
   finalPdfUnlocked?: boolean;
   onFinalPdfDownload?: () => void;
-  /** After Final PDF — jump to Send via Texlex. */
+  /** Review clear — Send report enabled (PDF builds on send). */
   sendUnlocked?: boolean;
   onOpenSend?: () => void;
+  onGenerateAll?: () => void;
+  generateAllBusy?: boolean;
+  onToggleToday?: () => void;
+  todayOpen?: boolean;
   statusExtras?: ReactNode;
+  engineHomeHref?: string;
+  /** Practice file the final PDF is saved to. */
+  recordLabel?: string;
 };
 
 function TexlexHeaderOverflowMenu({
@@ -40,11 +50,27 @@ function TexlexHeaderOverflowMenu({
   pdfDownloading,
   onNewReport,
   onSaveDraft,
+  onPreviewPdf,
+  onDownloadOnly,
+  onFinalPdf,
+  finalPdfUnlocked,
+  pdfBusyMode,
+  onFinalizeReview,
+  engineHomeHref,
+  recordLabel,
 }: {
   saveFailed: boolean;
   pdfDownloading: boolean;
   onNewReport: () => void;
   onSaveDraft: () => void;
+  onPreviewPdf: () => void;
+  onDownloadOnly: () => void;
+  onFinalPdf?: () => void;
+  finalPdfUnlocked: boolean;
+  pdfBusyMode: TexlexPdfBusyMode;
+  onFinalizeReview?: () => void;
+  engineHomeHref: string;
+  recordLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -67,6 +93,9 @@ function TexlexHeaderOverflowMenu({
     };
   }, [open]);
 
+  const itemClass =
+    "flex w-full px-4 py-3 text-left text-[15px] text-[#122022] hover:bg-[#E8F6F5] disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
     <div ref={rootRef} className="relative">
       <button
@@ -74,7 +103,7 @@ function TexlexHeaderOverflowMenu({
         aria-label="More actions"
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-border/80 bg-background px-2 text-base leading-none text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        className="inline-flex h-10 min-w-10 items-center justify-center rounded-lg border border-[#D5E0E0] bg-white px-3 text-lg leading-none text-[#5A6B6C] transition-colors hover:bg-[#F3F5F5] hover:text-[#075E63]"
         onClick={() => setOpen((v) => !v)}
       >
         ···
@@ -82,36 +111,98 @@ function TexlexHeaderOverflowMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-1 min-w-[11rem] rounded-md border border-border/80 bg-background py-1 shadow-md"
+          className="absolute right-0 z-50 mt-2 min-w-[14rem] rounded-lg border border-[#D5E0E0] bg-white py-1 shadow-lg"
         >
           <button
             type="button"
             role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+            className={itemClass}
+            disabled={pdfDownloading}
+            onClick={() => {
+              setOpen(false);
+              onPreviewPdf();
+            }}
+          >
+            {pdfBusyMode === "preview" ? "Preparing preview…" : "Preview PDF"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
+            disabled={pdfDownloading}
+            onClick={() => {
+              setOpen(false);
+              onDownloadOnly();
+            }}
+          >
+            {pdfBusyMode === "only" ? "Preparing…" : "Download draft"}
+          </button>
+          {onFinalPdf ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              disabled={pdfDownloading || !finalPdfUnlocked}
+              title={
+                finalPdfUnlocked
+                  ? `Download final PDF and save to ${recordLabel}`
+                  : "Clear review blockers first"
+              }
+              onClick={() => {
+                setOpen(false);
+                onFinalPdf();
+              }}
+            >
+              {pdfBusyMode === "save"
+                ? "Preparing…"
+                : finalPdfUnlocked
+                  ? `Save PDF to ${recordLabel}`
+                  : "Save PDF (review blocked)"}
+            </button>
+          ) : null}
+          {onFinalizeReview ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              disabled={pdfDownloading}
+              onClick={() => {
+                setOpen(false);
+                onFinalizeReview();
+              }}
+            >
+              Jump to Review
+            </button>
+          ) : null}
+          <div className="my-1 border-t border-[#D5E0E0]" />
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
             disabled={pdfDownloading}
             onClick={() => {
               setOpen(false);
               onNewReport();
             }}
           >
-            New Report
+            New report
           </button>
           <button
             type="button"
             role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50"
+            className={itemClass}
             onClick={() => {
               setOpen(false);
               onSaveDraft();
             }}
           >
-            Save Draft
+            Save draft
           </button>
           {saveFailed ? (
             <button
               type="button"
               role="menuitem"
-              className="flex w-full px-3 py-2 text-left text-sm text-destructive hover:bg-muted/50"
+              className={cn(itemClass, "text-destructive")}
               onClick={() => {
                 setOpen(false);
                 onSaveDraft();
@@ -120,26 +211,10 @@ function TexlexHeaderOverflowMenu({
               Retry save
             </button>
           ) : null}
-          <span
-            className="flex w-full cursor-not-allowed px-3 py-2 text-sm text-muted-foreground opacity-60"
-            title="Available after report sections are generated"
-            role="menuitem"
-            aria-disabled
-          >
-            Download DOCX
-          </span>
-          <span
-            className="flex w-full cursor-not-allowed px-3 py-2 text-sm text-muted-foreground opacity-60"
-            title="Available after report sections are generated"
-            role="menuitem"
-            aria-disabled
-          >
-            Email
-          </span>
           <Link
-            href="/asd-engine"
+            href={engineHomeHref}
             role="menuitem"
-            className="flex w-full px-3 py-2 text-sm text-foreground hover:bg-muted/50"
+            className={itemClass}
             onClick={() => setOpen(false)}
           >
             Engine dashboard
@@ -150,9 +225,18 @@ function TexlexHeaderOverflowMenu({
   );
 }
 
+function workflowStatusText(workflowStatus: string | undefined, statusLabel: string) {
+  if (workflowStatus === "ready") return "Ready to send";
+  if (workflowStatus === "sent") return "Sent";
+  if (workflowStatus === "draft") return statusLabel || "Draft";
+  return statusLabel;
+}
+
 export function TexlexReportHeader({
   clientName,
+  assessmentLabel = "ASD assessment",
   statusLabel,
+  workflowStatus,
   saveFailed,
   editing,
   pdfDownloading,
@@ -167,100 +251,86 @@ export function TexlexReportHeader({
   onFinalPdfDownload,
   sendUnlocked = false,
   onOpenSend,
+  onGenerateAll,
+  generateAllBusy,
+  onToggleToday,
+  todayOpen,
   statusExtras,
+  engineHomeHref = "/asd-engine",
+  recordLabel = "Cliniko",
 }: TexlexReportHeaderProps) {
-  const displayName = clientName.trim() || "Client name not set";
-  const subtitle = `${displayName} · ASD assessment`;
+  const displayName = clientName.trim() || "New patient";
+  const flowLabel = workflowStatusText(workflowStatus, statusLabel);
 
   return (
-    <header className="sticky top-0 z-10 border-b border-border/80 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-5 py-3">
-        <div className="min-w-0">
-          <p className="text-lg font-semibold tracking-tight text-foreground">Texlex</p>
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <div className="flex shrink-0 items-center justify-end gap-3">
-          <div className="flex flex-col items-end gap-1">
-            <span
-              className={cn(
-                "text-xs text-[var(--text-3)]",
-                saveFailed && "font-medium text-destructive",
-                editing && !saveFailed && "text-foreground"
-              )}
-            >
-              {statusLabel}
-            </span>
-            {statusExtras ? (
-              <div className="flex flex-wrap justify-end gap-2">{statusExtras}</div>
-            ) : null}
-          </div>
+    <header className="sticky top-0 z-10 border-b border-[#D5E0E0] bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-5 py-3.5">
+        {onToggleToday ? (
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
+            className={cn(BTN_GHOST, todayOpen && "bg-[#E8F6F5]")}
+            onClick={onToggleToday}
+          >
+            Today
+          </button>
+        ) : null}
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[20px] font-extrabold tracking-tight text-[#075E63] sm:text-[22px]">
+            {displayName}{" "}
+            <span className="font-medium text-[#5A6B6C]">· {assessmentLabel.replace(/ assessment$/i, "")}</span>
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 text-[15px] font-semibold",
+              saveFailed
+                ? "text-destructive"
+                : workflowStatus === "ready" || flowLabel.toLowerCase().includes("ready")
+                  ? "text-[#0F766E] underline decoration-[#B7E1DE] underline-offset-4"
+                  : editing
+                    ? "text-[#122022]"
+                    : "text-[#5A6B6C]"
+            )}
+          >
+            {saveFailed ? "Save failed" : flowLabel}
+          </p>
+          {statusExtras ? (
+            <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-[#5A6B6C]">{statusExtras}</div>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {onGenerateAll ? (
+            <button
+              type="button"
+              className={BTN_GHOST}
+              disabled={pdfDownloading || generateAllBusy}
+              onClick={onGenerateAll}
+            >
+              {generateAllBusy ? "Generating…" : "Generate all"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={BTN_GHOST}
             disabled={pdfDownloading}
             onClick={onSaveDraft}
           >
             Save
           </button>
-          {onFinalizeReview ? (
-            <button
-              type="button"
-              className={TEXLEX_SECONDARY_BUTTON_CLASS}
-              disabled={pdfDownloading}
-              onClick={onFinalizeReview}
-            >
-              Finalize review
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={TEXLEX_SECONDARY_BUTTON_CLASS}
-            disabled={pdfDownloading}
-            onClick={onPreviewPdf}
-          >
-            {pdfBusyMode === "preview" ? "Preparing…" : "Preview"}
-          </button>
-          <button
-            type="button"
-            className={TEXLEX_SECONDARY_BUTTON_CLASS}
-            disabled={pdfDownloading}
-            onClick={onDownloadOnly}
-            title="Draft download (still available while review findings are open)"
-          >
-            {pdfBusyMode === "only" ? "Preparing…" : "Download draft"}
-          </button>
-          <button
-            type="button"
-            className={TEXLEX_PRIMARY_BUTTON_CLASS}
-            disabled={pdfDownloading || (onFinalPdfDownload ? !finalPdfUnlocked : false)}
-            title={
-              onFinalPdfDownload && !finalPdfUnlocked
-                ? "Clear blocking Finalize review findings first"
-                : undefined
-            }
-            onClick={onFinalPdfDownload ?? onDownloadAndSave}
-          >
-            {pdfBusyMode === "save"
-              ? "Preparing…"
-              : onFinalPdfDownload
-                ? finalPdfUnlocked
-                  ? "Final PDF"
-                  : "Final PDF (blocked)"
-                : "Download & save to Cliniko"}
-          </button>
           {onOpenSend ? (
             <button
               type="button"
-              className={TEXLEX_SECONDARY_BUTTON_CLASS}
+              className={BTN_PRIMARY}
               disabled={pdfDownloading || !sendUnlocked}
               title={
                 sendUnlocked
-                  ? "Email parents, Dr Muru, or referrers via Texlex"
-                  : "Complete Final PDF first"
+                  ? "Preview and send — PDF builds with the send"
+                  : "Clear Review blockers first"
               }
               onClick={onOpenSend}
             >
-              Send
+              Send report
             </button>
           ) : null}
           <TexlexHeaderOverflowMenu
@@ -268,8 +338,26 @@ export function TexlexReportHeader({
             pdfDownloading={pdfDownloading}
             onNewReport={onNewReport}
             onSaveDraft={onSaveDraft}
+            onPreviewPdf={onPreviewPdf}
+            onDownloadOnly={onDownloadOnly}
+            onFinalPdf={
+              onFinalPdfDownload
+                ? () => {
+                    if (!finalPdfUnlocked) {
+                      onFinalizeReview?.();
+                      return;
+                    }
+                    onFinalPdfDownload();
+                  }
+                : () => onDownloadAndSave()
+            }
+            finalPdfUnlocked={finalPdfUnlocked}
+            pdfBusyMode={pdfBusyMode}
+            onFinalizeReview={onFinalizeReview}
+            engineHomeHref={engineHomeHref}
+            recordLabel={recordLabel}
           />
-          <SignOutButton className="inline-flex items-center justify-center rounded-md border border-border/80 bg-background px-3 py-[5px] text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60" />
+          <SignOutButton className="inline-flex items-center justify-center rounded-lg border border-[#D5E0E0] bg-white px-3 py-2.5 text-[14px] font-semibold text-[#5A6B6C] transition-colors hover:bg-[#F3F5F5] hover:text-[#075E63]" />
         </div>
       </div>
     </header>

@@ -16,6 +16,26 @@ function pickRecorderMimeType(): string | undefined {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
+type LiveRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+function liveRecognitionCtor(): (new () => LiveRecognition) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as Window & {
+    SpeechRecognition?: new () => LiveRecognition;
+    webkitSpeechRecognition?: new () => LiveRecognition;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
 function formatElapsed(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
   const m = Math.floor(totalSec / 60);
@@ -46,10 +66,15 @@ export function TexlexScribe({
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [status, setStatus] = useState("Record the encounter, then Whisper will transcribe.");
+  const [status, setStatus] = useState(
+    "Live captions while you speak. Whisper keeps the transcript when you stop."
+  );
   const [transcript, setTranscript] = useState("");
+  const [liveCaption, setLiveCaption] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [generatingLocal, setGeneratingLocal] = useState(false);
+  const recognitionRef = useRef<LiveRecognition | null>(null);
+  const liveCaptionRef = useRef("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -87,8 +112,61 @@ export function TexlexScribe({
         // ignore
       }
       stopStream();
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // ignore
+      }
     };
   }, [clearTick, stopStream]);
+
+  const stopLiveCaption = useCallback(() => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    recognitionRef.current = null;
+  }, []);
+
+  const startLiveCaption = useCallback(() => {
+    const Ctor = liveRecognitionCtor();
+    if (!Ctor) {
+      setLiveCaption("");
+      return;
+    }
+    const recognition = new Ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-AU";
+    recognition.onresult = (event) => {
+      let text = "";
+      for (let i = 0; i < event.results.length; i++) {
+        text += event.results[i]?.[0]?.transcript ?? "";
+      }
+      const next = text.trim();
+      liveCaptionRef.current = next;
+      setLiveCaption(next);
+    };
+    recognition.onerror = () => {
+      /* Whisper still runs when recording stops. */
+    };
+    recognition.onend = () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        try {
+          recognition.start();
+        } catch {
+          // ignore restart races
+        }
+      }
+    };
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+    }
+  }, []);
 
   const transcribeBlob = useCallback(
     async (blob: Blob) => {
@@ -112,13 +190,29 @@ export function TexlexScribe({
           throw new Error(data.error ?? "Transcription failed.");
         }
         const text = (data.text ?? "").trim();
-        setTranscript(text);
-        onTranscript?.(text);
-        setStatus(text ? "Transcript ready." : "Whisper returned an empty transcript.");
+        const kept = text || liveCaptionRef.current.trim();
+        setTranscript(kept);
+        if (kept) onTranscript?.(kept);
+        liveCaptionRef.current = "";
+        setLiveCaption("");
+        setStatus(
+          text
+            ? "Whisper transcript ready."
+            : kept
+              ? "Whisper was empty. Live captions were kept."
+              : "Whisper returned an empty transcript."
+        );
       } catch (err) {
+        const kept = liveCaptionRef.current.trim();
+        if (kept) {
+          setTranscript(kept);
+          onTranscript?.(kept);
+          liveCaptionRef.current = "";
+          setLiveCaption("");
+        }
         const message = err instanceof Error ? err.message : "Transcription failed.";
-        setError(message);
-        setStatus("Transcription failed.");
+        setError(kept ? `${message} Live captions were kept.` : message);
+        setStatus(kept ? "Whisper failed. Live captions were kept." : "Transcription failed.");
       } finally {
         setBusy(false);
       }
@@ -129,6 +223,7 @@ export function TexlexScribe({
   const startRecording = useCallback(async () => {
     setError(null);
     setTranscript("");
+    setLiveCaption("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -142,6 +237,7 @@ export function TexlexScribe({
       };
       recorder.onstop = () => {
         clearTick();
+        stopLiveCaption();
         setRecording(false);
         stopStream();
         const type = recorder.mimeType || mimeType || "audio/webm";
@@ -163,14 +259,15 @@ export function TexlexScribe({
         setElapsedMs(Date.now() - startedAtRef.current);
       }, 250);
       recorder.start(1000);
+      startLiveCaption();
       setRecording(true);
-      setStatus("Recording… tap Stop when finished.");
+      setStatus("Live scribe is on. Speak, then stop — Whisper keeps the final transcript.");
     } catch {
       setError("Microphone blocked. Allow mic access for Texlex.");
       setStatus("Could not start recording.");
       stopStream();
     }
-  }, [clearTick, stopStream, transcribeBlob]);
+  }, [clearTick, startLiveCaption, stopLiveCaption, stopStream, transcribeBlob]);
 
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
@@ -180,6 +277,7 @@ export function TexlexScribe({
       stopStream();
       return;
     }
+    stopLiveCaption();
     setStatus("Finishing recording…");
     try {
       recorder.stop();
@@ -238,7 +336,7 @@ export function TexlexScribe({
         <div>
           <h4 className="text-sm font-semibold text-foreground">Texlex Scribe</h4>
           <p className="text-xs text-muted-foreground">
-            Ambient recording → Whisper transcript (draft only — review before using).
+            Live captions while you speak. Whisper replaces them when you stop. Review before use.
           </p>
         </div>
         {recording ? (
@@ -281,6 +379,13 @@ export function TexlexScribe({
           {status}
         </p>
       </div>
+
+      {recording && liveCaption ? (
+        <div className="rounded-md border border-[#B7E1DE] bg-[#E8F6F5] px-3 py-2 text-sm leading-relaxed text-[#075E63]">
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-wide">Live</p>
+          {liveCaption}
+        </div>
+      ) : null}
 
       {error ? (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">

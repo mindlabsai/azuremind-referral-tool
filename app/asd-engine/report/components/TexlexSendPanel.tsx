@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
+  BUILTIN_REFERRAL_DOCTORS,
   LETTER_KIND_OPTIONS,
   SEND_AUDIENCE_OPTIONS,
   buildLetterBody,
@@ -16,13 +15,17 @@ import {
   letterDocumentSubtitle,
   letterDocumentTitle,
   parseRecipientList,
+  readExtraReferralDoctors,
+  referralDoctorById,
   resolveAudienceRecipients,
+  saveExtraReferralDoctor,
   type LetterKind,
   type LetterMergeFields,
   type RecipientBuckets,
+  type ReferralDoctor,
   type SendAudience,
 } from "@/lib/texlex-comms/letters";
-import { TEXLEX_SECTION_CONTAINER_CLASS, TEXLEX_SECTION_CONTENT_CLASS } from "../constants/texlexSectionSurface";
+import { TEXLEX_SECTION_CONTENT_CLASS } from "../constants/texlexSectionSurface";
 
 type PdfAttachment = { filename: string; contentBase64: string };
 
@@ -40,6 +43,8 @@ type Props = {
   /** Label for the report attachment checkbox. */
   reportAttachLabel?: string;
   onScrollToFinalize?: () => void;
+  /** Compact layout for the Send report drawer (no outer section chrome). */
+  embedded?: boolean;
 };
 
 export function TexlexSendPanel({
@@ -50,12 +55,19 @@ export function TexlexSendPanel({
   buildLetterPdfBase64,
   reportAttachLabel = "Attach final ASD report PDF",
   onScrollToFinalize,
+  embedded = false,
 }: Props) {
   const [audience, setAudience] = useState<SendAudience>("parents-and-clinician");
   const initialRecipients = resolveAudienceRecipients("parents-and-clinician", recipientBuckets);
   const [toInput, setToInput] = useState(() => initialRecipients.to.join(", "));
   const [ccInput, setCcInput] = useState(() => initialRecipients.cc.join(", "));
   const [letterKind, setLetterKind] = useState<LetterKind>("parent-cover");
+  const [extraDoctors, setExtraDoctors] = useState<ReferralDoctor[]>([]);
+  const [referralDoctorId, setReferralDoctorId] = useState("chaandini-subramaniam");
+  const [addingDoctor, setAddingDoctor] = useState(false);
+  const [newDoctorName, setNewDoctorName] = useState("");
+  const [newDoctorRole, setNewDoctorRole] = useState("");
+  const [newDoctorClinic, setNewDoctorClinic] = useState("");
   const [subject, setSubject] = useState(() => buildLetterSubject("parent-cover", mergeFields));
   const [letterBody, setLetterBody] = useState(() => buildLetterBody("parent-cover", mergeFields));
   const [attachReport, setAttachReport] = useState(true);
@@ -66,14 +78,33 @@ export function TexlexSendPanel({
   const [error, setError] = useState<string | null>(null);
   const [recipientsTouched, setRecipientsTouched] = useState(false);
 
+  useEffect(() => {
+    setExtraDoctors(readExtraReferralDoctors());
+  }, []);
+
+  const doctorFor = (
+    kind: LetterKind,
+    doctorId = referralDoctorId,
+    extras: ReferralDoctor[] = extraDoctors
+  ) => (kind === "dr-muru-referral" ? referralDoctorById(doctorId, extras) : undefined);
+
+  const writeLetter = (
+    kind: LetterKind,
+    doctorId = referralDoctorId,
+    extras: ReferralDoctor[] = extraDoctors
+  ) => {
+    setSubject(buildLetterSubject(kind, mergeFields));
+    setLetterBody(buildLetterBody(kind, mergeFields, doctorFor(kind, doctorId, extras)));
+  };
+
   const applyAudience = (next: SendAudience, buckets: RecipientBuckets = recipientBuckets) => {
     const option = SEND_AUDIENCE_OPTIONS.find((o) => o.value === next)!;
     const kind = option.defaultLetterKind;
     const resolved = resolveAudienceRecipients(next, buckets);
     setAudience(next);
     setLetterKind(kind);
-    setSubject(buildLetterSubject(kind, mergeFields));
-    setLetterBody(buildLetterBody(kind, mergeFields));
+    setAddingDoctor(false);
+    writeLetter(kind);
     setToInput(resolved.to.join(", "));
     setCcInput(resolved.cc.join(", "));
     setRecipientsTouched(false);
@@ -92,10 +123,14 @@ export function TexlexSendPanel({
 
   useEffect(() => {
     setSubject(buildLetterSubject(letterKind, mergeFields));
-    setLetterBody(buildLetterBody(letterKind, mergeFields));
+    setLetterBody(
+      buildLetterBody(letterKind, mergeFields, doctorFor(letterKind, referralDoctorId))
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     letterKind,
+    referralDoctorId,
+    extraDoctors,
     mergeFields.clientName,
     mergeFields.dob,
     mergeFields.reportDate,
@@ -121,14 +156,13 @@ export function TexlexSendPanel({
 
   const regenerateLetter = (kind: LetterKind) => {
     setLetterKind(kind);
-    setSubject(buildLetterSubject(kind, mergeFields));
-    setLetterBody(buildLetterBody(kind, mergeFields));
+    setAddingDoctor(false);
+    writeLetter(kind);
     // Align audience with letter when switching referral types
     if (kind === "parent-cover" && audience === "clinician") {
       applyAudience("parents-and-clinician");
       setLetterKind("parent-cover");
-      setSubject(buildLetterSubject("parent-cover", mergeFields));
-      setLetterBody(buildLetterBody("parent-cover", mergeFields));
+      writeLetter("parent-cover");
     } else if ((kind === "referrer-update" || kind === "dr-muru-referral") && audience !== "clinician") {
       const resolved = resolveAudienceRecipients("clinician", recipientBuckets);
       setAudience("clinician");
@@ -236,43 +270,32 @@ export function TexlexSendPanel({
     }
   };
 
-  return (
-    <section id="texlex-send">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Send via Texlex</h2>
-        <span className="text-xs text-muted-foreground sm:text-right">
-          Parents · clinician · Texlex letter PDF
-        </span>
-      </div>
-      <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
-        <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
-          <p className="text-sm text-muted-foreground">
-            Send the final report to parents, clinicians, or both. Parent cover goes to carers;
-            clinician letters go to the referrer / Dr Muru. Sends from{" "}
-            <span className="text-foreground">admin@azuremind.com.au</span> (post-referral
-            correspondence). Cliniko keeps the file; Texlex sends mail.
-          </p>
+  const body = (
+        <div className={cn("space-y-4", !embedded && TEXLEX_SECTION_CONTENT_CLASS)}>
+          {!embedded ? (
+            <p className="text-[15px] text-muted-foreground">
+              Parents, clinicians, or both. Sends from{" "}
+              <span className="text-foreground">admin@azuremind.com.au</span>. PDF builds with
+              this send — the finished PDF is saved from More → Save PDF.
+            </p>
+          ) : null}
 
           {!unlocked ? (
-            <div className="rounded-lg border border-amber-300/80 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-50">
-              Locked until Final PDF / Download &amp; save completes.{" "}
+            <div className="rounded-lg border border-amber-300/80 bg-amber-50 px-4 py-3 text-[15px] text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-50">
+              Locked until Review is clear.{" "}
               {onScrollToFinalize ? (
-                <button type="button" className="underline" onClick={onScrollToFinalize}>
-                  Finish Final PDF first
+                <button type="button" className="font-semibold underline" onClick={onScrollToFinalize}>
+                  Open Review
                 </button>
-              ) : (
-                <span>Use Download &amp; save to Cliniko first.</span>
-              )}
+              ) : null}
             </div>
           ) : (
-            <Badge variant="secondary">Unlocked — final package ready</Badge>
+            <p className="text-[15px] font-semibold text-[#0F766E]">Ready — PDF builds when you send</p>
           )}
 
-          <div className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-muted-foreground">
-              Send to
-            </label>
-            <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
+            <label className="text-[13px] font-bold text-[#5A6B6C]">Who receives this</label>
+            <div className="grid gap-2">
               {SEND_AUDIENCE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -280,10 +303,10 @@ export function TexlexSendPanel({
                   disabled={!unlocked}
                   title={opt.description}
                   className={cn(
-                    "rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                    "rounded-lg border px-4 py-3 text-left text-[15px] font-semibold transition-colors",
                     audience === opt.value
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border/80 bg-background text-foreground hover:bg-muted/50"
+                      ? "border-[#0E9F98] bg-[#E8F6F5] text-[#075E63]"
+                      : "border-[#D5E0E0] bg-white text-[#5A6B6C] hover:bg-[#F3F5F5]"
                   )}
                   onClick={() => applyAudience(opt.value)}
                 >
@@ -303,11 +326,9 @@ export function TexlexSendPanel({
             ) : null}
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-muted-foreground">
-              Letter type
-            </label>
-            <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
+            <label className="text-[13px] font-bold text-[#5A6B6C]">Letter type</label>
+            <div className="grid gap-2">
               {LETTER_KIND_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -315,10 +336,10 @@ export function TexlexSendPanel({
                   disabled={!unlocked}
                   title={opt.description}
                   className={cn(
-                    "rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                    "rounded-lg border px-4 py-3 text-left text-[15px] font-semibold transition-colors",
                     letterKind === opt.value
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border/80 bg-background text-foreground hover:bg-muted/50"
+                      ? "border-[#0E9F98] bg-[#E8F6F5] text-[#075E63]"
+                      : "border-[#D5E0E0] bg-white text-[#5A6B6C] hover:bg-[#F3F5F5]"
                   )}
                   onClick={() => regenerateLetter(opt.value)}
                 >
@@ -326,6 +347,90 @@ export function TexlexSendPanel({
                 </button>
               ))}
             </div>
+            {letterKind === "dr-muru-referral" ? (
+              <div className="space-y-2">
+                <label className="block text-[13px] font-bold text-[#5A6B6C]" htmlFor="referral-doctor">
+                  Referral doctor
+                </label>
+                <select
+                  id="referral-doctor"
+                  disabled={!unlocked}
+                  className="h-11 w-full rounded-lg border border-[#D5E0E0] bg-white px-3 text-[15px] text-[#075E63]"
+                  value={addingDoctor ? "add" : referralDoctorId}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "add") {
+                      setAddingDoctor(true);
+                      return;
+                    }
+                    setAddingDoctor(false);
+                    setReferralDoctorId(value);
+                    writeLetter("dr-muru-referral", value);
+                  }}
+                >
+                  {[...BUILTIN_REFERRAL_DOCTORS, ...extraDoctors].map((doctor) => (
+                    <option key={doctor.id} value={doctor.id}>
+                      {doctor.name}
+                    </option>
+                  ))}
+                  <option value="add">Add a doctor…</option>
+                </select>
+                {addingDoctor ? (
+                  <form
+                    className="grid gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const name = newDoctorName.trim();
+                      if (!name) return;
+                      const doctor: ReferralDoctor = {
+                        id: `custom-${Date.now()}`,
+                        name: /^dr\.?\s+/i.test(name) ? name : `Dr ${name}`,
+                        role: newDoctorRole.trim(),
+                        clinic: newDoctorClinic.trim(),
+                      };
+                      const next = saveExtraReferralDoctor(doctor);
+                      setExtraDoctors(next);
+                      setReferralDoctorId(doctor.id);
+                      setAddingDoctor(false);
+                      setNewDoctorName("");
+                      setNewDoctorRole("");
+                      setNewDoctorClinic("");
+                      writeLetter("dr-muru-referral", doctor.id, next);
+                    }}
+                  >
+                    <input
+                      required
+                      disabled={!unlocked}
+                      value={newDoctorName}
+                      onChange={(event) => setNewDoctorName(event.target.value)}
+                      placeholder="Doctor name"
+                      className="h-10 rounded-lg border border-[#D5E0E0] px-3 text-sm"
+                    />
+                    <input
+                      disabled={!unlocked}
+                      value={newDoctorRole}
+                      onChange={(event) => setNewDoctorRole(event.target.value)}
+                      placeholder="Role, if you want it on the letter"
+                      className="h-10 rounded-lg border border-[#D5E0E0] px-3 text-sm"
+                    />
+                    <input
+                      disabled={!unlocked}
+                      value={newDoctorClinic}
+                      onChange={(event) => setNewDoctorClinic(event.target.value)}
+                      placeholder="Clinic, if you want it on the letter"
+                      className="h-10 rounded-lg border border-[#D5E0E0] px-3 text-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!unlocked}
+                      className="h-10 rounded-lg bg-[#075E63] text-sm font-semibold text-white"
+                    >
+                      Add doctor
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div
@@ -379,8 +484,7 @@ export function TexlexSendPanel({
               disabled={!unlocked}
               className="mt-2"
               onClick={() => {
-                setSubject(buildLetterSubject(letterKind, mergeFields));
-                setLetterBody(buildLetterBody(letterKind, mergeFields));
+                writeLetter(letterKind);
               }}
             >
               Reset letter from template
@@ -465,32 +569,46 @@ export function TexlexSendPanel({
             </label>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              className="h-12 rounded-lg bg-[#0E9F98] text-[16px] font-bold text-white hover:bg-[#075E63]"
+              disabled={!unlocked || sending}
+              onClick={() => void handleSend()}
+            >
+              {sending ? "Sending…" : "Send report"}
+            </Button>
             <Button
               type="button"
               variant="outline"
+              className="h-11 rounded-lg text-[15px]"
               disabled={!unlocked || previewingLetter || sending}
               onClick={() => void downloadLetterPdf()}
             >
               {previewingLetter ? "Preparing…" : "Download letter PDF"}
             </Button>
-            <Button type="button" disabled={!unlocked || sending} onClick={() => void handleSend()}>
-              {sending ? "Sending…" : "Send via Texlex"}
-            </Button>
           </div>
 
           {status ? (
-            <p className="text-sm text-emerald-700 dark:text-emerald-400" role="status">
+            <p className="text-[15px] font-semibold text-emerald-700 dark:text-emerald-400" role="status">
               {status}
             </p>
           ) : null}
           {error ? (
-            <p className="text-sm text-destructive" role="alert">
+            <p className="text-[15px] text-destructive" role="alert">
               {error}
             </p>
           ) : null}
-        </CardContent>
-      </Card>
+        </div>
+  );
+
+  if (embedded) {
+    return <div id="texlex-send">{body}</div>;
+  }
+
+  return (
+    <section id="texlex-send" className="sr-only" aria-hidden>
+      {/* Inline panel kept for anchors; primary UX is the Send report drawer. */}
     </section>
   );
 }

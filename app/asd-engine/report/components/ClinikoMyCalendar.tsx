@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ClinikoHeyTex } from "./ClinikoHeyTex";
 import type { ClinikoPatientAppointment, ClinikoPractitioner } from "@/lib/cliniko";
+import { practiceApiBase, practiceLabel, type PracticeSource } from "@/lib/practice-source";
 
 type ViewMode = "today" | "tomorrow" | "week";
 
@@ -150,6 +151,7 @@ function stableModeLabel(mode: ViewMode, weekOffset: number): string {
 const MAX_WEEK_OFFSET = 52;
 
 export function ClinikoMyCalendar({
+  source = "cliniko",
   onSelectPatientId,
   selectedPatientId = null,
   disabled = false,
@@ -160,6 +162,7 @@ export function ClinikoMyCalendar({
   collateralDocs = [],
   collateralSummaryFilled = false,
 }: {
+  source?: PracticeSource;
   onSelectPatientId: (
     patientId: string,
     patientName: string | null,
@@ -188,6 +191,12 @@ export function ClinikoMyCalendar({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setPractitionerId(null);
+    setPractitioners([]);
+    setAppointments([]);
+  }, [source]);
 
   const range = useMemo(() => {
     // Avoid SSR/client timezone + locale mismatches: compute real range only after mount.
@@ -229,8 +238,14 @@ export function ClinikoMyCalendar({
         from: range.fromIso,
         to: range.toIso,
       });
-      if (practitionerId) params.set("practitionerId", practitionerId);
-      const response = await fetch(`/api/cliniko/schedule?${params.toString()}`);
+      const roleId =
+        source === "halaxy"
+          ? practitionerId?.startsWith("PR-")
+            ? practitionerId
+            : null
+          : practitionerId;
+      if (roleId) params.set("practitionerId", roleId);
+      const response = await fetch(`${practiceApiBase(source)}/schedule?${params.toString()}`);
       const data = (await response.json()) as {
         appointments?: ClinikoPatientAppointment[];
         practitioners?: ClinikoPractitioner[];
@@ -238,20 +253,21 @@ export function ClinikoMyCalendar({
         error?: string;
       };
       if (!response.ok) {
-        setError(data.error ?? "Could not load your Cliniko calendar.");
+        setError(data.error ?? `Could not load your ${practiceLabel(source)} calendar.`);
         setAppointments([]);
         return;
       }
       setAppointments(data.appointments ?? []);
       if (data.practitioners?.length) setPractitioners(data.practitioners);
-      if (data.practitionerId && !practitionerId) setPractitionerId(data.practitionerId);
+      else if (source === "halaxy") setPractitioners([]);
+      if (data.practitionerId && !roleId) setPractitionerId(data.practitionerId);
     } catch {
-      setError("Could not load your Cliniko calendar.");
+      setError(`Could not load your ${practiceLabel(source)} calendar.`);
       setAppointments([]);
     } finally {
       setLoading(false);
     }
-  }, [mounted, practitionerId, range.fromIso, range.toIso]);
+  }, [mounted, practitionerId, range.fromIso, range.toIso, source]);
 
   useEffect(() => {
     void load();
@@ -271,7 +287,7 @@ export function ClinikoMyCalendar({
         <div className="flex items-center gap-2">
           <CalendarDays className="size-4 text-muted-foreground" aria-hidden />
           <div>
-            <h4 className="text-sm font-semibold text-foreground">My Cliniko calendar</h4>
+            <h4 className="text-sm font-semibold text-foreground">My {practiceLabel(source)} calendar</h4>
             <p className="text-xs text-muted-foreground">
               {practitionerLabel ? `${practitionerLabel} · ` : ""}
               {range.label}. Click a booking to load the patient.
@@ -293,6 +309,7 @@ export function ClinikoMyCalendar({
       {mounted ? (
         <ClinikoHeyTex
           className="mb-3"
+          source={source}
           practitionerId={practitionerId}
           importFilesEnabled={importFilesEnabled}
           disabled={disabled || importingFiles}
@@ -409,7 +426,7 @@ export function ClinikoMyCalendar({
         ) : null}
       </div>
 
-      {onImportFilesEnabledChange ? (
+      {onImportFilesEnabledChange && source !== "halaxy" ? (
         <label className="mb-3 flex items-start gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"

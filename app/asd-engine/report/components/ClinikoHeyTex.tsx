@@ -26,6 +26,7 @@ import {
   type TexSpeechVoiceOption,
 } from "@/lib/texlex-speech";
 import type { ClinikoPatientAppointment } from "@/lib/cliniko";
+import { practiceApiBase, practiceLabel, type PracticeSource } from "@/lib/practice-source";
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -57,11 +58,12 @@ function getSpeechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
 async function fetchDayAppointments(
   fromIso: string,
   toIso: string,
-  practitionerId: string | null
+  practitionerId: string | null,
+  source: PracticeSource
 ): Promise<ClinikoPatientAppointment[]> {
   const params = new URLSearchParams({ from: fromIso, to: toIso });
   if (practitionerId) params.set("practitionerId", practitionerId);
-  const response = await fetch(`/api/cliniko/schedule?${params.toString()}`);
+  const response = await fetch(`${practiceApiBase(source)}/schedule?${params.toString()}`);
   const data = (await response.json()) as {
     appointments?: ClinikoPatientAppointment[];
     error?: string;
@@ -72,21 +74,25 @@ async function fetchDayAppointments(
   return data.appointments ?? [];
 }
 
-async function searchPatientsByName(query: string): Promise<ClinikoVoiceSearchHit[]> {
+async function searchPatientsByName(
+  query: string,
+  source: PracticeSource
+): Promise<ClinikoVoiceSearchHit[]> {
   const response = await fetch(
-    `/api/cliniko/patients/search?q=${encodeURIComponent(query.trim())}`
+    `${practiceApiBase(source)}/patients/search?q=${encodeURIComponent(query.trim())}`
   );
   const data = (await response.json()) as {
     patients?: ClinikoVoiceSearchHit[];
     error?: string;
   };
   if (!response.ok) {
-    throw new Error(data.error ?? "Cliniko name search failed.");
+    throw new Error(data.error ?? "Name search failed.");
   }
   return data.patients ?? [];
 }
 
 export function ClinikoHeyTex({
+  source = "cliniko",
   practitionerId = null,
   importFilesEnabled = false,
   disabled = false,
@@ -95,6 +101,7 @@ export function ClinikoHeyTex({
   onLoadAppointment,
   className,
 }: {
+  source?: PracticeSource;
   practitionerId?: string | null;
   importFilesEnabled?: boolean;
   disabled?: boolean;
@@ -262,7 +269,8 @@ export function ClinikoHeyTex({
           const appointments = await fetchDayAppointments(
             range.fromIso,
             range.toIso,
-            practitionerId
+            practitionerId,
+            source
           );
           if (cancelledRef.current) return;
           const match = matchAppointmentAtTime(
@@ -290,12 +298,12 @@ export function ClinikoHeyTex({
 
         if (command.kind === "loadPatientByName") {
           setCollateralListLines([]);
-          note(`Searching Cliniko for “${command.nameQuery}”…`);
-          const patients = await searchPatientsByName(command.nameQuery);
+          note(`Searching ${practiceLabel(source)} for “${command.nameQuery}”…`);
+          const patients = await searchPatientsByName(command.nameQuery, source);
           if (cancelledRef.current) return;
           const best = pickBestPatientForVoiceQuery(command.nameQuery, patients);
           if (!best) {
-            finish(`I couldn't find ${command.nameQuery} in Cliniko.`);
+            finish(`I couldn't find ${command.nameQuery} in ${practiceLabel(source)}.`);
             return;
           }
           const label = `${best.first_name} ${best.last_name}`.trim();
@@ -334,7 +342,7 @@ export function ClinikoHeyTex({
         }
       }
     },
-    [finish, importFilesEnabled, note, onLoadAppointment, practitionerId, stopAll]
+    [finish, importFilesEnabled, note, onLoadAppointment, practitionerId, source, stopAll]
   );
 
   const stopListening = useCallback(() => {

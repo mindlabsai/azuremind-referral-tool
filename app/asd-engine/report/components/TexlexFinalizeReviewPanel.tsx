@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { AuditChecklistItem } from "@/lib/texlex-finalize-review/audit-checklist";
@@ -21,10 +20,10 @@ type Props = {
   auditChecklist?: AuditChecklistItem[] | null;
 };
 
-function severityBadge(sev: ReviewFinding["severity"]) {
-  if (sev === "blocking") return <Badge variant="destructive">Blocking</Badge>;
-  if (sev === "major") return <Badge variant="secondary">Major</Badge>;
-  return <Badge variant="outline">Minor</Badge>;
+function severityLabel(sev: ReviewFinding["severity"]) {
+  if (sev === "blocking") return "Blocking";
+  if (sev === "major") return "Major";
+  return "Minor";
 }
 
 export function TexlexFinalizeReviewPanel({
@@ -43,63 +42,67 @@ export function TexlexFinalizeReviewPanel({
   const decided = latest?.findings.filter((f) => f.status !== "open") ?? [];
 
   return (
-    <section id="finalize-review">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Finalize review</h2>
-        <span className="text-xs text-muted-foreground sm:text-right">
-          Claude Opus · flags only · no new clinical content
-        </span>
-      </div>
-      <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
-        <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
-          <p className="text-sm text-muted-foreground">
-            Checks names, pronouns, severity opening, modality, dates, observation vs parent-report
-            labelling, broader differentials, cognitive overclaim hedges, collateral gaps,
-            limitations honesty, and major inconsistencies. Suggested edits align existing text
-            only — nothing new is invented. Run again after you apply fixes.
-          </p>
+    <section id="finalize-review" className="scroll-mt-28">
+      <Card
+        className={cn(
+          TEXLEX_SECTION_CONTAINER_CLASS,
+          "border-[#B7E1DE] bg-gradient-to-b from-[#E8F6F5] to-white"
+        )}
+      >
+        <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-5")}>
+          <div>
+            <h2 className="text-[22px] font-extrabold tracking-tight text-[#075E63]">Review</h2>
+            <p className="mt-1 text-[15px] text-[#5A6B6C]">
+              Gate before Send report — flags only, no new clinical content. Clear blockers, then
+              send; the PDF builds with the send.
+            </p>
+          </div>
 
           {auditChecklist && auditChecklist.length > 0 ? (
-            <div className="space-y-2 rounded-lg border border-border/70 bg-muted/10 p-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Pre-audit checklist
-              </p>
-              <ul className="space-y-1.5">
+            <div className="space-y-3 rounded-lg border border-[#B7E1DE] bg-white/80 p-4">
+              <p className="text-[13px] font-bold text-[#5A6B6C]">Checklist</p>
+              <ul className="space-y-2">
                 {auditChecklist.map((item) => (
-                  <li key={item.id} className="flex gap-2 text-sm">
+                  <li key={item.id} className="flex gap-3 text-[15px]">
                     <span
                       className={cn(
-                        "mt-0.5 shrink-0 font-mono text-xs",
-                        item.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"
+                        "mt-0.5 shrink-0 font-mono text-sm",
+                        item.ok ? "text-[#0F766E]" : "text-amber-700"
                       )}
                       aria-hidden
                     >
                       {item.ok ? "✓" : "○"}
                     </span>
                     <span>
-                      <span className="text-foreground">{item.label}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{item.hint}</span>
+                      <span className="font-semibold text-[#122022]">{item.label}</span>
+                      <span className="mt-0.5 block text-[14px] text-[#5A6B6C]">{item.hint}</span>
                     </span>
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-muted-foreground">
-                Checklist updates after each review pass. Clear blocking findings before Final PDF.
-              </p>
             </div>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={onRunReview} disabled={reviewing}>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              className="h-11 rounded-lg bg-[#0E9F98] px-5 text-[15px] font-bold text-white hover:bg-[#075E63]"
+              onClick={onRunReview}
+              disabled={reviewing}
+            >
               {reviewing ? "Reviewing…" : latest ? "Run review again" : "Run review"}
             </Button>
             {finalPdfUnlocked ? (
-              <Badge variant="secondary">Blocking cleared — Final PDF unlocked</Badge>
+              <p className="text-[16px] font-semibold text-[#0F766E] underline decoration-[#B7E1DE] underline-offset-4">
+                Ready to send
+              </p>
             ) : (
-              <Badge variant="outline">Clear blocking findings before Final PDF</Badge>
+              <p className="text-[16px] font-semibold text-[#5A6B6C]">
+                Clear blockers before Send report
+              </p>
             )}
             {latest ? (
-              <span className="text-xs text-muted-foreground">
+              <span className="w-full text-[14px] text-[#5A6B6C] sm:w-auto">
                 Pass {runs.length}: {latest.summary.blockingCount} blocking ·{" "}
                 {latest.summary.majorCount} major · open blocking{" "}
                 {latest.summary.openBlockingCount}
@@ -133,14 +136,22 @@ export function TexlexFinalizeReviewPanel({
                   key={f.id}
                   className="space-y-2 rounded-lg border border-border/70 bg-muted/15 p-3"
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    {severityBadge(f.severity)}
-                    <Badge variant="outline">{f.source}</Badge>
-                    <Badge variant="outline">{f.kind}</Badge>
-                    <span className="text-sm font-medium text-foreground">{f.title}</span>
-                    <span className="text-xs text-muted-foreground">{f.sectionId}</span>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span
+                      className={cn(
+                        "text-[13px] font-bold",
+                        f.severity === "blocking" ? "text-destructive" : "text-[#5A6B6C]"
+                      )}
+                    >
+                      {severityLabel(f.severity)}
+                    </span>
+                    <span className="text-[13px] text-[#5A6B6C]">
+                      {f.source} · {f.kind}
+                    </span>
+                    <span className="text-[16px] font-semibold text-foreground">{f.title}</span>
+                    <span className="text-[13px] text-muted-foreground">{f.sectionId}</span>
                   </div>
-                  <p className="text-sm text-foreground/90">{f.detail}</p>
+                  <p className="text-[15px] text-foreground/90">{f.detail}</p>
                   {f.evidenceExcerpt ? (
                     <blockquote className="border-l-2 border-border pl-3 text-xs text-muted-foreground">
                       {f.evidenceExcerpt}

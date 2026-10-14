@@ -130,9 +130,11 @@ export async function importClinikoAttachmentsIntoCollateral(args: {
   attachmentIds?: string[];
   /** Prefer ASRS-named files only (manual browser default). Auto calendar uses false. */
   asrsOnly?: boolean;
+  apiBase?: string;
 }): Promise<ImportClinikoAttachmentsResult> {
+  const apiBase = args.apiBase ?? "/api/cliniko";
   const listRes = await fetch(
-    `/api/cliniko/attachments?patientId=${encodeURIComponent(args.patientId)}`
+    `${apiBase}/attachments?patientId=${encodeURIComponent(args.patientId)}`
   );
   const listData = (await listRes.json()) as {
     attachments?: ClinikoPatientAttachment[];
@@ -200,7 +202,7 @@ export async function importClinikoAttachmentsIntoCollateral(args: {
     }
 
     try {
-      const response = await fetch(`/api/cliniko/attachments/${attachment.id}/content`);
+      const response = await fetch(`${apiBase}/attachments/${attachment.id}/content`);
       const data = (await response.json()) as {
         filename?: string;
         contentType?: string;
@@ -262,17 +264,20 @@ export async function importClinikoAttachmentsIntoCollateral(args: {
   };
 }
 
-export function formatClinikoImportNotice(result: ImportClinikoAttachmentsResult): string | null {
+export function formatClinikoImportNotice(
+  result: ImportClinikoAttachmentsResult,
+  recordLabel = "Cliniko"
+): string | null {
   if (result.importedCount > 0) {
     return result.importedCount === 1
-      ? "Imported 1 Cliniko file into collateral."
-      : `Imported ${result.importedCount} Cliniko files into collateral.`;
+      ? `Imported 1 ${recordLabel} file into collateral.`
+      : `Imported ${result.importedCount} ${recordLabel} files into collateral.`;
   }
   if (!result.error && result.skippedExisting > 0) {
-    return "Cliniko files were already in collateral (matched by filename).";
+    return `${recordLabel} files were already in collateral (matched by filename).`;
   }
   if (!result.error && result.importedCount === 0) {
-    return "No importable Cliniko files found for this patient.";
+    return `No importable ${recordLabel} files found for this patient.`;
   }
   return null;
 }

@@ -14,9 +14,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { SignOutButton } from "@/components/SignOutButton";
 import { cn } from "@/lib/utils";
-import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import {
+  TexlexReportHeader,
+  type TexlexPdfBusyMode,
+} from "@/app/asd-engine/report/components/TexlexReportHeader";
+import { TexlexSendDrawer } from "@/app/asd-engine/report/components/TexlexSendDrawer";
+import type { ClinikoBaseline, ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import { practiceApiBase, practiceLabel, readStoredPracticeSource } from "@/lib/practice-source";
 import {
   clearEngineActiveDraftPointer,
   clearLocalEngineDraft,
@@ -69,7 +74,6 @@ import {
 } from "@/app/asd-engine/report/pdf/assets";
 import { safeFilenamePart, clientFirstName, computeChronologicalAge } from "@/app/asd-engine/report/pdf/utils";
 import { TEXLEX_SIGNATURE } from "@/app/asd-engine/report/constants/texlexBoilerplate";
-import { TexlexSendPanel } from "@/app/asd-engine/report/components/TexlexSendPanel";
 import { TexlexFinalizeReviewPanel } from "@/app/asd-engine/report/components/TexlexFinalizeReviewPanel";
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
@@ -324,90 +328,6 @@ function isAdhdDraftEffectivelyEmpty(args: {
   }
 
   return true;
-}
-
-function AdhdHeaderOverflowMenu({
-  pdfDownloading,
-  bulkRunning,
-  generationBusy,
-  onNewReport,
-  onSaveDraft,
-}: {
-  pdfDownloading: boolean;
-  bulkRunning: boolean;
-  generationBusy: boolean;
-  onNewReport: () => void;
-  onSaveDraft: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        aria-label="More actions"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className="inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-border/80 bg-background px-2 text-base leading-none text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-        onClick={() => setOpen((v) => !v)}
-      >
-        ···
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 z-50 mt-1 min-w-[11rem] rounded-md border border-border/80 bg-background py-1 shadow-md"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={generationBusy}
-            title={
-              generationBusy ? "Available once generation completes." : undefined
-            }
-            onClick={() => {
-              setOpen(false);
-              onNewReport();
-            }}
-          >
-            New Report
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={bulkRunning}
-            onClick={() => {
-              setOpen(false);
-              onSaveDraft();
-            }}
-          >
-            Save Draft
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function ageYearsFromDob(dob: string): number {
@@ -765,6 +685,103 @@ function emptySectionTexts(): Record<SectionId, string> {
   };
 }
 
+/** Find an existing Cliniko patient with this name and date of birth, or create one. */
+async function createClinikoPatientFile(
+  details: PatientDetails,
+  source: "cliniko" | "halaxy" = "cliniko"
+): Promise<
+  | { ok: true; patientId: string; connectedName: string; baseline: ClinikoBaseline }
+  | { ok: false; message: string }
+> {
+  if (!details.clientName.trim()) {
+    return {
+      ok: false,
+      message: "Add the child's name, then save.",
+    };
+  }
+  try {
+    const res = await fetch(`${practiceApiBase(source)}/patients`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientName: details.clientName,
+        dateOfBirth: details.dob,
+        email: details.parentEmail,
+        phone: details.phone,
+        parent1: details.parent1,
+        parent2: details.parent2,
+        parent1Relationship: details.parent1Relationship,
+        parent2Relationship: details.parent2Relationship,
+        school: details.school,
+        yearLevel: details.yearLevel,
+        assessmentType: details.assessmentType || "ADHD",
+        referringPractitioner: details.referringPractitioner,
+        referringPractitionerType: details.referringPractitionerType,
+        referringPractitionerEmail: details.referringPractitionerEmail,
+      }),
+    });
+    const data = (await res.json()) as {
+      error?: string;
+      patient?: { id: string; first_name?: string; last_name?: string; date_of_birth?: string | null };
+    };
+    if (!res.ok || !data.patient?.id) {
+      return { ok: false, message: data.error || `Could not create the ${practiceLabel(source)} patient file.` };
+    }
+    const connectedName =
+      [data.patient.first_name, data.patient.last_name].filter(Boolean).join(" ").trim() ||
+      details.clientName.trim();
+    return {
+      ok: true,
+      patientId: data.patient.id,
+      connectedName,
+      baseline: {
+        standard: {
+          clientName: connectedName,
+          dob: data.patient.date_of_birth || details.dob.trim(),
+          phone: details.phone.trim(),
+          address: details.address.trim(),
+        },
+        custom: {
+          schoolName: details.school.trim(),
+          yearLevel: details.yearLevel.trim(),
+          assessmentType: (details.assessmentType || "ADHD").trim(),
+          referrerName: details.referringPractitioner.trim(),
+          referrerType: details.referringPractitionerType.trim(),
+          referrerEmail: details.referringPractitionerEmail.trim(),
+          parent1Relationship: details.parent1Relationship.trim(),
+          parent2Relationship: details.parent2Relationship.trim(),
+        },
+      },
+    };
+  } catch {
+    return { ok: false, message: `Could not reach ${practiceLabel(source)} to create the patient file.` };
+  }
+}
+
+async function attachAdhdDraftToCliniko(
+  patientId: string,
+  state: object,
+  source: "cliniko" | "halaxy" = "cliniko"
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${practiceApiBase(source)}/files`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        patientId,
+        filename: "texlex-state-adhd.json",
+        content: JSON.stringify(state),
+        contentType: "application/json",
+        encoding: "utf8",
+        description: "Texlex ADHD report draft",
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function AdhdReportPage() {
   const [patientDetails, setPatientDetails] = useState<PatientDetails>(emptyPatientDetails);
   const [cliniko, setCliniko] = useState<ClinikoDraftState | null>(null);
@@ -826,6 +843,8 @@ export default function AdhdReportPage() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [finalPackageReady, setFinalPackageReady] = useState(false);
+  const [sendDrawerOpen, setSendDrawerOpen] = useState(false);
+  const [todayOpen, setTodayOpen] = useState(true);
   const [finalizeReviewRuns, setFinalizeReviewRuns] = useState<ReviewRun[]>([]);
   const [finalizeReviewing, setFinalizeReviewing] = useState(false);
   const [finalizeReviewError, setFinalizeReviewError] = useState<string | null>(null);
@@ -843,6 +862,7 @@ export default function AdhdReportPage() {
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
+  const [reportEpoch, setReportEpoch] = useState(0);
   const [draftResumePrompt, setDraftResumePrompt] = useState<{
     patientLabel: string;
     lastSavedLabel: string;
@@ -853,7 +873,10 @@ export default function AdhdReportPage() {
   const suppressAutosaveRef = useRef(false);
   const localDraftKeyRef = useRef(engineLocalDraftKey("adhd", null));
 
-  const touch = useCallback(() => setLastEditAt(Date.now()), []);
+  const touch = useCallback(() => {
+    setLastEditAt(Date.now());
+    setSaveStatus("idle");
+  }, []);
 
   const draftIsEffectivelyEmpty = useMemo(
     () =>
@@ -1461,6 +1484,7 @@ export default function AdhdReportPage() {
       if (result.ok) {
         localDraftKeyRef.current = key;
         setLastSavedAt(result.lastSaved);
+        setSaveStatus("saved");
         setSaveFailed(false);
         // When work is keyed to a patient, drop the unassigned safety net so remount
         // cannot restore a stale pre-link draft.
@@ -1479,27 +1503,60 @@ export default function AdhdReportPage() {
     async (session?: number): Promise<boolean> => {
       // Stale-epoch only: omit session for normal Save / pre-switch persist.
       if (session !== undefined && session !== genSessionRef.current) return false;
-      const patientId = cliniko?.patientId;
+      let patientId = cliniko?.patientId;
+      let state = buildSaveState();
+      const localOk = persistLocalDraftNow(state, session);
       if (!patientId) {
-        setSaveFailed(true);
-        setSaveStatus("idle");
-        setClinikoNotice("Load a Cliniko patient before saving the draft.");
-        return false;
+        const linked = await createClinikoPatientFile(patientDetails, readStoredPracticeSource());
+        if (!linked.ok) {
+          setSaveFailed(false);
+          setSaveStatus(localOk ? "saved" : "idle");
+          setClinikoNotice(
+            localOk
+              ? `${linked.message} A copy is saved on this browser.`
+              : linked.message
+          );
+          return false;
+        }
+        patientId = linked.patientId;
+        const draftCliniko: ClinikoDraftState = {
+          patientId,
+          connectedName: linked.connectedName,
+          syncEnabled: readStoredPracticeSource() !== "halaxy",
+          source: readStoredPracticeSource(),
+          baseline: linked.baseline,
+        };
+        setCliniko(draftCliniko);
+        lastHydratedPatientIdRef.current = patientId;
+        state = { ...state, cliniko: draftCliniko };
+        persistLocalDraftNow(state, session);
       }
       setSaveStatus("saving");
       try {
-        const state = buildSaveState();
-        persistLocalDraftNow(state, session);
         const ok = await saveReportStateForEngine("adhd", patientId, state);
+        const recordSource = cliniko?.source ?? readStoredPracticeSource();
+        const recordName = practiceLabel(recordSource);
+        const attached =
+          ok && recordSource !== "halaxy"
+            ? await attachAdhdDraftToCliniko(patientId, state, recordSource)
+            : false;
         if (!ok) {
           setSaveFailed(true);
-          setSaveStatus("idle");
+          setSaveStatus(localOk ? "saved" : "idle");
+          setClinikoNotice(`The ${recordName} patient file is linked. The report did not save to it.`);
           return false;
         }
         setSaveFailed(false);
         setSaveStatus("saved");
         setLastSavedAt(state.lastSaved);
         setLastCloudSavedAt(state.lastSaved);
+        setClinikoNotice(
+          recordSource === "halaxy"
+            ? "Saved. Documents and the final PDF are added to Halaxy when you upload them."
+            : attached
+              ? `Saved to ${recordName}.`
+              : `Saved. ${recordName} file did not attach — press Save again.`
+        );
         return true;
       } catch {
         setSaveFailed(true);
@@ -1507,7 +1564,7 @@ export default function AdhdReportPage() {
         return false;
       }
     },
-    [buildSaveState, cliniko?.patientId, persistLocalDraftNow]
+    [buildSaveState, cliniko?.patientId, patientDetails, persistLocalDraftNow]
   );
 
   /** Persist current draft when a Cliniko patient is linked; no-op success if none. */
@@ -1535,6 +1592,7 @@ export default function AdhdReportPage() {
     generateAbortRef.current = null;
     lastHydratedPatientIdRef.current = null;
     suppressAutosaveRef.current = true;
+    setReportEpoch((epoch) => epoch + 1);
 
     // Clear busy flags here — do not rely on stale generate finally blocks (gated away).
     setSectionGenerating(emptySectionGenerating());
@@ -1573,7 +1631,11 @@ export default function AdhdReportPage() {
     setPdfPreviewError(null);
     setFinalPackageReady(false);
     setFinalizeReviewRuns([]);
+    setFinalizeReviewing(false);
     setFinalizeReviewError(null);
+    setSessionSectionsGenerating(false);
+    setPdfBusyMode(null);
+    setSendDrawerOpen(false);
     setPdfPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -1838,14 +1900,14 @@ export default function AdhdReportPage() {
     try {
       const { blob, filename } = await buildAdhdPdfBlob();
       triggerPdfDownload(blob, filename);
-      setClinikoNotice("Downloaded — not saved to Cliniko.");
+      setClinikoNotice(`Downloaded — not saved to ${practiceLabel(cliniko?.source)}.`);
     } catch (error) {
       console.error("ADHD PDF export failed:", error);
       setClinikoNotice("Could not prepare the PDF. Please try again.");
     } finally {
       setPdfBusyMode(null);
     }
-  }, [buildAdhdPdfBlob, pdfBusyMode, triggerPdfDownload]);
+  }, [buildAdhdPdfBlob, cliniko?.source, pdfBusyMode, triggerPdfDownload]);
 
   const downloadAndSave = useCallback(async () => {
     if (pdfBusyMode !== null) return;
@@ -1867,10 +1929,11 @@ export default function AdhdReportPage() {
 
       // Mirror ASD Download finalise: same PDF bytes → base64 → /api/cliniko/files
       const finalisePatientId = cliniko?.patientId;
+      const recordName = practiceLabel(cliniko?.source);
       if (!finalisePatientId) {
         setFinalPackageReady(true);
         setClinikoNotice(
-          "PDF downloaded. Load a Cliniko patient to save the report to Cliniko — Send is unlocked."
+          `PDF downloaded. Load a ${recordName} patient to save the report to ${recordName} — Send is unlocked.`
         );
         globalThis.setTimeout(() => {
           document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1883,7 +1946,7 @@ export default function AdhdReportPage() {
         const bytes = new Uint8Array(buf);
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
         const base64 = btoa(binary);
-        const uploadRes = await fetch("/api/cliniko/files", {
+        const uploadRes = await fetch(`${practiceApiBase(cliniko?.source)}/files`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1893,17 +1956,32 @@ export default function AdhdReportPage() {
             contentType: "application/pdf",
             encoding: "base64",
             description: "Texlex ADHD report",
+            createTask: cliniko?.source === "halaxy",
+            taskTitle: "Review final ADHD report PDF",
           }),
         });
-        if (!uploadRes.ok) {
-          const data = (await uploadRes.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error || "Cliniko PDF upload failed");
+        const data = (await uploadRes.json().catch(() => null)) as {
+          success?: boolean;
+          error?: string;
+          taskCreated?: boolean;
+          taskError?: string | null;
+        } | null;
+        if (!uploadRes.ok || data?.success === false) {
+          throw new Error(data?.error || `${recordName} PDF upload failed`);
         }
-        setClinikoNotice("Report saved to Cliniko — Send unlocked.");
+        const taskLine =
+          cliniko?.source === "halaxy"
+            ? data?.taskCreated
+              ? " Task created in Halaxy."
+              : data?.taskError
+                ? ` ${data.taskError}`
+                : ""
+            : "";
+        setClinikoNotice(`Report saved to ${recordName}.${taskLine} Send unlocked.`);
       } catch (uploadErr) {
-        console.error("Cliniko PDF upload failed (download succeeded):", uploadErr);
+        console.error(`${recordName} PDF upload failed (download succeeded):`, uploadErr);
         setClinikoNotice(
-          "Couldn't save report to Cliniko — PDF was still downloaded. Send is unlocked."
+          `Couldn't save report to ${recordName} — PDF was still downloaded. Send is unlocked.`
         );
       }
       setFinalPackageReady(true);
@@ -1916,7 +1994,7 @@ export default function AdhdReportPage() {
     } finally {
       setPdfBusyMode(null);
     }
-  }, [buildAdhdPdfBlob, cliniko?.patientId, finalizeReviewRuns, pdfBusyMode, triggerPdfDownload]);
+  }, [buildAdhdPdfBlob, cliniko?.patientId, cliniko?.source, finalizeReviewRuns, pdfBusyMode, triggerPdfDownload]);
 
   const letterMergeFields = useMemo((): LetterMergeFields => {
     const modality =
@@ -2494,145 +2572,56 @@ export default function AdhdReportPage() {
           : "";
 
   return (
-    <div className="min-h-screen bg-[var(--bg-page)] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[15px] leading-[1.55] text-foreground">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex justify-center px-6 py-3">
-          <div className="flex w-full max-w-6xl items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Texlex</h1>
-              <p className="text-base text-muted-foreground">
-                {(patientDetails.clientName || "New patient") + " · ADHD assessment"}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {statusLabel ? (
-                <span
-                  className={cn(
-                    "text-xs",
-                    saveFailed ? "font-medium text-destructive" : "text-muted-foreground"
-                  )}
-                >
-                  {statusLabel}
-                </span>
-              ) : null}
-              {workflowBusy ? (
-                <span className="text-xs text-muted-foreground">Saving draft…</span>
-              ) : null}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={bulkRunning || workflowBusy}
-                onClick={() => void generateAllSections()}
-              >
-                {bulkRunning ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {bulkLabel || "Generating..."}
-                  </>
-                ) : (
-                  "Generate all"
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={bulkRunning || workflowBusy}
-                onClick={() => void saveReport()}
-              >
-                Save
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pdfDownloading || bulkRunning || workflowBusy}
-                onClick={() => void handlePreviewPdf()}
-              >
-                {pdfBusyMode === "preview" ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Preparing…
-                  </>
-                ) : (
-                  "Preview"
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pdfDownloading || bulkRunning || workflowBusy}
-                onClick={() => void downloadOnly()}
-              >
-                {pdfBusyMode === "only" ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Preparing…
-                  </>
-                ) : (
-                  "Download only"
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pdfDownloading || bulkRunning || workflowBusy || finalizeReviewing}
-                onClick={() => {
-                  scrollToFinalizeReview();
-                  if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
-                }}
-              >
-                Finalize review
-              </Button>
-              <Button
-                size="sm"
-                disabled={
-                  pdfDownloading ||
-                  bulkRunning ||
-                  workflowBusy ||
-                  !finalPdfUnlocked
-                }
-                title={
-                  finalPdfUnlocked
-                    ? "Download final PDF and save to Cliniko"
-                    : "Clear blocking Finalize review findings first"
-                }
-                onClick={() => void downloadAndSave()}
-              >
-                {pdfBusyMode === "save" ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Preparing…
-                  </>
-                ) : finalPdfUnlocked ? (
-                  "Final PDF"
-                ) : (
-                  "Final PDF (blocked)"
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pdfDownloading || bulkRunning || workflowBusy || !finalPackageReady}
-                title={
-                  finalPackageReady
-                    ? "Email parents, Dr Muru, or referrers via Texlex"
-                    : "Complete Final PDF first"
-                }
-                onClick={scrollToSend}
-              >
-                Send
-              </Button>
-              <AdhdHeaderOverflowMenu
-                pdfDownloading={pdfDownloading}
-                bulkRunning={bulkRunning || workflowBusy}
-                generationBusy={generationBusy}
-                onNewReport={handleNewReportClick}
-                onSaveDraft={() => void saveReport()}
-              />
-              <SignOutButton className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60" />
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-[var(--bg-page)] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[16px] leading-[1.5] text-foreground">
+      <TexlexReportHeader
+        clientName={patientDetails.clientName}
+        assessmentLabel="ADHD assessment"
+        recordLabel={practiceLabel(cliniko?.source)}
+        statusLabel={
+          workflowBusy
+            ? "Saving draft…"
+            : bulkRunning
+              ? bulkLabel || "Generating…"
+              : statusLabel
+        }
+        workflowStatus={finalPdfUnlocked ? "ready" : "draft"}
+        saveFailed={saveFailed}
+        editing={lastEditAt > 0 && saveStatus !== "saved"}
+        pdfDownloading={pdfDownloading || bulkRunning || workflowBusy}
+        pdfBusyMode={pdfBusyMode as TexlexPdfBusyMode}
+        onDownloadOnly={() => void downloadOnly()}
+        onDownloadAndSave={() => void downloadAndSave()}
+        onPreviewPdf={() => void handlePreviewPdf()}
+        onNewReport={handleNewReportClick}
+        onSaveDraft={() => void saveReport()}
+        onFinalizeReview={() => {
+          scrollToFinalizeReview();
+          if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
+        }}
+        finalPdfUnlocked={finalPdfUnlocked}
+        onFinalPdfDownload={() => {
+          if (!finalPdfUnlocked) {
+            scrollToFinalizeReview();
+            window.alert(`Clear Review blockers before saving the final PDF to ${practiceLabel(cliniko?.source)}.`);
+            return;
+          }
+          void downloadAndSave();
+        }}
+        sendUnlocked={finalPdfUnlocked}
+        onOpenSend={() => {
+          if (!finalPdfUnlocked) {
+            scrollToFinalizeReview();
+            if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
+            return;
+          }
+          setSendDrawerOpen(true);
+        }}
+        onGenerateAll={() => void generateAllSections()}
+        generateAllBusy={bulkRunning}
+        onToggleToday={() => setTodayOpen((v) => !v)}
+        todayOpen={todayOpen}
+        engineHomeHref="/adhd-engine"
+      />
 
       {clinikoNotice ? (
         <div className="flex justify-center px-6 pt-3">
@@ -2710,46 +2699,54 @@ export default function AdhdReportPage() {
       <div className="flex justify-center px-6 py-6 pb-32">
         <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="min-w-0 space-y-6 text-[15px] leading-[1.55]">
-            <section id="cliniko-calendar">
-              <ClinikoIntakeCard
-                key={clinikoIntakeResetKey}
-                inputClass={INPUT_CLASS}
-                patientDetails={patientDetails as AsdPatientDetails}
-                setPatientDetails={
-                  setPatientDetails as unknown as Dispatch<SetStateAction<AsdPatientDetails>>
-                }
-                cliniko={cliniko}
-                setCliniko={setCliniko}
-                onTouch={touch}
-                onLoaded={(message) => setClinikoNotice(message)}
-                onError={(message) => setClinikoNotice(message)}
-                onChangePatientRequest={handleChangePatientRequest}
-                changePatientDisabled={generationBusy}
-                collateralDocs={collateralDocs}
-                setCollateralDocs={setCollateralDocs}
-                collateralSummaryFilled={(sectionTexts["collateral-summary"] ?? "").trim().length > 0}
-                onPreparePatientSwitch={prepareClinikoPatientSwitch}
-                onPatientLoadStart={() => {
-                  clinikoPatientLoadLockRef.current += 1;
-                }}
-                onPatientLoadEnd={() => {
-                  clinikoPatientLoadLockRef.current = Math.max(
-                    0,
-                    clinikoPatientLoadLockRef.current - 1
-                  );
-                  setClinikoPatientLoadGate((n) => n + 1);
-                }}
-                engine="adhd"
-                onDateSeenFromAppointment={(dateYmd) => {
-                  touch();
-                  setAssessmentDate(dateYmd);
-                }}
-              />
-            </section>
+            {todayOpen ? (
+              <section id="cliniko-calendar">
+                <ClinikoIntakeCard
+                  key={clinikoIntakeResetKey}
+                  inputClass={INPUT_CLASS}
+                  patientDetails={patientDetails as AsdPatientDetails}
+                  setPatientDetails={
+                    setPatientDetails as unknown as Dispatch<SetStateAction<AsdPatientDetails>>
+                  }
+                  cliniko={cliniko}
+                  setCliniko={setCliniko}
+                  onTouch={touch}
+                  onLoaded={(message) => {
+                    setClinikoNotice(message);
+                    setTodayOpen(false);
+                  }}
+                  onError={(message) => setClinikoNotice(message)}
+                  onChangePatientRequest={handleChangePatientRequest}
+                  changePatientDisabled={generationBusy}
+                  collateralDocs={collateralDocs}
+                  setCollateralDocs={setCollateralDocs}
+                  collateralSummaryFilled={(sectionTexts["collateral-summary"] ?? "").trim().length > 0}
+                  onPreparePatientSwitch={prepareClinikoPatientSwitch}
+                  onPatientLoadStart={() => {
+                    clinikoPatientLoadLockRef.current += 1;
+                  }}
+                  onPatientLoadEnd={() => {
+                    clinikoPatientLoadLockRef.current = Math.max(
+                      0,
+                      clinikoPatientLoadLockRef.current - 1
+                    );
+                    setClinikoPatientLoadGate((n) => n + 1);
+                  }}
+                  engine="adhd"
+                  onDateSeenFromAppointment={(dateYmd) => {
+                    touch();
+                    setAssessmentDate(dateYmd);
+                  }}
+                />
+              </section>
+            ) : (
+              <section id="cliniko-calendar" className="sr-only" aria-hidden />
+            )}
 
             <section id="scribe">
               <TexlexSectionHeading>Scribe</TexlexSectionHeading>
               <TexlexScribe
+                key={reportEpoch}
                 sessionGenerating={sessionSectionsGenerating}
                 onAppendToNotes={(text) => {
                   touch();
@@ -3004,6 +3001,7 @@ export default function AdhdReportPage() {
                   touch={touch}
                   inputClass={INPUT_CLASS}
                   clinikoPatientId={cliniko?.patientId ?? null}
+                  practiceSource={cliniko?.source}
                   engine="adhd"
                 />
               </CardContent>
@@ -3324,22 +3322,14 @@ export default function AdhdReportPage() {
               finalPdfUnlocked={finalPdfUnlocked}
             />
 
-            <TexlexSendPanel
-              unlocked={finalPackageReady}
-              mergeFields={letterMergeFields}
-              recipientBuckets={sendRecipientBuckets}
-              buildReportPdfBase64={buildReportPdfBase64ForSend}
-              buildLetterPdfBase64={buildLetterPdfBase64ForSend}
-              reportAttachLabel="Attach final ADHD report PDF"
-              onScrollToFinalize={scrollToFinalizeReview}
-            />
+            <div id="texlex-send" className="sr-only" aria-hidden />
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
             <Card>
               <CardContent className="space-y-3 pt-6">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Engine assistant
+                <h3 className="text-[15px] font-extrabold tracking-tight text-[#075E63]">
+                  Assist
                 </h3>
 
                 <div className="space-y-1 text-sm">
@@ -3458,6 +3448,23 @@ export default function AdhdReportPage() {
         error={pdfPreviewError}
         title={`${patientDetails.clientName.trim() || "Client"} · ADHD report`}
         onClose={closePdfPreview}
+      />
+      <TexlexSendDrawer
+        key={reportEpoch}
+        open={sendDrawerOpen}
+        onClose={() => setSendDrawerOpen(false)}
+        unlocked={finalPdfUnlocked}
+        mergeFields={letterMergeFields}
+        recipientBuckets={sendRecipientBuckets}
+        buildReportPdfBase64={async () => {
+          const pdf = await buildReportPdfBase64ForSend();
+          setFinalPackageReady(true);
+          return pdf;
+        }}
+        buildLetterPdfBase64={buildLetterPdfBase64ForSend}
+        reportAttachLabel="Attach final ADHD report PDF"
+        onScrollToFinalize={scrollToFinalizeReview}
+        clientLabel={patientDetails.clientName}
       />
     </div>
   );

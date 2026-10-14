@@ -45,8 +45,8 @@ const NAV_GROUPS: readonly NavGroup[] = [
       { id: "formulation", label: "Formulation" },
       { id: "recommendations", label: "Recommendations" },
       { id: "limitations", label: "Limitations" },
-      { id: "finalize-review", label: "Finalize review" },
-      { id: "texlex-send", label: "Send via Texlex" },
+      { id: "finalize-review", label: "Review" },
+      { id: "texlex-send", label: "Send report" },
       { id: "signature", label: "Signature" },
     ],
   },
@@ -85,7 +85,7 @@ function TexlexNavLink({
         onJump(id);
       }}
       className={cn(
-        "block rounded-md px-3 py-1.5 text-[13px] text-[var(--text-2)] transition-colors hover:bg-muted/50",
+        "block rounded-md px-3 py-2 text-[16px] text-[var(--text-2)] transition-colors hover:bg-muted/50",
         isActive && "bg-[var(--teal-fill)] font-medium text-[var(--teal-text)]"
       )}
     >

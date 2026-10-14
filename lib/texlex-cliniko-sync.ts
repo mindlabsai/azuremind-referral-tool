@@ -4,6 +4,7 @@ import {
   formatClinikoAddress,
   splitParentName,
 } from "@/lib/cliniko";
+import type { PracticeSource } from "@/lib/practice-source";
 
 export type TexlexPatientDetailsForCliniko = {
   clientName: string;
@@ -38,6 +39,8 @@ export type ClinikoDraftState = {
   connectedName: string;
   syncEnabled: boolean;
   baseline: ClinikoBaseline;
+  /** Practice system this patient id belongs to. Older drafts are Cliniko. */
+  source?: PracticeSource;
 };
 
 export function emptyClinikoDraftState(): ClinikoDraftState | null {

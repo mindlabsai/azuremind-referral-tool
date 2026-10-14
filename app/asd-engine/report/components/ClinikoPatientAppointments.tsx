@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ClinikoPatientAppointment } from "@/lib/cliniko";
+import { practiceApiBase, practiceLabel, type PracticeSource } from "@/lib/practice-source";
 
 function formatAppointmentWhen(iso: string | null): string {
   if (!iso) return "Unknown time";
@@ -34,9 +35,11 @@ function isActiveAppointment(appointment: ClinikoPatientAppointment): boolean {
 
 export function ClinikoPatientAppointments({
   patientId,
+  source = "cliniko",
   className,
 }: {
   patientId: string | null | undefined;
+  source?: PracticeSource;
   className?: string;
 }) {
   const [loading, setLoading] = useState(false);
@@ -57,7 +60,7 @@ export function ClinikoPatientAppointments({
     void (async () => {
       try {
         const response = await fetch(
-          `/api/cliniko/appointments?patientId=${encodeURIComponent(patientId)}`
+          `${practiceApiBase(source)}/appointments?patientId=${encodeURIComponent(patientId)}`
         );
         const data = (await response.json()) as {
           appointments?: ClinikoPatientAppointment[];
@@ -65,14 +68,14 @@ export function ClinikoPatientAppointments({
         };
         if (cancelled) return;
         if (!response.ok) {
-          setError(data.error ?? "Could not load Cliniko appointments.");
+          setError(data.error ?? `Could not load ${practiceLabel(source)} appointments.`);
           setAppointments([]);
           return;
         }
         setAppointments(data.appointments ?? []);
       } catch {
         if (!cancelled) {
-          setError("Could not load Cliniko appointments.");
+          setError(`Could not load ${practiceLabel(source)} appointments.`);
           setAppointments([]);
         }
       } finally {
@@ -83,7 +86,7 @@ export function ClinikoPatientAppointments({
     return () => {
       cancelled = true;
     };
-  }, [patientId]);
+  }, [patientId, source]);
 
   const { upcoming, recent } = useMemo(() => {
     const now = Date.now();

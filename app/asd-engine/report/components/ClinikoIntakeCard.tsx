@@ -28,6 +28,13 @@ import {
   importClinikoAttachmentsIntoCollateral,
   mergeImportedCollateralDocs,
 } from "@/lib/collateral/import-cliniko-attachments";
+import {
+  practiceApiBase,
+  practiceLabel,
+  readStoredPracticeSource,
+  storePracticeSource,
+  type PracticeSource,
+} from "@/lib/practice-source";
 
 const IMPORT_FILES_PREF_KEY = "texlex.cliniko.importFilesOnAppt";
 
@@ -105,6 +112,7 @@ export function ClinikoIntakeCard({
   onPatientLoadStart,
   onPatientLoadEnd,
 }: ClinikoIntakeCardProps) {
+  const [source, setSource] = useState<PracticeSource>("cliniko");
   const [configured, setConfigured] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [showSearchCard, setShowSearchCard] = useState(() => !cliniko);
@@ -123,6 +131,10 @@ export function ClinikoIntakeCard({
   useEffect(() => {
     collateralDocsRef.current = collateralDocs;
   }, [collateralDocs]);
+
+  useEffect(() => {
+    setSource(cliniko?.source ?? readStoredPracticeSource());
+  }, [cliniko?.source]);
 
   useEffect(() => {
     try {
@@ -152,7 +164,7 @@ export function ClinikoIntakeCard({
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch("/api/cliniko/status");
+        const response = await fetch(`${practiceApiBase(source)}/status`);
         const data = (await response.json()) as {
           configured?: boolean;
           connected?: boolean;
@@ -166,19 +178,19 @@ export function ClinikoIntakeCard({
         }
         setConfigured(true);
         if (!data.connected) {
-          setConnectionError("Cliniko connection failed. Check API key in environment configuration.");
+          setConnectionError(`${practiceLabel(source)} connection failed. Check the API credentials.`);
         }
       } catch {
         if (!cancelled) {
           setConfigured(true);
-          setConnectionError("Cliniko connection failed. Check API key in environment configuration.");
+          setConnectionError(`${practiceLabel(source)} connection failed. Check the API credentials.`);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [source]);
 
   useEffect(() => {
     if (!configured || connectionError || !showSearchCard) {
@@ -203,17 +215,19 @@ export function ClinikoIntakeCard({
       setSearching(true);
       void (async () => {
         try {
-          const response = await fetch(`/api/cliniko/patients/search?q=${encodeURIComponent(trimmed)}`);
+          const response = await fetch(
+            `${practiceApiBase(source)}/patients/search?q=${encodeURIComponent(trimmed)}`
+          );
           const data = (await response.json()) as { patients?: ClinikoPatient[]; error?: string };
           if (cancelled) return;
           if (!response.ok) {
-            onErrorRef.current(data.error ?? "Cliniko search failed.");
+            onErrorRef.current(data.error ?? `${practiceLabel(source)} search failed.`);
             setResults([]);
             return;
           }
           setResults((data.patients ?? []).slice(0, 10));
         } catch {
-          if (!cancelled) onErrorRef.current("Cliniko search failed.");
+          if (!cancelled) onErrorRef.current(`${practiceLabel(source)} search failed.`);
         } finally {
           if (!cancelled) {
             setSearching(false);
@@ -228,7 +242,7 @@ export function ClinikoIntakeCard({
       clearTimeout(slowTimer);
       clearTimeout(debounceTimer);
     };
-  }, [configured, connectionError, searchQuery, showSearchCard]);
+  }, [configured, connectionError, searchQuery, showSearchCard, source]);
 
   const connectedLabel = useMemo(() => {
     if (cliniko?.connectedName) return cliniko.connectedName;
@@ -248,7 +262,7 @@ export function ClinikoIntakeCard({
       }
 
       const engineQuery = engine ? `?engine=${engine}` : "";
-      const response = await fetch(`/api/cliniko/patients/${patient.id}${engineQuery}`);
+      const response = await fetch(`${practiceApiBase(source)}/patients/${patient.id}${engineQuery}`);
       const data = (await response.json()) as {
         patient?: Parameters<typeof applyClinikoPatientToForm>[0];
         customFields?: Parameters<typeof applyClinikoPatientToForm>[1];
@@ -257,7 +271,7 @@ export function ClinikoIntakeCard({
         error?: string;
       };
       if (!response.ok || !data.patient) {
-        onError(data.error ?? "Could not load Cliniko patient.");
+        onError(data.error ?? `Could not load the ${practiceLabel(source)} patient.`);
         return;
       }
 
@@ -295,14 +309,15 @@ export function ClinikoIntakeCard({
       setCliniko({
         patientId: patient.id,
         connectedName: mapped.clientName || `${data.patient.last_name}, ${data.patient.first_name}`,
-        syncEnabled: true,
+        syncEnabled: source !== "halaxy",
+        source,
         baseline: buildClinikoBaseline(data.patient, data.customFields ?? {}, mapped),
       });
       setShowSearchCard(false);
 
       const nameLabel =
         mapped.clientName || `${data.patient.first_name} ${data.patient.last_name}`.trim();
-      let loadedMessage = `Loaded ${nameLabel} from Cliniko`;
+      let loadedMessage = `Loaded ${nameLabel} from ${practiceLabel(source)}`;
       if (data.registration?.formName) {
         loadedMessage += ` (+ ${data.registration.formName})`;
       }
@@ -315,6 +330,7 @@ export function ClinikoIntakeCard({
         try {
           const result = await importClinikoAttachmentsIntoCollateral({
             patientId: patient.id,
+            apiBase: practiceApiBase(source),
             existingDocs: collateralDocsRef.current ?? [],
             // ADHD: curated instruments only. ASD: all importable patient files.
             asrsOnly: engine === "adhd",
@@ -322,11 +338,11 @@ export function ClinikoIntakeCard({
           if (result.additions.length > 0) {
             setCollateralDocs((prev) => mergeImportedCollateralDocs(prev, result.additions));
           }
-          const importNotice = formatClinikoImportNotice(result);
+          const importNotice = formatClinikoImportNotice(result, practiceLabel(source));
           if (importNotice) loadedMessage = `${loadedMessage}. ${importNotice}`;
           if (result.error) onError(result.error);
         } catch {
-          onError("Patient loaded, but Cliniko file import failed.");
+          onError(`Patient loaded, but ${practiceLabel(source)} file import failed.`);
         } finally {
           setImportingFiles(false);
         }
@@ -334,7 +350,7 @@ export function ClinikoIntakeCard({
 
       onLoaded(loadedMessage);
     } catch {
-      onError("Could not load Cliniko patient.");
+      onError(`Could not load the ${practiceLabel(source)} patient.`);
     } finally {
       setLoadingPatientId(null);
       onPatientLoadEnd?.();
@@ -352,7 +368,33 @@ export function ClinikoIntakeCard({
       ) : null}
 
       {configured && !connectionError ? (
+        <div className="flex gap-1.5">
+          {(["cliniko", "halaxy"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-xs",
+                source === option
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border/70 text-muted-foreground hover:bg-muted/50"
+              )}
+              onClick={() => {
+                setSource(option);
+                storePracticeSource(option);
+                setConnectionError(null);
+                setResults([]);
+              }}
+            >
+              {practiceLabel(option)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {configured && !connectionError ? (
         <ClinikoMyCalendar
+          source={source}
           selectedPatientId={cliniko?.patientId ?? null}
           disabled={changePatientDisabled || Boolean(loadingPatientId) || importingFiles}
           importingFiles={importingFiles}
@@ -375,7 +417,7 @@ export function ClinikoIntakeCard({
       {cliniko && !showSearchCard ? (
         <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
           <p className="text-sm">
-            Connected to Cliniko · {connectedLabel} ·{" "}
+            Connected to {practiceLabel(cliniko.source)} · {connectedLabel} ·{" "}
             <button
               type="button"
               className={cn(
@@ -404,17 +446,19 @@ export function ClinikoIntakeCard({
               Change patient
             </button>
           </p>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={cliniko.syncEnabled}
-              onChange={(e) =>
-                setCliniko((current) => (current ? { ...current, syncEnabled: e.target.checked } : current))
-              }
-            />
-            Sync changes back to Cliniko
-          </label>
-          <ClinikoPatientAppointments patientId={cliniko.patientId} />
+          {cliniko.source === "halaxy" ? null : (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={cliniko.syncEnabled}
+                onChange={(e) =>
+                  setCliniko((current) => (current ? { ...current, syncEnabled: e.target.checked } : current))
+                }
+              />
+              Sync changes back to Cliniko
+            </label>
+          )}
+          <ClinikoPatientAppointments patientId={cliniko.patientId} source={cliniko.source} />
         </div>
       ) : null}
 
@@ -428,7 +472,7 @@ export function ClinikoIntakeCard({
               </p>
             </div>
             <label className="block space-y-1.5">
-              <span className="sr-only">Search Cliniko patients</span>
+              <span className="sr-only">Search {practiceLabel(source)} patients</span>
               <input
                 className={cn(inputClass, "w-full")}
                 placeholder="Type patient name..."
@@ -439,10 +483,12 @@ export function ClinikoIntakeCard({
             {searching ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
-                Searching Cliniko…
+                Searching {practiceLabel(source)}…
               </div>
             ) : null}
-            {slowSearch ? <p className="text-sm text-muted-foreground">Cliniko is taking longer than usual…</p> : null}
+            {slowSearch ? (
+              <p className="text-sm text-muted-foreground">{practiceLabel(source)} is taking longer than usual…</p>
+            ) : null}
             <div className="space-y-1">
               {!searching && searchQuery.trim().length >= 2 && results.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No results found</p>

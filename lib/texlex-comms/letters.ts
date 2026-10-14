@@ -35,6 +35,60 @@ export type LetterMergeFields = {
   pathway?: LetterPathway;
 };
 
+export type ReferralDoctor = {
+  id: string;
+  name: string;
+  role: string;
+  clinic: string;
+};
+
+export const BUILTIN_REFERRAL_DOCTORS: ReferralDoctor[] = [
+  { id: "chaandini-subramaniam", name: "Dr Chaandini Subramaniam", role: "", clinic: "" },
+  { id: "roshini-sonawane", name: "Dr Roshini Sonawane", role: "", clinic: "" },
+  { id: "shweta-patel", name: "Dr Shweta Patel", role: "", clinic: "" },
+  { id: "michael-gendy", name: "Dr Michael Gendy", role: "", clinic: "" },
+  {
+    id: "murugesh-nidyananda",
+    name: "Dr Murugesh Nidyananda",
+    role: "Child and Adolescent Psychiatrist",
+    clinic: "Sage Clinic (Video Telehealth)",
+  },
+];
+
+const EXTRA_REFERRAL_DOCTORS_KEY = "texlex.referralDoctors.extra";
+
+export function readExtraReferralDoctors(): ReferralDoctor[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(EXTRA_REFERRAL_DOCTORS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as ReferralDoctor[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((row) => row && typeof row.name === "string" && row.name.trim());
+  } catch {
+    return [];
+  }
+}
+
+export function saveExtraReferralDoctor(doctor: ReferralDoctor): ReferralDoctor[] {
+  const next = [...readExtraReferralDoctors().filter((row) => row.id !== doctor.id), doctor];
+  window.localStorage.setItem(EXTRA_REFERRAL_DOCTORS_KEY, JSON.stringify(next));
+  return next;
+}
+
+export function referralDoctorById(id: string, extras: ReferralDoctor[] = []): ReferralDoctor {
+  return (
+    [...BUILTIN_REFERRAL_DOCTORS, ...extras].find((doctor) => doctor.id === id) ??
+    BUILTIN_REFERRAL_DOCTORS[0]
+  );
+}
+
+export function referralSalutation(name: string): string {
+  const stripped = name.replace(/^dr\.?\s+/i, "").trim();
+  const parts = stripped.split(/\s+/).filter(Boolean);
+  const last = parts[parts.length - 1] || stripped || "Colleague";
+  return `Dr ${last}`;
+}
+
 export const LETTER_KIND_OPTIONS: Array<{ value: LetterKind; label: string; description: string }> = [
   {
     value: "parent-cover",
@@ -43,8 +97,8 @@ export const LETTER_KIND_OPTIONS: Array<{ value: LetterKind; label: string; desc
   },
   {
     value: "dr-muru-referral",
-    label: "Referral — Dr Murugesh Nidyananda",
-    description: "Consensus / medical review referral letter with report enclosed.",
+    label: "Referral letter",
+    description: "Consensus / medical review referral. Choose the doctor below.",
   },
   {
     value: "referrer-update",
@@ -137,7 +191,11 @@ export function buildLetterSubject(kind: LetterKind, fields: LetterMergeFields):
  * Letter body only (salutation + paragraphs).
  * Texlex PDF supplies masthead, Re: line, and signature block.
  */
-export function buildLetterBody(kind: LetterKind, fields: LetterMergeFields): string {
+export function buildLetterBody(
+  kind: LetterKind,
+  fields: LetterMergeFields,
+  doctor?: ReferralDoctor
+): string {
   const name = line(fields.clientName);
   const first = line(fields.clientFirstName) || name;
   const parents = addresseeParents(fields);
@@ -172,29 +230,29 @@ export function buildLetterBody(kind: LetterKind, fields: LetterMergeFields): st
   }
 
   if (kind === "dr-muru-referral") {
-    return [
-      "Dr Murugesh Nidyananda",
-      "Child and Adolescent Psychiatrist",
-      "Sage Clinic (Video Telehealth)",
+    const chosen = doctor ?? referralDoctorById("murugesh-nidyananda");
+    const heading = [chosen.name.trim(), chosen.role.trim(), chosen.clinic.trim()].filter(Boolean);
+    const lines = [
+      ...heading,
       "",
-      "Dear Dr Nidyananda,",
+      `Dear ${referralSalutation(chosen.name)},`,
       "",
       `I am writing to refer ${name} (DOB ${line(fields.dob)}; chronological age ${age}) for consensus-based medical review within the Azure Mind ${isAdhd ? "ADHD" : "neurodevelopmental"} pathway.`,
       "",
       `Assessment summary: ${conclusion}${severity ? ` ${severity}` : ""}`,
       "",
       `School: ${school} (Year ${year}). Assessment modality: ${modality}.`,
-      referrer !== "—" ? `Referring practitioner: ${referrerLine}.` : "",
+    ];
+    if (referrer !== "—") lines.push(`Referring practitioner: ${referrerLine}.`);
+    lines.push(
       "",
       isAdhd
         ? "The enclosed report contains the full clinical formulation, DSM-5-TR ADHD criterion analysis, functional impact summary, and recommendations. I would be grateful for your review and ratification as clinically appropriate, including consideration of co-occurring concerns raised in the report."
         : "The enclosed report contains the full clinical formulation, DSM-5-TR criterion analysis, functional impact summary, and recommendations. I would be grateful for your review and ratification as clinically appropriate, including consideration of co-occurring concerns raised in the report.",
       "",
-      "Please contact me if any additional information is required.",
-    ]
-      .filter((l) => l !== "")
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n");
+      "Please contact me if any additional information is required."
+    );
+    return lines.join("\n");
   }
 
   if (kind === "referrer-update") {

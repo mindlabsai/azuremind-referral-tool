@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -31,6 +32,7 @@ import {
   type CollateralDoc,
 } from "@/lib/collateral/collateral-docs-client";
 import { ClinikoCollateralImport } from "./ClinikoCollateralImport";
+import type { PracticeSource } from "@/lib/practice-source";
 
 export type { CollateralDoc };
 export {
@@ -41,6 +43,15 @@ export {
   migrateCollateralDocsFromStorage,
   serialiseCollateralDocsForStorage,
 } from "@/lib/collateral/collateral-docs-client";
+
+const HALAXY_UPLOAD_LIMIT_BYTES = 20 * 1024 * 1024;
+const HALAXY_UPLOAD_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 function CollateralDocRowIcon({ mimeType }: { mimeType: string }) {
   const label = getFileTypeLabel(mimeType);
@@ -60,6 +71,7 @@ export function CollateralDocumentsUpload({
   inputClass,
   clinikoPatientId = null,
   engine = null,
+  practiceSource = "cliniko",
 }: {
   collateralDocs: CollateralDoc[];
   setCollateralDocs: Dispatch<SetStateAction<CollateralDoc[]>>;
@@ -68,13 +80,17 @@ export function CollateralDocumentsUpload({
   /** When set, show Cliniko attachment browser (ASRS / forms import). */
   clinikoPatientId?: string | null;
   engine?: "asd" | "adhd" | null;
+  practiceSource?: PracticeSource;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [practiceNotice, setPracticeNotice] = useState<string | null>(null);
   const [encodingFilename, setEncodingFilename] = useState<string | null>(null);
+  const pendingHalaxyFiles = useRef<File[]>([]);
+  const sentHalaxyKeys = useRef(new Set<string>());
 
   const encodePdfForAi = useCallback(
     async (docId: string, file: File) => {
@@ -108,6 +124,98 @@ export function CollateralDocumentsUpload({
     [setCollateralDocs]
   );
 
+  const saveFilesToHalaxy = useCallback(async (files: File[], patientId: string) => {
+    const accepted: File[] = [];
+    const skipped: string[] = [];
+    for (const file of files) {
+      const key = `${patientId}:${file.name}:${file.size}:${file.lastModified}`;
+      if (sentHalaxyKeys.current.has(key)) continue;
+      const mime = resolveCollateralMime(file);
+      if (!mime || !HALAXY_UPLOAD_TYPES.has(mime)) {
+        skipped.push(`${file.name} stays on this report. Halaxy accepts PDF, JPG, PNG, DOC, and DOCX.`);
+        continue;
+      }
+      if (file.size > HALAXY_UPLOAD_LIMIT_BYTES) {
+        skipped.push(`${file.name} is over Halaxy's 20 MB limit and stays on this report.`);
+        continue;
+      }
+      accepted.push(file);
+    }
+    if (accepted.length === 0) {
+      if (skipped.length) setPracticeNotice(skipped[0] ?? null);
+      return;
+    }
+    setPracticeNotice("Adding files to Halaxy…");
+    const saved: string[] = [];
+    let taskLine = "";
+    for (let index = 0; index < accepted.length; index += 1) {
+      const file = accepted[index]!;
+      const mime = resolveCollateralMime(file)!;
+      try {
+        const content = await readFileAsBase64(file);
+        const response = await fetch("/api/halaxy/files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            patientId,
+            filename: file.name,
+            content,
+            contentType: mime,
+            encoding: "base64",
+            description: file.name,
+          }),
+        });
+        const data = (await response.json().catch(() => null)) as {
+          success?: boolean;
+          error?: string;
+          taskCreated?: boolean;
+          taskError?: string | null;
+        } | null;
+        if (!response.ok || !data?.success) {
+          skipped.push(`${file.name}: ${data?.error || "Halaxy upload failed"}`);
+          continue;
+        }
+        sentHalaxyKeys.current.add(`${patientId}:${file.name}:${file.size}:${file.lastModified}`);
+        saved.push(file.name);
+      } catch {
+        skipped.push(`${file.name}: Halaxy upload failed`);
+      }
+    }
+    if (saved.length > 0) {
+      try {
+        const taskRes = await fetch("/api/halaxy/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            patientId,
+            title: "Review documents uploaded from Texlex",
+            detail: saved.join(", "),
+          }),
+        });
+        const taskData = (await taskRes.json().catch(() => null)) as {
+          taskCreated?: boolean;
+          taskError?: string | null;
+          error?: string;
+        } | null;
+        if (taskData?.taskCreated) taskLine = " Task created in Halaxy.";
+        else taskLine = ` ${taskData?.taskError || taskData?.error || "Halaxy's API does not include tasks, so no task was created."}`;
+      } catch {
+        taskLine = " Halaxy's API does not include tasks, so no task was created.";
+      }
+    }
+    const savedLine = saved.length
+      ? `Added ${saved.length === 1 ? saved[0] : `${saved.length} files`} to Halaxy.${taskLine}`
+      : "";
+    setPracticeNotice([savedLine, ...skipped].filter(Boolean).join(" ") || null);
+  }, []);
+
+  useEffect(() => {
+    if (practiceSource !== "halaxy" || !clinikoPatientId) return;
+    const queued = pendingHalaxyFiles.current.splice(0);
+    if (queued.length === 0) return;
+    void saveFilesToHalaxy(queued, clinikoPatientId);
+  }, [clinikoPatientId, practiceSource, saveFilesToHalaxy]);
+
   const ingestFiles = useCallback(
     (fileList: File[]) => {
       touch();
@@ -117,6 +225,7 @@ export function CollateralDocumentsUpload({
       if (files.length === 0) return;
 
       const additions: CollateralDoc[] = [];
+      const acceptedFiles: File[] = [];
       const pendingPdfReads: Array<{ id: string; file: File }> = [];
       let firstError: string | null = null;
       const setErr = (msg: string) => {
@@ -157,6 +266,7 @@ export function CollateralDocumentsUpload({
         if (isCollateralPdfDoc(additions[additions.length - 1]!)) {
           pendingPdfReads.push({ id, file });
         }
+        acceptedFiles.push(file);
         count += 1;
         bytes += file.size;
       }
@@ -169,8 +279,17 @@ export function CollateralDocumentsUpload({
       for (const pending of pendingPdfReads) {
         void encodePdfForAi(pending.id, pending.file);
       }
+
+      if (practiceSource === "halaxy") {
+        if (clinikoPatientId) {
+          void saveFilesToHalaxy(acceptedFiles, clinikoPatientId);
+        } else {
+          pendingHalaxyFiles.current.push(...acceptedFiles);
+          setPracticeNotice("Files are on this report. Load the Halaxy patient to add them to Halaxy.");
+        }
+      }
     },
-    [encodePdfForAi, setCollateralDocs, touch]
+    [clinikoPatientId, encodePdfForAi, practiceSource, saveFilesToHalaxy, setCollateralDocs, touch]
   );
 
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -200,6 +319,7 @@ export function CollateralDocumentsUpload({
         setCollateralDocs={setCollateralDocs}
         touch={touch}
         engine={engine}
+        source={practiceSource}
       />
 
       <input
@@ -270,6 +390,12 @@ export function CollateralDocumentsUpload({
       {uploadNotice ? (
         <p className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-foreground" role="status">
           {uploadNotice}
+        </p>
+      ) : null}
+
+      {practiceNotice ? (
+        <p className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-foreground" role="status">
+          {practiceNotice}
         </p>
       ) : null}
 

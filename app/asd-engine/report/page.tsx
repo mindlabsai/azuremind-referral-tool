@@ -71,7 +71,7 @@ import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
 import { TexlexReportImport } from "./components/TexlexReportImport";
 import { TexlexAuditorCaseListPanel } from "./components/TexlexAuditorCaseListPanel";
 import { TexlexFinalizeReviewPanel } from "./components/TexlexFinalizeReviewPanel";
-import { TexlexSendPanel } from "./components/TexlexSendPanel";
+import { TexlexSendDrawer } from "./components/TexlexSendDrawer";
 import { buildAsdAuditChecklist } from "@/lib/texlex-finalize-review/audit-checklist";
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
@@ -83,6 +83,7 @@ import {
   type ReviewRun,
 } from "@/lib/texlex-finalize-review/types";
 import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import { practiceApiBase, practiceLabel } from "@/lib/practice-source";
 import {
   clearAsdLegacyLocalDraftKeys,
   clearEngineActiveDraftPointer,
@@ -2073,6 +2074,8 @@ export default function TexlexReportPage() {
   const [finalizeReviewing, setFinalizeReviewing] = useState(false);
   const [finalizeReviewError, setFinalizeReviewError] = useState<string | null>(null);
   const [finalPackageReady, setFinalPackageReady] = useState(false);
+  const [sendDrawerOpen, setSendDrawerOpen] = useState(false);
+  const [todayOpen, setTodayOpen] = useState(true);
   const [editLimitations, setEditLimitations] = useState(false);
 
   const [hydrated, setHydrated] = useState(false);
@@ -2092,6 +2095,7 @@ export default function TexlexReportPage() {
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [newReportToast, setNewReportToast] = useState(false);
+  const [reportEpoch, setReportEpoch] = useState(0);
   const [clinikoIntakeResetKey, setClinikoIntakeResetKey] = useState(0);
   const [localDraftRestoredNotice, setLocalDraftRestoredNotice] = useState<{
     lastSaved: string;
@@ -3736,6 +3740,7 @@ export default function TexlexReportPage() {
     }
     suppressAutosaveRef.current = true;
     cloudResumeHandledPatientRef.current = null;
+    setReportEpoch((epoch) => epoch + 1);
 
     setDraftResumePrompt(null);
     setLocalDraftRestoredNotice(null);
@@ -3765,8 +3770,12 @@ export default function TexlexReportPage() {
     severityRationaleTouchedRef.current = false;
     severityLevelsTouchedRef.current = false;
     setFinalizeReviewRuns([]);
+    setFinalizeReviewing(false);
     setFinalizeReviewError(null);
     setFinalPackageReady(false);
+    setSessionSectionsGenerating(false);
+    setPdfBusyMode(null);
+    setSendDrawerOpen(false);
     setEditLimitations(false);
     setGeneratingSectionId(null);
     setSectionGenErrors({});
@@ -3984,14 +3993,14 @@ export default function TexlexReportPage() {
     try {
       const { blob, filename } = await buildAsdPdfBlob();
       triggerPdfDownload(blob, filename);
-      setClinikoSyncNotice("Downloaded — not saved to Cliniko.");
+      setClinikoSyncNotice(`Downloaded — not saved to ${practiceLabel(cliniko?.source)}.`);
     } catch (error) {
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");
     } finally {
       setPdfBusyMode(null);
     }
-  }, [buildAsdPdfBlob, pdfBusyMode, triggerPdfDownload]);
+  }, [buildAsdPdfBlob, cliniko?.source, pdfBusyMode, triggerPdfDownload]);
 
   const finalPdfUnlocked = useMemo(() => {
     if (!finalizeReviewRuns.length) return false;
@@ -4461,7 +4470,7 @@ export default function TexlexReportPage() {
     if (pdfBusyMode !== null) return;
     setPdfBusyMode("save");
     setClinikoSyncNotice(null);
-    if (cliniko?.patientId && cliniko.syncEnabled) {
+    if (cliniko?.patientId && cliniko.syncEnabled && cliniko.source !== "halaxy") {
       setClinikoSyncInProgress(true);
       try {
         const response = await fetch("/api/cliniko/sync", {
@@ -4519,7 +4528,7 @@ export default function TexlexReportPage() {
           const bytes = new Uint8Array(buf);
           for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
           const base64 = btoa(binary);
-          const uploadRes = await fetch("/api/cliniko/files", {
+          const uploadRes = await fetch(`${practiceApiBase(cliniko?.source)}/files`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -4529,17 +4538,34 @@ export default function TexlexReportPage() {
               contentType: "application/pdf",
               encoding: "base64",
               description: "Texlex finalised report",
+              createTask: cliniko?.source === "halaxy",
+              taskTitle: "Review final ASD report PDF",
             }),
           });
-          if (!uploadRes.ok) {
-            const errBody = (await uploadRes.json().catch(() => ({}))) as { error?: string };
-            throw new Error(errBody.error || `Cliniko upload failed (${uploadRes.status})`);
+          const errBody = (await uploadRes.json().catch(() => ({}))) as {
+            success?: boolean;
+            error?: string;
+            taskCreated?: boolean;
+            taskError?: string | null;
+          };
+          if (!uploadRes.ok || errBody.success === false) {
+            throw new Error(errBody.error || `${practiceLabel(cliniko?.source)} upload failed (${uploadRes.status})`);
           }
           clinikoFileOk = true;
-          setClinikoSyncNotice("Report saved to Cliniko");
+          const taskLine =
+            cliniko?.source === "halaxy"
+              ? errBody.taskCreated
+                ? " Task created in Halaxy."
+                : errBody.taskError
+                  ? ` ${errBody.taskError}`
+                  : ""
+              : "";
+          setClinikoSyncNotice(`Report saved to ${practiceLabel(cliniko?.source)}.${taskLine}`);
         } catch (uploadErr) {
-          console.error("Cliniko PDF upload failed (download succeeded):", uploadErr);
-          setClinikoSyncNotice("Downloaded — Cliniko file upload failed (retry Final PDF).");
+          console.error("Practice PDF upload failed (download succeeded):", uploadErr);
+          setClinikoSyncNotice(
+            `Downloaded — ${practiceLabel(cliniko?.source)} file upload failed (retry Final PDF).`
+          );
         }
       }
       // Unlock Send after Final PDF download (Cliniko upload best-effort).
@@ -4683,7 +4709,10 @@ export default function TexlexReportPage() {
     <div className="min-h-screen bg-[var(--bg-page)] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-foreground">
       <TexlexReportHeader
         clientName={patientDetails.clientName}
+        assessmentLabel="ASD assessment"
+        recordLabel={practiceLabel(cliniko?.source)}
         statusLabel={statusLabel}
+        workflowStatus={finalPdfUnlocked ? "ready" : "draft"}
         saveFailed={saveFailed}
         editing={editing}
         pdfDownloading={pdfDownloading}
@@ -4701,38 +4730,42 @@ export default function TexlexReportPage() {
         onFinalPdfDownload={() => {
           if (!finalPdfUnlocked) {
             scrollToFinalizeReview();
-            window.alert("Clear blocking Finalize review findings (or run review and resolve them) before Final PDF.");
+            window.alert(`Clear Review blockers before saving the final PDF to ${practiceLabel(cliniko?.source)}.`);
             return;
           }
           void handleDownloadAndSave();
         }}
-        sendUnlocked={finalPackageReady}
+        sendUnlocked={finalPdfUnlocked}
         onOpenSend={() => {
-          if (!finalPackageReady) {
-            window.alert("Complete Final PDF first, then send via Texlex.");
+          if (!finalPdfUnlocked) {
+            scrollToFinalizeReview();
+            if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
             return;
           }
-          scrollToSend();
+          setSendDrawerOpen(true);
         }}
+        onToggleToday={() => setTodayOpen((v) => !v)}
+        todayOpen={todayOpen}
+        engineHomeHref="/asd-engine"
         statusExtras={
           <>
             {saveToast ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
                 Saved
               </span>
             ) : null}
             {clinikoToast ? (
-              <span className="text-xs font-medium text-foreground" aria-live="polite">
+              <span className="font-medium text-foreground" aria-live="polite">
                 {clinikoToast}
               </span>
             ) : null}
             {clinikoSyncNotice ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
                 {clinikoSyncNotice}
               </span>
             ) : null}
             {newReportToast ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
                 Started new report
               </span>
             ) : null}
@@ -4829,39 +4862,47 @@ export default function TexlexReportPage() {
 
         <main className="min-w-0 flex-1">
           <div className="mx-auto max-w-[760px] space-y-[14px] text-[15px] leading-[1.55]">
-            <section id="cliniko-calendar">
-              <ClinikoIntakeCard
-                key={clinikoIntakeResetKey}
-                inputClass={inputClass}
-                patientDetails={patientDetails}
-                setPatientDetails={setPatientDetails}
-                cliniko={cliniko}
-                setCliniko={setCliniko}
-                onTouch={touch}
-                onLoaded={showClinikoLoadedToast}
-                onError={showClinikoErrorToast}
-                onChangePatientRequest={handleChangePatientRequest}
-                collateralDocs={collateralDocs}
-                setCollateralDocs={setCollateralDocs}
-                collateralSummaryFilled={collateralSummary.trim().length > 0}
-                onPreparePatientSwitch={prepareClinikoPatientSwitch}
-                onPatientLoadStart={() => {
-                  clinikoPatientLoadLockRef.current += 1;
-                }}
-                onPatientLoadEnd={() => {
-                  clinikoPatientLoadLockRef.current = Math.max(
-                    0,
-                    clinikoPatientLoadLockRef.current - 1
-                  );
-                  setClinikoPatientLoadGate((n) => n + 1);
-                }}
-                engine="asd"
-              />
-            </section>
+            {todayOpen ? (
+              <section id="cliniko-calendar">
+                <ClinikoIntakeCard
+                  key={clinikoIntakeResetKey}
+                  inputClass={inputClass}
+                  patientDetails={patientDetails}
+                  setPatientDetails={setPatientDetails}
+                  cliniko={cliniko}
+                  setCliniko={setCliniko}
+                  onTouch={touch}
+                  onLoaded={(message) => {
+                    showClinikoLoadedToast(message);
+                    setTodayOpen(false);
+                  }}
+                  onError={showClinikoErrorToast}
+                  onChangePatientRequest={handleChangePatientRequest}
+                  collateralDocs={collateralDocs}
+                  setCollateralDocs={setCollateralDocs}
+                  collateralSummaryFilled={collateralSummary.trim().length > 0}
+                  onPreparePatientSwitch={prepareClinikoPatientSwitch}
+                  onPatientLoadStart={() => {
+                    clinikoPatientLoadLockRef.current += 1;
+                  }}
+                  onPatientLoadEnd={() => {
+                    clinikoPatientLoadLockRef.current = Math.max(
+                      0,
+                      clinikoPatientLoadLockRef.current - 1
+                    );
+                    setClinikoPatientLoadGate((n) => n + 1);
+                  }}
+                  engine="asd"
+                />
+              </section>
+            ) : (
+              <section id="cliniko-calendar" className="sr-only" aria-hidden />
+            )}
 
             <section id="scribe">
               <TexlexSectionHeading className="mb-3">Scribe</TexlexSectionHeading>
               <TexlexScribe
+                key={reportEpoch}
                 sessionGenerating={sessionSectionsGenerating}
                 onAppendToNotes={(text) => {
                   touch();
@@ -5652,6 +5693,7 @@ export default function TexlexReportPage() {
                       setCollateralDocs={setCollateralDocs}
                       touch={touch}
                       engine="asd"
+                      source={cliniko?.source}
                     />
                     <CollateralDocumentsUpload
                       collateralDocs={collateralDocs}
@@ -6115,14 +6157,7 @@ export default function TexlexReportPage() {
               auditChecklist={asdAuditChecklist}
             />
 
-            <TexlexSendPanel
-              unlocked={finalPackageReady}
-              mergeFields={letterMergeFields}
-              recipientBuckets={sendRecipientBuckets}
-              buildReportPdfBase64={buildReportPdfBase64ForSend}
-              buildLetterPdfBase64={buildLetterPdfBase64ForSend}
-              onScrollToFinalize={scrollToFinalizeReview}
-            />
+            <div id="texlex-send" className="sr-only" aria-hidden />
 
             <section id="signature">
               <TexlexSectionHeading className="mb-3">Signature block</TexlexSectionHeading>
@@ -6149,8 +6184,8 @@ export default function TexlexReportPage() {
 
         <aside className="hidden shrink-0 lg:block">
           <div className="sticky top-24 w-[380px] overflow-y-auto pb-10" style={{ maxHeight: "calc(100vh - 6rem)" }}>
-            <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Engine assistant</p>
+            <div className="rounded-xl border border-[#D5E0E0] bg-white p-4">
+              <p className="mb-2 text-[15px] font-extrabold tracking-tight text-[#075E63]">Assist</p>
               <EngineAssistant rawNotes={rawNotes} compact />
             </div>
           </div>
@@ -6171,6 +6206,22 @@ export default function TexlexReportPage() {
         error={pdfPreviewError}
         title={`${patientDetails.clientName.trim() || "Client"} · ASD report`}
         onClose={closePdfPreview}
+      />
+      <TexlexSendDrawer
+        key={reportEpoch}
+        open={sendDrawerOpen}
+        onClose={() => setSendDrawerOpen(false)}
+        unlocked={finalPdfUnlocked}
+        mergeFields={letterMergeFields}
+        recipientBuckets={sendRecipientBuckets}
+        buildReportPdfBase64={async () => {
+          const pdf = await buildReportPdfBase64ForSend();
+          setFinalPackageReady(true);
+          return pdf;
+        }}
+        buildLetterPdfBase64={buildLetterPdfBase64ForSend}
+        onScrollToFinalize={scrollToFinalizeReview}
+        clientLabel={patientDetails.clientName}
       />
     </div>
   );

@@ -12,6 +12,7 @@ import {
   isClinikoAttachmentAutoImportCandidate,
   mergeImportedCollateralDocs,
 } from "@/lib/collateral/import-cliniko-attachments";
+import { practiceApiBase, practiceLabel, type PracticeSource } from "@/lib/practice-source";
 
 function formatCreatedAt(iso: string | null): string {
   if (!iso) return "";
@@ -26,12 +27,14 @@ export function ClinikoCollateralImport({
   setCollateralDocs,
   touch,
   engine = null,
+  source = "cliniko",
 }: {
   patientId: string | null | undefined;
   collateralDocs: CollateralDoc[];
   setCollateralDocs: Dispatch<SetStateAction<CollateralDoc[]>>;
   touch: () => void;
   engine?: "asd" | "adhd" | null;
+  source?: PracticeSource;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -49,14 +52,14 @@ export function ClinikoCollateralImport({
     setError(null);
     try {
       const response = await fetch(
-        `/api/cliniko/attachments?patientId=${encodeURIComponent(patientId)}`
+        `${practiceApiBase(source)}/attachments?patientId=${encodeURIComponent(patientId)}`
       );
       const data = (await response.json()) as {
         attachments?: ClinikoPatientAttachment[];
         error?: string;
       };
       if (!response.ok) {
-        setError(data.error ?? "Could not list Cliniko files.");
+        setError(data.error ?? `Could not list ${practiceLabel(source)} files.`);
         setAttachments([]);
         return;
       }
@@ -69,12 +72,12 @@ export function ClinikoCollateralImport({
       );
       setSelectedIds(defaults);
     } catch {
-      setError("Could not list Cliniko files.");
+      setError(`Could not list ${practiceLabel(source)} files.`);
       setAttachments([]);
     } finally {
       setLoading(false);
     }
-  }, [patientId]);
+  }, [patientId, source]);
 
   useEffect(() => {
     if (!patientId || !open) return;
@@ -127,13 +130,14 @@ export function ClinikoCollateralImport({
       patientId,
       existingDocs: collateralDocs,
       attachmentIds: ids,
+      apiBase: practiceApiBase(source),
     });
 
     if (result.additions.length > 0) {
       setCollateralDocs((prev) => mergeImportedCollateralDocs(prev, result.additions));
       setSelectedIds(new Set());
     }
-    const msg = formatClinikoImportNotice(result);
+    const msg = formatClinikoImportNotice(result, practiceLabel(source));
     if (msg) setNotice(msg);
     if (result.error) setError(result.error);
     setImporting(false);
@@ -145,7 +149,7 @@ export function ClinikoCollateralImport({
     <div className="space-y-3 rounded-lg border border-border/80 bg-muted/15 px-3 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-foreground">Import from Cliniko</p>
+          <p className="text-sm font-semibold text-foreground">Import from {practiceLabel(source)}</p>
           <p className="text-xs text-muted-foreground">
             {engine === "adhd"
               ? "Pull Vanderbilt, Conners, teacher, OT, speech, and ASRS files into collateral."
@@ -159,7 +163,7 @@ export function ClinikoCollateralImport({
           onClick={() => setOpen((v) => !v)}
         >
           <FileDown className="size-3.5" />
-          {open ? "Hide Cliniko files" : "Browse Cliniko files"}
+          {open ? `Hide ${practiceLabel(source)} files` : `Browse ${practiceLabel(source)} files`}
         </Button>
       </div>
 
@@ -195,15 +199,17 @@ export function ClinikoCollateralImport({
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Loading Cliniko files…
+              Loading {practiceLabel(source)} files…
             </div>
           ) : null}
 
           {!loading && visible.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {preferredOnly
-                ? "No preferred forms found (Vanderbilt, Conners, teacher, OT, speech, ASRS). Untick the filter to see all importable files."
-                : "No importable Cliniko attachments found for this patient."}
+              {source === "halaxy"
+                ? "Halaxy does not list existing files here. Upload them on this page. The finished PDF still saves to the Halaxy clinical note."
+                : preferredOnly
+                  ? "No preferred forms found (Vanderbilt, Conners, teacher, OT, speech, ASRS). Untick the filter to see all importable files."
+                  : "No importable Cliniko attachments found for this patient."}
             </p>
           ) : null}
 
