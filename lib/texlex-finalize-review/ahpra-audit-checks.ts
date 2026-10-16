@@ -41,7 +41,7 @@ const OBSERVATION_RE =
   /\b(clinical observation|direct observation|observed|in (?:the )?(?:clinic|session|assessment)|during (?:the )?(?:session|assessment)|assessor (?:noted|observed)|in[- ]session)\b/i;
 
 const PARENT_REPORT_RE =
-  /\b(parent(?:s)?(?:'|’)s? report|mother reports?|father reports?|carer reports?|per (?:mum|dad|mother|father|parent)|as reported by|history (?:from|indicates)|parent(?:al)? interview)\b/i;
+  /\b(?:parents?|mother|father|carers?|mum|dad)(?:['’]s)?\s+(?:reports?|reported|describes?|described|notes?|noted|states?|stated|said|accounts?)|\bparent(?:s)?(?:['’]s)?\s+report\b|\bper (?:mum|dad|mother|father|parents?)\b|\bas reported by\b|\bhistory (?:from|indicates)\b|\bparent(?:al)? interview\b|\bon parent account\b/i;
 
 const DIFFERENTIAL_RE =
   /\b(ADHD|attention[- ]deficit|anxiety|language disorder|developmental language|trauma|PTSD|attachment|intellectual disability|\bID\b|GDD|global developmental delay|hearing impairment|vision impairment|selective mutism|OCD|mood disorder|differential)\b/i;
@@ -72,7 +72,7 @@ function excerptAround(text: string, re: RegExp, max = 220): string | null {
   const m = text.match(re);
   if (!m || m.index == null) return text.slice(0, max);
   const start = Math.max(0, m.index - 40);
-  return text.slice(start, start + max).replace(/\s+/g, " ").trim();
+  return text.slice(start, Math.min(text.length, start + max));
 }
 
 /** ASD-only AHPRA audit deterministic findings. */
@@ -100,10 +100,10 @@ export function runAhpraAuditChecks(input: AhpraAuditReviewInput): ReviewFinding
           sectionId: sid,
           title: "Criterion narrative missing observation / parent-report labelling",
           detail:
-            "AHPRA audit expects clear source labelling. This criterion text does not mark clinical observation or parent report.",
+            "What was seen in session is not separated from what carers said. Behaviour during the parent interview, and anything already noted in clinic, is observation when it is in the notes or this section.",
           evidenceExcerpt: text.slice(0, 220),
           suggestedEdit:
-            "Label what was seen in session (Clinical observation:) versus what carers reported (Parent report:) without adding new facts.",
+            "Reframe this section from the raw notes and the current text. Label behaviour already seen in clinic, including during the parent interview, as clinical observation. Leave carer history as parent report. Do not add new facts.",
           applyHint: null,
         })
       );
@@ -115,10 +115,10 @@ export function runAhpraAuditChecks(input: AhpraAuditReviewInput): ReviewFinding
           sectionId: sid,
           title: "Criterion narrative is parent-report only",
           detail:
-            "Text cites parent report but has no direct-observation language. Document what was observed in session if it supports the rating.",
+            "Carer history is marked, and behaviour already seen in session is still inside that history. A clinic example, or the child not engaging while carers were interviewed, is observation when the notes or this section already record it.",
           evidenceExcerpt: excerptAround(text, PARENT_REPORT_RE),
           suggestedEdit:
-            "Add a Clinical observation sentence from existing session notes, or note that this item rests on history only.",
+            "Reframe this section from the raw notes and the current text. Put the clinic instance, and behaviour during the parent interview, under clinical observation. Keep the carers' account of other times as parent report. Do not add new facts.",
           applyHint: null,
         })
       );

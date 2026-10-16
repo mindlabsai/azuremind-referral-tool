@@ -39,7 +39,9 @@ export type AuditChecklistInput = {
 
 function openKinds(findings: ReviewFinding[]): Set<ReviewCheckKind> {
   return new Set(
-    findings.filter((f) => f.status === "open").map((f) => f.kind)
+    findings
+      .filter((f) => f.status === "open" || f.status === "accepted")
+      .map((f) => f.kind)
   );
 }
 

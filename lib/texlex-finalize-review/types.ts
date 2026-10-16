@@ -1,4 +1,4 @@
-/** Finalize Review — audit findings only; never invent clinical content. */
+/** Finalize Review — flag a passage, then offer a drop-in clinical alternative. */
 
 export type ReviewSectionId =
   | "presenting-concerns"
@@ -47,7 +47,7 @@ export type ReviewFindingStatus = "open" | "accepted" | "rejected" | "resolved";
 export type ReviewFindingSource = "deterministic" | "llm";
 
 export type ReviewApplyHint = {
-  mode: "replace_all_in_section" | "replace_opening_sentence";
+  mode: "replace_all_in_section" | "replace_opening_sentence" | "insert_paragraph";
   find: string;
   replace: string;
 };
@@ -66,6 +66,16 @@ export type ReviewFinding = {
   applyHint: ReviewApplyHint | null;
   status: ReviewFindingStatus;
   decidedAt: string | null;
+  /** Optional V2 extensions. Older clients ignore them. */
+  markerPack?: "ASD" | "ADHD" | "SLD" | null;
+  supportStatus?: string;
+  sourceReferences?: Array<{
+    sourceType: string;
+    sourceId?: string;
+    date?: string;
+    location?: string;
+  }>;
+  suggestionStatus?: "proposal" | "withheld";
 };
 
 export type ReviewRunStatus = "running" | "complete" | "failed" | "cancelled";
@@ -95,6 +105,11 @@ export type ReviewRun = {
     minorCount: number;
     openBlockingCount: number;
   };
+  /** Present when Universal Evidence-First Review V2 produced this pass. */
+  universalReviewV2?: boolean;
+  markerPack?: "ASD" | "ADHD" | null;
+  sourceCoverage?: string;
+  display?: string;
 };
 
 export type ReviewSectionInput = {
@@ -113,14 +128,10 @@ export function computeReviewSummary(findings: ReviewFinding[]): ReviewRun["summ
     else if (f.severity === "major") summary.majorCount++;
     else summary.minorCount++;
     if (f.severity === "blocking" && (f.status === "open" || f.status === "accepted")) {
-      // accepted but not yet edited still blocks until resolved on re-run
-      if (f.status === "open") summary.openBlockingCount++;
+      // Accepted means the clinician will edit by hand. It still blocks until a new review pass.
+      summary.openBlockingCount++;
     }
   }
-  // Recalculate open blocking only for status open
-  summary.openBlockingCount = findings.filter(
-    (f) => f.severity === "blocking" && f.status === "open"
-  ).length;
   return summary;
 }
 

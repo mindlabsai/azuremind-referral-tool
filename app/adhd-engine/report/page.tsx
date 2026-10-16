@@ -78,7 +78,7 @@ import { TexlexFinalizeReviewPanel } from "@/app/asd-engine/report/components/Te
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
 import { buildAdhdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
-import { applyReviewHintToText } from "@/lib/texlex-finalize-review/apply-minimal";
+import { placeReviewAlternative } from "@/lib/texlex-finalize-review/apply-minimal";
 import {
   computeReviewSummary,
   type ReviewFinding,
@@ -2200,37 +2200,27 @@ export default function AdhdReportPage() {
 
   const applyFinalizeFinding = useCallback(
     (finding: ReviewFinding) => {
-      if (!finding.applyHint) {
-        updateLatestFindingStatus(finding.id, "accepted");
-        return;
+      const key =
+        finding.sectionId === "clinical-formulation"
+          ? null
+          : finding.sectionId === "collateral"
+            ? "collateral-summary"
+            : finding.sectionId;
+      const current =
+        finding.sectionId === "clinical-formulation" ? formulation : key ? (sectionTexts[key as SectionId] ?? "") : "";
+      const next = placeReviewAlternative(current, finding);
+      if (!current || next == null) {
+        setFinalizeReviewError("That alternative could not be placed in the section. The report text is unchanged.");
+        return false;
       }
-      touch();
-      const hint = finding.applyHint;
-      const applyTo = (text: string) => applyReviewHintToText(text, hint);
-
-      if (finding.sectionId === "clinical-formulation") {
-        setFormulation((t) => applyTo(t));
-      } else if (
-        finding.sectionId === "presenting-concerns" ||
-        finding.sectionId === "background-pregnancy-birth" ||
-        finding.sectionId === "background-early-development" ||
-        finding.sectionId === "background-educational-history" ||
-        finding.sectionId === "background-emotional-behavioural-sensory" ||
-        finding.sectionId === "recommendations"
-      ) {
-        setSectionTexts((prev) => ({
-          ...prev,
-          [finding.sectionId]: applyTo(prev[finding.sectionId as SectionId] ?? ""),
-        }));
-      } else if (finding.sectionId === "collateral") {
-        setSectionTexts((prev) => ({
-          ...prev,
-          "collateral-summary": applyTo(prev["collateral-summary"] ?? ""),
-        }));
-      }
+      if (finding.sectionId === "clinical-formulation") setFormulation(next);
+      else if (key) setSectionTexts((prev) => ({ ...prev, [key]: next }));
+      setFinalizeReviewError(null);
       updateLatestFindingStatus(finding.id, "resolved");
+      document.getElementById(finding.sectionId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return true;
     },
-    [touch, updateLatestFindingStatus]
+    [formulation, sectionTexts, updateLatestFindingStatus]
   );
 
   const applyAdhdSavedState = useCallback((state: AdhdSavedState, opts?: { restoreCliniko?: boolean }) => {
@@ -3008,7 +2998,7 @@ export default function AdhdReportPage() {
             </Card>
 
             {NARRATIVE_SECTIONS.map((section) => (
-              <Card key={section.id}>
+              <Card key={section.id} id={section.id}>
                 <CardContent className="space-y-3 pt-6">
                   <div className="flex items-center justify-between gap-3">
                     <TexlexSectionHeading>{section.label}</TexlexSectionHeading>
@@ -3221,7 +3211,7 @@ export default function AdhdReportPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card id="clinical-formulation">
               <CardContent className="space-y-3 pt-6">
                 <div className="flex items-center justify-between gap-3">
                   <TexlexSectionHeading>Clinical formulation</TexlexSectionHeading>

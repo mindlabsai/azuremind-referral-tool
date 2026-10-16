@@ -1,4 +1,5 @@
 import { TEXLEX_NO_FABRICATION_RULE } from "@/lib/prompts/factual-integrity";
+import { activeMarkerQuestions, markerPackForPathway } from "./universal/markers";
 
 export type FinalizeReviewPathway = "asd" | "adhd";
 
@@ -60,6 +61,32 @@ Return ONLY valid JSON of the form:
 
 /** @deprecated Use finalizeReviewSystemPrompt(pathway) */
 export const FINALIZE_REVIEW_SYSTEM_PROMPT = finalizeReviewSystemPrompt("asd");
+
+/** Evidence-first prompt. Marker questions are asked. They do not set severity or rewrite the draft. */
+export function finalizeReviewSystemPromptV2(pathway: FinalizeReviewPathway = "asd"): string {
+  const pack = markerPackForPathway(pathway);
+  const questions = activeMarkerQuestions(pathway)
+    .map((question) => `- ${question}`)
+    .join("\n");
+  return `You are the Texlex Review pass for one ${pack.id} draft.
+
+Use the same materiality rules for every report type. These questions are the only type-specific checks:
+${questions}
+
+Find only material errors already demonstrated by the supplied text: wrong identity, impossible dates, modality that contradicts the record, a claim attributed to the wrong source, a score that contradicts a supplied result, or a formulation that contradicts the locked conclusion.
+
+Do not flag missing words, short paragraphs, or the absence of headings such as "Clinical observation" or "Parent report".
+Do not require a direct observation in every criterion.
+Do not require a reason for telehealth. Do not invent a reason, an observation, a score, a test, or a differential.
+Do not require DIVA-5, WIAT, or any named battery unless the draft says it was administered.
+Do not rewrite the report. suggestedEdit is null unless you can point at a source-backed sentence already in the material.
+If nothing material is wrong, return {"findings":[]}.
+
+${TEXLEX_NO_FABRICATION_RULE}
+
+Return ONLY JSON:
+{"findings":[{"kind":"major_inconsistency","severity":"major","sectionId":"<section id>","title":"","detail":"","evidenceExcerpt":"","suggestedEdit":null}]}`;
+}
 
 export function buildFinalizeReviewUserPrompt(args: {
   demographicsLock: string;

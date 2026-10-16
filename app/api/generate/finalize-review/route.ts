@@ -7,9 +7,21 @@ import { formatSectionsBlock } from "@/lib/texlex-finalize-review/assemble-corpu
 import {
   buildFinalizeReviewUserPrompt,
   finalizeReviewSystemPrompt,
+  finalizeReviewSystemPromptV2,
   type FinalizeReviewPathway,
 } from "@/lib/texlex-finalize-review/llm-prompt";
+import {
+  draftClinicalAlternatives,
+  withLockedAlternativePreview,
+} from "@/lib/texlex-finalize-review/clinical-alternatives";
 import { parseLlmFinalizeFindings } from "@/lib/texlex-finalize-review/parse-llm-findings";
+import { describeSourceCoverage } from "@/lib/texlex-finalize-review/universal/coverage";
+import { dedupeFindings } from "@/lib/texlex-finalize-review/universal/dedupe";
+import { reviewDisplay } from "@/lib/texlex-finalize-review/universal/display";
+import { isUniversalReviewV2Enabled } from "@/lib/texlex-finalize-review/universal/flag";
+import { markerPackForPathway } from "@/lib/texlex-finalize-review/universal/markers";
+import { explicitSourceFindings } from "@/lib/texlex-finalize-review/universal/explicit";
+import { applyUniversalPolicy, includeLegacyAhpraChecks } from "@/lib/texlex-finalize-review/universal/policy";
 import {
   computeReviewSummary,
   newReviewId,
@@ -41,6 +53,8 @@ type FinalizeReviewBody = {
   expectedFormulationOpening?: string;
   ratingsAssigned?: Record<string, number | null>;
   sections?: ReviewSectionInput[];
+  /** Clinician raw notes and section notes. Used to reframe implicit session observation. */
+  sourceNotes?: string;
   options?: { skipLlm?: boolean };
 };
 
@@ -73,6 +87,8 @@ export async function POST(req: NextRequest) {
     };
 
     const school = typeof pd.school === "string" ? pd.school : "";
+    const universalV2 = isUniversalReviewV2Enabled();
+    const pack = markerPackForPathway(pathway);
     const deterministicBase = runDeterministicReview({
       runId,
       clientName: snapshot.clientName,
@@ -92,8 +108,7 @@ export async function POST(req: NextRequest) {
       sections,
     });
 
-    const ahpraFindings =
-      pathway === "asd"
+    const ahpraFindings = includeLegacyAhpraChecks(pathway, universalV2)
         ? runAhpraAuditChecks({
             runId,
             assessmentModality: snapshot.assessmentModality,
@@ -103,7 +118,18 @@ export async function POST(req: NextRequest) {
           })
         : [];
 
-    const deterministic = [...deterministicBase, ...ahpraFindings];
+    const deterministic = universalV2
+      ? applyUniversalPolicy([
+          ...deterministicBase,
+          ...ahpraFindings,
+          ...explicitSourceFindings({
+            runId,
+            sections,
+            sourceNotes: typeof body.sourceNotes === "string" ? body.sourceNotes : "",
+            diagnosticConclusion: snapshot.diagnosticConclusion,
+          }),
+        ])
+      : [...deterministicBase, ...ahpraFindings];
 
     let llmFindings: ReturnType<typeof parseLlmFinalizeFindings> = [];
     let modelUsed: string | null = null;
@@ -145,7 +171,7 @@ export async function POST(req: NextRequest) {
           const message = await anthropic.messages.create({
             model: MODELS.OPUS,
             max_tokens: 4096,
-            system: finalizeReviewSystemPrompt(pathway),
+            system: universalV2 ? finalizeReviewSystemPromptV2(pathway) : finalizeReviewSystemPrompt(pathway),
             messages: [{ role: "user", content: userPrompt }],
           });
           modelUsed = MODELS.OPUS;
@@ -161,7 +187,53 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const findings = [...deterministic, ...llmFindings];
+    let findings = [...deterministic, ...llmFindings].map(withLockedAlternativePreview);
+    if (
+      !universalV2 &&
+      process.env.ANTHROPIC_API_KEY &&
+      findings.some((finding) => !finding.applyHint)
+    ) {
+      try {
+        const demographicsLock = formatDemographicsLock({
+          clientName: pd.clientName,
+          parent1: pd.parent1,
+          parent2: pd.parent2,
+          pronouns: pd.pronouns,
+          dob: pd.dob,
+          yearLevel: pd.yearLevel,
+          school: pd.school,
+          assessmentModality: modality || undefined,
+          assessmentDate: Array.isArray(pd.assessmentDates)
+            ? pd.assessmentDates.filter(Boolean).join(", ")
+            : undefined,
+          reportDate: typeof pd.reportDate === "string" ? pd.reportDate : undefined,
+        });
+        findings = await draftClinicalAlternatives({
+          findings,
+          sections,
+          demographicsLock,
+          sourceNotes: typeof body.sourceNotes === "string" ? body.sourceNotes : "",
+          skipObservationReframe: universalV2,
+        });
+        modelUsed = modelUsed ?? MODELS.OPUS;
+      } catch (alternativeError) {
+        error =
+          error ??
+          (alternativeError instanceof Error
+            ? alternativeError.message
+            : "Clinical alternatives could not be drafted.");
+      }
+    }
+    if (universalV2) {
+      findings = dedupeFindings(findings).map((finding) => ({
+        ...finding,
+        markerPack: pack.id,
+      }));
+    }
+    const coverage = describeSourceCoverage({
+      sections,
+      sourceNotes: typeof body.sourceNotes === "string" ? body.sourceNotes : "",
+    });
     const run: ReviewRun = {
       id: runId,
       createdAt,
@@ -173,6 +245,14 @@ export async function POST(req: NextRequest) {
       snapshot,
       findings,
       summary: computeReviewSummary(findings),
+      ...(universalV2
+        ? {
+            universalReviewV2: true,
+            markerPack: pack.id,
+            sourceCoverage: coverage.text,
+            display: reviewDisplay(findings),
+          }
+        : {}),
     };
 
     return Response.json({

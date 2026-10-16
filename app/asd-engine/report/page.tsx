@@ -76,7 +76,11 @@ import { buildAsdAuditChecklist } from "@/lib/texlex-finalize-review/audit-check
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
 import { buildAsdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
-import { applyReviewHintToText } from "@/lib/texlex-finalize-review/apply-minimal";
+import { placeReviewAlternative } from "@/lib/texlex-finalize-review/apply-minimal";
+import {
+  proposalChangesLockedLevel,
+  proposalFlipsConclusion,
+} from "@/lib/texlex-finalize-review/universal/locked";
 import {
   computeReviewSummary,
   type ReviewFinding,
@@ -1964,7 +1968,7 @@ function CriterionCard({
   };
 }) {
   return (
-    <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+    <Card id={criterionSectionId(code)} className={TEXLEX_SECTION_CONTAINER_CLASS}>
       <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -4207,6 +4211,25 @@ export default function TexlexReportPage() {
           expectedFormulationOpening,
           ratingsAssigned: buildRatingsAssignedSnapshot(criteria),
           sections,
+          sourceNotes: [
+            rawNotes.trim() ? `RAW NOTES\n${rawNotes.trim()}` : "",
+            presentingConcernsRaw.trim() ? `PRESENTING CONCERNS NOTES\n${presentingConcernsRaw.trim()}` : "",
+            background.pregnancyBirthRaw.trim()
+              ? `PREGNANCY AND BIRTH NOTES\n${background.pregnancyBirthRaw.trim()}`
+              : "",
+            background.earlyDevelopmentRaw.trim()
+              ? `EARLY DEVELOPMENT NOTES\n${background.earlyDevelopmentRaw.trim()}`
+              : "",
+            background.educationalHistoryRaw.trim()
+              ? `EDUCATIONAL HISTORY NOTES\n${background.educationalHistoryRaw.trim()}`
+              : "",
+            background.emotionalBehaviouralSensoryRaw.trim()
+              ? `EMOTIONAL, BEHAVIOURAL AND SENSORY NOTES\n${background.emotionalBehaviouralSensoryRaw.trim()}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 14000),
         }),
       });
       const data = (await res.json()) as { run?: ReviewRun; error?: string };
@@ -4222,9 +4245,13 @@ export default function TexlexReportPage() {
     }
   }, [
     background.earlyDevelopment,
+    background.earlyDevelopmentRaw,
     background.educationalHistory,
+    background.educationalHistoryRaw,
     background.emotionalBehaviouralSensory,
+    background.emotionalBehaviouralSensoryRaw,
     background.pregnancyBirth,
+    background.pregnancyBirthRaw,
     clinicalFormulation,
     collateralSummary,
     criteria,
@@ -4233,6 +4260,8 @@ export default function TexlexReportPage() {
     limitationsText,
     patientDetails,
     presentingConcerns,
+    presentingConcernsRaw,
+    rawNotes,
     recommendations,
     scrollToFinalizeReview,
     severityAudit,
@@ -4261,63 +4290,103 @@ export default function TexlexReportPage() {
 
   const applyFinalizeFinding = useCallback(
     (finding: ReviewFinding) => {
-      if (!finding.applyHint) {
-        updateLatestFindingStatus(finding.id, "accepted");
-        return;
-      }
-      touch();
-      const hint = finding.applyHint;
-      const applyTo = (text: string) => applyReviewHintToText(text, hint);
+      let placed = false;
+      const keep = (current: string, commit: (next: string) => void) => {
+        const next = placeReviewAlternative(current, finding);
+        if (next == null) return;
+        if (proposalChangesLockedLevel(current, next, severityLevelA, severityLevelB)) return;
+        if (proposalFlipsConclusion(current, next)) return;
+        commit(next);
+        placed = true;
+      };
 
       switch (finding.sectionId) {
         case "clinical-formulation":
-          setClinicalFormulation((t) => applyTo(t));
+          keep(clinicalFormulation, setClinicalFormulation);
           break;
         case "presenting-concerns":
-          setPresentingConcerns((t) => applyTo(t));
+          keep(presentingConcerns, setPresentingConcerns);
+          keep(presentingConcernsRaw, setPresentingConcernsRaw);
           break;
         case "functional-impact":
-          setFunctionalImpactSummary((t) => applyTo(t));
+          keep(functionalImpactSummary, setFunctionalImpactSummary);
           break;
         case "recommendations":
-          setRecommendations((t) => applyTo(t));
+          keep(recommendations, setRecommendations);
           break;
         case "collateral":
-          setCollateralSummary((t) => applyTo(t));
+          keep(collateralSummary, setCollateralSummary);
           break;
         case "limitations":
-          setLimitationsText((t) => applyTo(t));
+          keep(limitationsText, setLimitationsText);
           break;
         case "background-pregnancy-birth":
-          setBackground((b) => ({ ...b, pregnancyBirth: applyTo(b.pregnancyBirth) }));
+          keep(background.pregnancyBirth, (next) =>
+            setBackground((b) => ({ ...b, pregnancyBirth: next }))
+          );
+          keep(background.pregnancyBirthRaw, (next) =>
+            setBackground((b) => ({ ...b, pregnancyBirthRaw: next }))
+          );
           break;
         case "background-early-development":
-          setBackground((b) => ({ ...b, earlyDevelopment: applyTo(b.earlyDevelopment) }));
+          keep(background.earlyDevelopment, (next) =>
+            setBackground((b) => ({ ...b, earlyDevelopment: next }))
+          );
+          keep(background.earlyDevelopmentRaw, (next) =>
+            setBackground((b) => ({ ...b, earlyDevelopmentRaw: next }))
+          );
           break;
         case "background-educational-history":
-          setBackground((b) => ({ ...b, educationalHistory: applyTo(b.educationalHistory) }));
+          keep(background.educationalHistory, (next) =>
+            setBackground((b) => ({ ...b, educationalHistory: next }))
+          );
+          keep(background.educationalHistoryRaw, (next) =>
+            setBackground((b) => ({ ...b, educationalHistoryRaw: next }))
+          );
           break;
         case "background-emotional-behavioural-sensory":
-          setBackground((b) => ({
-            ...b,
-            emotionalBehaviouralSensory: applyTo(b.emotionalBehaviouralSensory),
-          }));
+          keep(background.emotionalBehaviouralSensory, (next) =>
+            setBackground((b) => ({ ...b, emotionalBehaviouralSensory: next }))
+          );
+          keep(background.emotionalBehaviouralSensoryRaw, (next) =>
+            setBackground((b) => ({ ...b, emotionalBehaviouralSensoryRaw: next }))
+          );
           break;
         default: {
-          const m = finding.sectionId.match(/^criterion-(.+)$/);
-          if (m) {
-            const code = m[1] as CriterionCode;
-            setCriteria((c) => ({
-              ...c,
-              [code]: { ...c[code], indicators: applyTo(c[code].indicators) },
-            }));
+          const match = finding.sectionId.match(/^criterion-(.+)$/);
+          if (match) {
+            const code = match[1] as CriterionCode;
+            keep(criteria[code]?.indicators ?? "", (next) =>
+              setCriteria((c) => ({ ...c, [code]: { ...c[code], indicators: next } }))
+            );
           }
           break;
         }
       }
+
+      if (!placed) {
+        setFinalizeReviewError("That alternative could not be placed in the section. The report text is unchanged.");
+        return false;
+      }
+      setFinalizeReviewError(null);
       updateLatestFindingStatus(finding.id, "resolved");
+      document.getElementById(finding.sectionId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return true;
     },
-    [touch, updateLatestFindingStatus]
+    [
+      background,
+      clinicalFormulation,
+      collateralSummary,
+      criteria,
+      functionalImpactSummary,
+      limitationsText,
+      presentingConcerns,
+      presentingConcernsRaw,
+      recommendations,
+      severityLevelA,
+      severityLevelB,
+      updateLatestFindingStatus,
+    ]
   );
 
   const closePdfPreview = useCallback(() => {
@@ -5884,6 +5953,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="formulation">
+              <span id="clinical-formulation" className="block scroll-mt-28" />
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
                 <TexlexSectionHeading>Clinical formulation and consensus opinion</TexlexSectionHeading>
                 <span className="text-xs text-muted-foreground sm:text-right">
