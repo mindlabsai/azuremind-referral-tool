@@ -7,7 +7,8 @@
     "fresh": "lsof -ti:3001 | xargs kill -9 2>/dev/null || true && next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:referral-pdf": "node --experimental-strip-types --test lib/referral-reader/pdf-text-recovery.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",

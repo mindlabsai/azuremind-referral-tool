@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, MODELS } from "@/lib/anthropic-client";
-import { extractTextFromPdfBuffer } from "@/lib/texlex-report-import/extract-pdf";
+import { applyMobileEvidence } from "./mobile-evidence";
+import { recoverReferralPdfText } from "./pdf-text-recovery";
 import {
   emptyReferralExtract,
   type ReferralAssessmentType,
@@ -47,7 +48,8 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       warnings: {
         type: "array",
         items: { type: "string" },
-        description: "Missing or ambiguous fields",
+        description:
+          "Optional. Only when the child name, date of birth, parent mobile, or assessment type cannot be read. Otherwise return [].",
       },
     },
     required: [
@@ -79,10 +81,12 @@ Rules:
 - The signing doctor at the bottom is usually the referrer (often a GP).
 - Phone under the patient block is often parent/carer mobile — put it in parentMobile when no separate parent phone is listed.
 - Never put clinic/practice/reception emails in parentEmail (e.g. Reception.Wagin@…). Those go in referrerEmail only. If no parent email is written, leave parentEmail "".
-- assessmentType: autism/ASD → ASD; ADHD/attention/possible ADHD → ADHD; learning/dyslexia/SLD → SLD. If both ADHD and autism are requested, still pick the primary assessment pathway (prefer the first named) — do NOT leave blank. Only use "" when no assessment type is named at all (generic behaviour opinion).
-- referrerEmail = GP/practice that wrote the letter. Never use Perth Paediatrics / contact@perthpaediatrics / cstmedical recipient emails as referrerEmail.
+- assessmentType: autism/ASD → ASD; ADHD/attention/possible ADHD → ADHD; learning/dyslexia/SLD → SLD. If both ADHD and autism are requested, still pick the primary assessment pathway (prefer the first named) — do NOT leave blank and do NOT warn about that choice. Only use "" when no assessment type is named at all (generic behaviour opinion).
+- referrerEmail = a real email for the GP/practice that wrote the letter. Never use Perth Paediatrics / contact@perthpaediatrics / cstmedical recipient emails as referrerEmail. A HealthLink EDI, fax, or practice phone is not an email: leave referrerEmail "" and put the EDI in internalNotes (for example "HealthLink EDI: BALAJURA"). Do not warn about a missing GP email.
+- Parent first name, parent last name, and parent email are often absent from GP letters. Leave them "" and do not warn.
 - childDob: convert AU DD/MM/YYYY to YYYY-MM-DD when possible.
-- internalNotes: 1–4 short sentences from the referral reason only.`;
+- internalNotes: 1–4 short sentences from the referral reason only. Add a HealthLink EDI here when that is the only referrer contact.
+- warnings: return [] unless the child name, date of birth, parent mobile, or assessment type cannot be determined. Never warn about parent names, parent email, HealthLink, fax, practice phone, or which pathway was chosen when both ADHD and ASD are requested.`;
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -217,6 +221,32 @@ function extractJsonObject(raw: string): Record<string, unknown> | null {
   return null;
 }
 
+/** GP letters routinely omit these. They are notes for the clinician, not failures. */
+const OPTIONAL_LETTER_WARNING =
+  /parent (first|last|given|surname|name|email)|no parent email|healthlink|direct gp email|\bgp email\b|practice phone|\bfax\b|selected as primary|both adhd and asd|\bedi\b/i;
+
+function absorbOptionalLetterWarnings(
+  warnings: string[],
+  internalNotes: string
+): { warnings: string[]; internalNotes: string } {
+  const kept: string[] = [];
+  let notes = internalNotes.trim();
+  for (const warning of warnings) {
+    if (!OPTIONAL_LETTER_WARNING.test(warning)) {
+      kept.push(warning);
+      continue;
+    }
+    const edi =
+      warning.match(/HealthLink EDI \(([^)]+)\)/i)?.[1] ||
+      warning.match(/\bEDI[:\s(]+([A-Z0-9]{4,})\b/i)?.[1] ||
+      "";
+    if (edi && !notes.toLowerCase().includes(edi.toLowerCase())) {
+      notes = notes ? `${notes}\nHealthLink EDI: ${edi}` : `HealthLink EDI: ${edi}`;
+    }
+  }
+  return { warnings: kept, internalNotes: notes };
+}
+
 function normalizeExtract(raw: unknown): ReferralReaderExtract {
   const base = emptyReferralExtract();
   if (!raw || typeof raw !== "object") return base;
@@ -236,7 +266,7 @@ function normalizeExtract(raw: unknown): ReferralReaderExtract {
 
   let parentEmail = cleanParentEmail(row.parentEmail);
   let referrerEmail = cleanField(row.referrerEmail).toLowerCase();
-  if (referrerEmail && isRecipientClinicEmail(referrerEmail)) {
+  if (referrerEmail && (isRecipientClinicEmail(referrerEmail) || !referrerEmail.includes("@"))) {
     referrerEmail = "";
   }
   // If model put practice inbox in parentEmail, move it to referrer when empty
@@ -251,6 +281,12 @@ function normalizeExtract(raw: unknown): ReferralReaderExtract {
     referrerEmail = rawParent;
   }
 
+  const absorbed = absorbOptionalLetterWarnings(
+    warnings,
+    cleanField(row.internalNotes)
+  );
+  const mobile = applyMobileEvidence(asString(row.parentMobile), undefined);
+
   return {
     childFirst: cleanField(row.childFirst),
     childLast: cleanField(row.childLast),
@@ -258,14 +294,14 @@ function normalizeExtract(raw: unknown): ReferralReaderExtract {
     parentFirst: cleanField(row.parentFirst),
     parentLast: cleanField(row.parentLast),
     parentEmail,
-    parentMobile: normalizeMobile(asString(row.parentMobile)),
+    parentMobile: mobile.mobile,
     assessmentType: parseAssessment(row.assessmentType),
     referrerName: cleanField(row.referrerName),
     referrerType: cleanField(row.referrerType),
     referrerEmail,
-    internalNotes: cleanField(row.internalNotes).slice(0, 2000),
+    internalNotes: absorbed.internalNotes.slice(0, 2000),
     confidence,
-    warnings,
+    warnings: mobile.warning ? [...absorbed.warnings, mobile.warning] : absorbed.warnings,
   };
 }
 
@@ -320,6 +356,16 @@ export function heuristicExtractFromReferralText(text: string): Partial<Referral
     out.referrerName = signer[1]!.replace(/\s+/g, " ").trim();
     out.referrerType = out.referrerType || "GP";
   }
+  if (!out.referrerName) {
+    const labelled = t.match(
+      /\bReferrer:?\s+(Dr\.?\s+[A-Z][A-Za-z'’.-]+(?:\s+[A-Z][A-Za-z'’.-]+){0,3})/
+    );
+    if (labelled) {
+      out.referrerName = labelled[1]!.replace(/\s+/g, " ").trim().replace(/,$/, "");
+      const after = t.slice(labelled.index ?? 0, (labelled.index ?? 0) + labelled[0].length + 12);
+      if (/\bGP\b/.test(after)) out.referrerType = out.referrerType || "GP";
+    }
+  }
 
   {
     const hasSld = /learning|dyslex|\bsld\b/i.test(t);
@@ -346,6 +392,7 @@ function mergeHeuristic(
 ): ReferralReaderExtract {
   if (!heuristic) return primary;
   const pick = (a: string, b: string | undefined) => a || cleanField(b) || "";
+  const mobile = applyMobileEvidence(primary.parentMobile, heuristic.parentMobile);
   return {
     ...primary,
     childFirst: pick(primary.childFirst, heuristic.childFirst),
@@ -354,7 +401,7 @@ function mergeHeuristic(
     parentFirst: pick(primary.parentFirst, heuristic.parentFirst),
     parentLast: pick(primary.parentLast, heuristic.parentLast),
     parentEmail: pick(primary.parentEmail, heuristic.parentEmail),
-    parentMobile: primary.parentMobile || normalizeMobile(heuristic.parentMobile || ""),
+    parentMobile: mobile.mobile,
     assessmentType: primary.assessmentType || heuristic.assessmentType || "",
     referrerName: pick(primary.referrerName, heuristic.referrerName),
     referrerType: pick(primary.referrerType, heuristic.referrerType),
@@ -366,7 +413,12 @@ function mergeHeuristic(
           ? "medium"
           : primary.confidence
         : primary.confidence,
-    warnings: primary.warnings.filter((w) => !/blank|empty|no referral content/i.test(w)),
+    warnings: [
+      ...primary.warnings.filter(
+        (w) => !/blank|empty|no referral content|parent mobile is incomplete/i.test(w)
+      ),
+      ...(mobile.warning ? [mobile.warning] : []),
+    ],
   };
 }
 
@@ -479,10 +531,23 @@ export async function readReferralFromText(text: string): Promise<ReferralReader
   }
 }
 
+const OFF_PAGE_NOTE =
+  "Some text was outside the page boundary and was read from the PDF content stream.";
+
+function withOffPageNote(extract: ReferralReaderExtract, offPage: boolean): ReferralReaderExtract {
+  if (!offPage || extract.warnings.some((warning) => warning.includes("outside the page boundary"))) {
+    return extract;
+  }
+  return { ...extract, warnings: [...extract.warnings, OFF_PAGE_NOTE] };
+}
+
 export async function readReferralFromPdf(buffer: Buffer): Promise<ReferralReaderResult> {
   let text = "";
+  let offPage = false;
   try {
-    text = await extractTextFromPdfBuffer(buffer);
+    const recovered = await recoverReferralPdfText(buffer);
+    text = recovered.text;
+    offPage = recovered.offPage;
   } catch {
     text = "";
   }
@@ -501,7 +566,7 @@ export async function readReferralFromPdf(buffer: Buffer): Promise<ReferralReade
           extract,
         };
       }
-      return { success: true, extract, sourceChars: 0 };
+      return { success: true, extract: withOffPageNote(extract, offPage), sourceChars: 0 };
     } catch (e) {
       return {
         success: false,
@@ -522,7 +587,7 @@ export async function readReferralFromPdf(buffer: Buffer): Promise<ReferralReade
         const vision = await mapReferralPdfWithVision(buffer);
         const merged = mergeHeuristic(vision, heuristicExtractFromReferralText(cleaned));
         if (merged.childFirst || merged.parentMobile || merged.childDob) {
-          return { success: true, extract: merged, sourceChars: cleaned.length };
+          return { success: true, extract: withOffPageNote(merged, offPage), sourceChars: cleaned.length };
         }
       } catch {
         /* fall through */
@@ -534,19 +599,19 @@ export async function readReferralFromPdf(buffer: Buffer): Promise<ReferralReade
         sourceChars: cleaned.length,
       };
     }
-    return { success: true, extract, sourceChars: cleaned.length };
+    return { success: true, extract: withOffPageNote(extract, offPage), sourceChars: cleaned.length };
   } catch (e) {
     const h = heuristicExtractFromReferralText(cleaned);
     if (h && (h.childFirst || h.parentMobile || h.childDob)) {
       return {
         success: true,
-        extract: mergeHeuristic(emptyReferralExtract(), h),
+        extract: withOffPageNote(mergeHeuristic(emptyReferralExtract(), h), offPage),
         sourceChars: cleaned.length,
       };
     }
     try {
       const vision = await mapReferralPdfWithVision(buffer);
-      return { success: true, extract: vision, sourceChars: cleaned.length };
+      return { success: true, extract: withOffPageNote(vision, offPage), sourceChars: cleaned.length };
     } catch {
       return {
         success: false,

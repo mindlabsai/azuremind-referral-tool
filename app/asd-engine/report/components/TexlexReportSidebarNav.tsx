@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 type NavItem = { id: string; label: string };
@@ -57,7 +58,7 @@ const ALL_IDS: readonly string[] = NAV_GROUPS.flatMap((g) => g.items.map((i) => 
 function TexlexNavHeading({ children }: { children: string }) {
   return (
     <p
-      className="px-3 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-[0.02em] text-[var(--text-4)]"
+      className="px-3 pb-1 pt-2.5 text-[16px] font-medium uppercase tracking-[0.02em] text-[var(--text-4)]"
       aria-hidden
     >
       {children}
@@ -85,8 +86,8 @@ function TexlexNavLink({
         onJump(id);
       }}
       className={cn(
-        "block rounded-md px-3 py-2 text-[16px] text-[var(--text-2)] transition-colors hover:bg-muted/50",
-        isActive && "bg-[var(--teal-fill)] font-medium text-[var(--teal-text)]"
+        "block px-0 py-1.5 text-[18px] text-[var(--text-2)] transition-colors hover:text-[var(--text-1)]",
+        isActive && "font-medium text-[var(--teal-text)]"
       )}
     >
       {label}
@@ -142,8 +143,14 @@ export function TexlexReportSidebarNav() {
   };
 
   return (
-    <nav className="hidden w-44 shrink-0 lg:block" aria-label="Report sections">
+    <nav className="hidden w-56 shrink-0 lg:block" aria-label="Report sections">
       <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto">
+        <Link
+          href="/asd-engine"
+          className="mb-2 block px-0 py-1.5 text-[18px] text-[var(--text-2)] transition-colors hover:text-[var(--text-1)]"
+        >
+          DSM snapshot
+        </Link>
         {NAV_GROUPS.map((group, groupIndex) => (
           <div key={group.heading ?? "top-" + groupIndex}>
             {group.heading ? <TexlexNavHeading>{group.heading}</TexlexNavHeading> : null}

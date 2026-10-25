@@ -31,7 +31,7 @@ import {
   sanitiseExtractedNumber,
   sanitiseForPdf,
   stripScientificNotationGarbageFromText,
-  stripDashes,
+  polishReportProse,
 } from "@/lib/texlex-pdf-sanitize";
 import {
   buildLockedFormulationOpening,
@@ -86,7 +86,7 @@ import {
   type ReviewFinding,
   type ReviewRun,
 } from "@/lib/texlex-finalize-review/types";
-import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import { loadClinikoDraftLink, type ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
 import { practiceApiBase, practiceLabel } from "@/lib/practice-source";
 import {
   clearAsdLegacyLocalDraftKeys,
@@ -798,7 +798,7 @@ async function streamTexlexWithCriticSse(
       if (!line.startsWith("data: ")) continue;
       const data = line.slice(6).trim();
       if (data === "[DONE]") {
-        const content = stripDashes(finalContent || assembled);
+        const content = polishReportProse(finalContent || assembled);
         if (meta) onComplete(meta, content);
         return content;
       }
@@ -845,7 +845,7 @@ async function streamTexlexWithCriticSse(
       }
     }
   }
-  const content = stripDashes(finalContent || assembled);
+  const content = polishReportProse(finalContent || assembled);
   if (meta) onComplete(meta, content);
   return content;
 }
@@ -3509,6 +3509,12 @@ export default function TexlexReportPage() {
     }, 4000);
   }, []);
 
+  const linkClinikoFromCollateral = useCallback(async (patientId: string) => {
+    const linked = await loadClinikoDraftLink(patientId, "asd");
+    touch();
+    setCliniko(linked);
+  }, [touch]);
+
   useEffect(() => {
     migrateAsdLegacyLocalDrafts();
     const activeKey =
@@ -4772,10 +4778,10 @@ export default function TexlexReportPage() {
       : `Saved ${formatSavedAgo(lastSavedAt, nowTick)}`;
 
   const inputClass =
-    "flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-[15px] leading-[1.55] shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
+    "flex h-auto min-h-11 w-full border-0 border-b border-[#2c455f] bg-transparent px-0 py-2 text-[23px] leading-[1.55] text-[#f4f8fc] shadow-none outline-none placeholder:text-[#7e95ab] focus-visible:border-[#b7d4f5] disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="min-h-screen bg-[var(--bg-page)] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-foreground">
+    <div className="texlex-report texlex-surface min-h-screen bg-[#102033] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[23px] leading-[1.6] text-[#f4f8fc]">
       <TexlexReportHeader
         clientName={patientDetails.clientName}
         assessmentLabel="ASD assessment"
@@ -4926,11 +4932,11 @@ export default function TexlexReportPage() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-[1600px] gap-6 bg-[var(--bg-page)] px-5 py-8">
+      <div className="mx-auto flex max-w-[1600px] gap-6 bg-transparent px-5 py-8">
         <TexlexReportSidebarNav />
 
         <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-[760px] space-y-[14px] text-[15px] leading-[1.55]">
+          <div className="mx-auto max-w-[760px] space-y-8 text-[23px] leading-[1.6]">
             {todayOpen ? (
               <section id="cliniko-calendar">
                 <ClinikoIntakeCard
@@ -5762,7 +5768,10 @@ export default function TexlexReportPage() {
                       setCollateralDocs={setCollateralDocs}
                       touch={touch}
                       engine="asd"
-                      source={cliniko?.source}
+                      source={cliniko?.source ?? "cliniko"}
+                      clientName={patientDetails.clientName}
+                      dateOfBirth={patientDetails.dob}
+                      onLinkPatient={linkClinikoFromCollateral}
                     />
                     <CollateralDocumentsUpload
                       collateralDocs={collateralDocs}
@@ -6254,8 +6263,8 @@ export default function TexlexReportPage() {
 
         <aside className="hidden shrink-0 lg:block">
           <div className="sticky top-24 w-[380px] overflow-y-auto pb-10" style={{ maxHeight: "calc(100vh - 6rem)" }}>
-            <div className="rounded-xl border border-[#D5E0E0] bg-white p-4">
-              <p className="mb-2 text-[15px] font-extrabold tracking-tight text-[#075E63]">Assist</p>
+            <div className="border-t border-[#2c455f] py-4">
+              <p className="mb-3 text-[18px] font-semibold uppercase tracking-[0.08em] text-[#849aaf]">Assist</p>
               <EngineAssistant rawNotes={rawNotes} compact />
             </div>
           </div>

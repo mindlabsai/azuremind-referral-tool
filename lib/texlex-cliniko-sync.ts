@@ -86,6 +86,30 @@ export function applyClinikoPatientToForm(
   };
 }
 
+export async function loadClinikoDraftLink(
+  patientId: string,
+  engine: "asd" | "adhd"
+): Promise<ClinikoDraftState> {
+  const response = await fetch(`/api/cliniko/patients/${encodeURIComponent(patientId)}?engine=${engine}`);
+  const data = (await response.json()) as {
+    patient?: ClinikoPatientFull;
+    customFields?: Partial<Record<ClinikoCustomFieldKey, string>>;
+    error?: string;
+  };
+  if (!response.ok || !data.patient) {
+    throw new Error(data.error || "Could not load the Cliniko patient.");
+  }
+  const customFields = data.customFields ?? {};
+  const mapped = applyClinikoPatientToForm(data.patient, customFields);
+  return {
+    patientId: String(data.patient.id),
+    connectedName: mapped.clientName || `${data.patient.last_name}, ${data.patient.first_name}`,
+    syncEnabled: true,
+    source: "cliniko",
+    baseline: buildClinikoBaseline(data.patient, customFields, mapped),
+  };
+}
+
 export function buildClinikoBaseline(
   patient: ClinikoPatientFull,
   customFields: Partial<Record<ClinikoCustomFieldKey, string>>,

@@ -3,7 +3,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignOutButton } from "@/components/SignOutButton";
-import { ReferralReaderPanel } from "@/components/ReferralReaderPanel";
 import type { ReferralReaderExtract } from "@/lib/referral-reader/types";
 import {
   buildParentBookingEmailHtml,
@@ -38,8 +37,6 @@ type SentEntry = {
   referrerEmail: string;
   channel: SentChannel;
 };
-
-type ReferralIntelFilter = "today" | "week" | "month" | "30d" | "custom";
 
 type ReferralApiRow = {
   id?: string | number;
@@ -113,75 +110,34 @@ function mapReferralApiRowToSentEntry(row: ReferralApiRow): SentEntry | null {
   };
 }
 
-function startOfLocalMonday(now: Date): Date {
-  const d = new Date(now);
-  const day = d.getDay();
-  const daysFromMonday = day === 0 ? 6 : day - 1;
-  d.setDate(d.getDate() - daysFromMonday);
-  d.setHours(0, 0, 0, 0);
-  return d;
+function sentChannelLabel(channel: SentChannel): string {
+  if (channel === "email+sms") return "email and text";
+  if (channel === "sms") return "text";
+  return "email";
 }
 
-function formatReferralLastActivity(created: Date, now: Date): string {
-  const diffMinutes = Math.floor(
-    (now.getTime() - created.getTime()) / 60000
-  );
-
-  if (diffMinutes >= 0 && diffMinutes < 1) return "Just now";
-  if (diffMinutes >= 1 && diffMinutes < 60) {
-    return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+function groupSentByMonth(rows: SentEntry[]): { key: string; label: string; rows: SentEntry[] }[] {
+  const indexed = rows.map((row, index) => ({ row, index }));
+  indexed.sort((a, b) => {
+    const diff = new Date(b.row.at).getTime() - new Date(a.row.at).getTime();
+    if (Number.isFinite(diff) && diff !== 0) return diff;
+    return a.index - b.index;
+  });
+  const groups: { key: string; label: string; rows: SentEntry[] }[] = [];
+  for (const { row } of indexed) {
+    const date = new Date(row.at);
+    const valid = !Number.isNaN(date.getTime());
+    const key = valid
+      ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+      : `unknown:${row.at}`;
+    const label = valid
+      ? date.toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      : row.at;
+    const last = groups[groups.length - 1];
+    if (!last || last.key !== key) groups.push({ key, label, rows: [row] });
+    else last.rows.push(row);
   }
-
-  const dayStart = (x: Date) =>
-    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const todayStart = dayStart(now);
-  const createdDayStart = dayStart(created);
-  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
-
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const hhmm = `${pad(created.getHours())}:${pad(created.getMinutes())}`;
-
-  if (createdDayStart === todayStart) {
-    return `Today at ${hhmm}`;
-  }
-  if (createdDayStart === yesterdayStart) {
-    return `Yesterday at ${hhmm}`;
-  }
-
-  return `${pad(created.getDate())}/${pad(created.getMonth() + 1)}/${created.getFullYear()}, ${hhmm}`;
-}
-
-type RegisterPeriodFilter = "today" | "week" | "month" | "all";
-
-function sentRegisterEntryInPeriod(
-  atIso: string,
-  period: RegisterPeriodFilter,
-  now: Date
-): boolean {
-  if (period === "all") return true;
-  const t = new Date(atIso).getTime();
-  if (Number.isNaN(t)) return false;
-  let start: Date;
-  if (period === "today") {
-    start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0
-    );
-  } else if (period === "week") {
-    start = startOfLocalMonday(now);
-  } else {
-    start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-  }
-  return t >= start.getTime() && t <= now.getTime();
-}
-
-function uid(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return groups;
 }
 
 function escapeHtml(s: string): string {
@@ -770,10 +726,12 @@ function buildParentEmailHtml(fields: {
   assessmentType: AssessmentType;
   bookingLink: string;
   clinicPhone: string;
+  referrerName?: string;
 }): string {
   return buildParentBookingEmailHtml({
     childFirst: fields.childFirst,
     parentFirst: fields.parentFirst,
+    referrerName: fields.referrerName,
     assessmentType: fields.assessmentType,
     bookingLink: fields.bookingLink,
     clinicPhone: fields.clinicPhone,
@@ -791,10 +749,12 @@ function buildSmsText(fields: {
   assessmentType: AssessmentType;
   bookingLink: string;
   clinicPhone: string;
+  referrerName?: string;
 }): string {
   return getParentBookingSms({
     childFirst: fields.childFirst,
     parentFirst: fields.parentFirst,
+    referrerName: fields.referrerName,
     assessmentType: fields.assessmentType,
     bookingLink: fields.bookingLink,
     clinicPhone: fields.clinicPhone,
@@ -829,19 +789,23 @@ export default function Home() {
     message: string;
   } | null>(null);
 
-  const [referralsRows, setReferralsRows] = useState<ReferralApiRow[]>([]);
-  const [dateIntelFilter, setDateIntelFilter] =
-    useState<ReferralIntelFilter>("today");
-  const [intelCustomFrom, setIntelCustomFrom] = useState("");
-  const [intelCustomTo, setIntelCustomTo] = useState("");
-  const [intelCustomAppliedFrom, setIntelCustomAppliedFrom] = useState("");
-  const [intelCustomAppliedTo, setIntelCustomAppliedTo] = useState("");
-
-  const [registerPeriodFilter, setRegisterPeriodFilter] =
-    useState<RegisterPeriodFilter>("all");
-  const [registerShowAllHistory, setRegisterShowAllHistory] = useState(false);
+  const [letterOpen, setLetterOpen] = useState(false);
+  const [section, setSection] = useState<"upload" | "patient" | "assessment" | "communication">("upload");
+  const [monthOpen, setMonthOpen] = useState<Record<string, boolean>>({});
+  const [pathwaySet, setPathwaySet] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [readWarnings, setReadWarnings] = useState<string[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteDraft, setPasteDraft] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showSent, setShowSent] = useState(false);
+  const [letterFace, setLetterFace] = useState<"email" | "text">("email");
+  const [sending, setSending] = useState(false);
 
   const childFirstNameRef = useRef<HTMLInputElement>(null);
+  const dropFileRef = useRef<HTMLInputElement>(null);
 
   function scrollToTopAndFocus() {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -850,11 +814,10 @@ export default function Home() {
 
   const validateCoreFields = useCallback((): boolean => {
     if (
+      !pathwaySet ||
       !childFirst.trim() ||
       !childLast.trim() ||
       !childDob.trim() ||
-      !parentFirst.trim() ||
-      !parentLast.trim() ||
       !parentMobile.trim() ||
       !bookingLink.trim() ||
       !clinicPhone.trim()
@@ -872,8 +835,7 @@ export default function Home() {
     childFirst,
     childLast,
     childDob,
-    parentFirst,
-    parentLast,
+    pathwaySet,
     parentMobile,
     bookingLink,
     clinicPhone,
@@ -891,6 +853,7 @@ export default function Home() {
       assessmentType,
       bookingLink,
       clinicPhone,
+      referrerName,
     };
     setPreviewEmailHtml(buildParentEmailHtml(fields));
     setPreviewSms(buildSmsText(fields));
@@ -906,6 +869,7 @@ export default function Home() {
     assessmentType,
     bookingLink,
     clinicPhone,
+    referrerName,
   ]);
 
   const sendEmailWithCurrentForm = useCallback(async (): Promise<boolean> => {
@@ -920,10 +884,12 @@ export default function Home() {
       assessmentType,
       bookingLink,
       clinicPhone,
+      referrerName,
     };
     const subject = getParentBookingSubject({
       childFirst: fields.childFirst,
       parentFirst: fields.parentFirst,
+      referrerName,
       assessmentType: fields.assessmentType,
       bookingLink: fields.bookingLink,
       clinicPhone: fields.clinicPhone,
@@ -965,6 +931,7 @@ export default function Home() {
     assessmentType,
     bookingLink,
     clinicPhone,
+    referrerName,
     previewReady,
     previewEmailHtml,
   ]);
@@ -984,6 +951,7 @@ export default function Home() {
       assessmentType,
       bookingLink,
       clinicPhone,
+      referrerName,
     };
     const message = buildSmsText(fields);
     setPreviewSms(message);
@@ -1025,6 +993,7 @@ export default function Home() {
     assessmentType,
     bookingLink,
     clinicPhone,
+    referrerName,
   ]);
 
   const loadReferrals = useCallback(async () => {
@@ -1041,12 +1010,10 @@ export default function Home() {
           res.status,
           json.error ?? json
         );
-        setReferralsRows([]);
         setSentRegister([]);
         return;
       }
       const rows = json.data as ReferralApiRow[];
-      setReferralsRows(rows);
       const sorted = [...rows].sort((a, b) => {
         const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
         const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -1059,7 +1026,6 @@ export default function Home() {
       );
     } catch (e) {
       console.error("Referrals fetch error:", e);
-      setReferralsRows([]);
       setSentRegister([]);
     }
   }, []);
@@ -1068,127 +1034,14 @@ export default function Home() {
     void loadReferrals();
   }, [loadReferrals]);
 
-  const intelRangeBounds = useMemo(() => {
-    const now = new Date();
-    let start: Date;
-    let end: Date = now;
-    switch (dateIntelFilter) {
-      case "today":
-        start = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          0,
-          0,
-          0,
-          0
-        );
-        break;
-      case "week":
-        start = startOfLocalMonday(now);
-        break;
-      case "month":
-        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-        break;
-      case "30d":
-        start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case "custom": {
-        const fromStr = intelCustomAppliedFrom.trim();
-        const toStr = intelCustomAppliedTo.trim();
-        if (!fromStr || !toStr) {
-          start = new Date(8640000000000000);
-          end = new Date(0);
-        } else {
-          const [fy, fm, fd] = fromStr.split("-").map(Number);
-          const [ty, tm, td] = toStr.split("-").map(Number);
-          start = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
-          end = new Date(ty, tm - 1, td, 23, 59, 59, 999);
-        }
-        break;
-      }
-      default:
-        start = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          0,
-          0,
-          0,
-          0
-        );
-    }
-    return { start, end };
-  }, [dateIntelFilter, intelCustomAppliedFrom, intelCustomAppliedTo]);
-
-  const intelligenceStats = useMemo(() => {
-    const startMs = intelRangeBounds.start.getTime();
-    const endMs = intelRangeBounds.end.getTime();
-    let total = 0;
-    let adhd = 0;
-    let asd = 0;
-    let sld = 0;
-    let emailSms = 0;
-    let emailOnly = 0;
-    let smsOnly = 0;
-    for (const r of referralsRows) {
-      const ca = r.created_at;
-      if (!ca || typeof ca !== "string") continue;
-      const t = new Date(ca).getTime();
-      if (Number.isNaN(t) || t < startMs || t > endMs) continue;
-      total++;
-      const at = (r.assessment_type ?? "").toLowerCase().trim();
-      if (at === "adhd") adhd++;
-      else if (at === "asd") asd++;
-      else if (at === "sld") sld++;
-      const se = !!r.sent_email;
-      const ss = !!r.sent_sms;
-      if (se && ss) emailSms++;
-      else if (se && !ss) emailOnly++;
-      else if (ss && !se) smsOnly++;
-    }
-    return { total, adhd, asd, sld, emailSms, emailOnly, smsOnly };
-  }, [referralsRows, intelRangeBounds]);
-
-  const referralIntelLastActivityLabel = useMemo(() => {
-    const now = new Date();
-    if (referralsRows.length === 0) return "No activity yet";
-    let latest: Date | null = null;
-    for (const row of referralsRows) {
-      const ca = row.created_at;
-      if (!ca || typeof ca !== "string") continue;
-      const created = new Date(ca);
-      if (Number.isNaN(created.getTime())) continue;
-      if (!latest || created.getTime() > latest.getTime()) latest = created;
-    }
-    if (!latest) return "No activity yet";
-    return formatReferralLastActivity(latest, now);
-  }, [referralsRows]);
-
-  const registerFilteredFull = useMemo(() => {
-    const now = new Date();
-    return sentRegister.filter((r) =>
-      sentRegisterEntryInPeriod(r.at, registerPeriodFilter, now)
-    );
-  }, [sentRegister, registerPeriodFilter]);
-
-  const registerDisplayed = useMemo(() => {
-    if (registerShowAllHistory) return registerFilteredFull;
-    return registerFilteredFull.slice(0, 10);
-  }, [registerFilteredFull, registerShowAllHistory]);
-
-  const copyText = async (label: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setSendStatus({ type: "success", message: `${label} copied.` });
-    } catch {
-      setSendStatus({
-        type: "error",
-        message: "Send failed: Clipboard unavailable.",
-      });
-    }
-    setTimeout(() => setSendStatus(null), 2500);
-  };
+  useEffect(() => {
+    const openUpload = () => {
+      setShowSent(false);
+      setSection("upload");
+    };
+    window.addEventListener("texlex-open-referral-upload", openUpload);
+    return () => window.removeEventListener("texlex-open-referral-upload", openUpload);
+  }, []);
 
   const registerCsv = useMemo(() => {
     const headers = [
@@ -1261,6 +1114,7 @@ export default function Home() {
     setParentEmail("");
     setParentMobile("");
     setAssessmentType("ADHD");
+    setPathwaySet(false);
     setBookingLink(DEFAULT_BOOKING_LINK);
     setClinicPhone(DEFAULT_CLINIC_PHONE);
     setInternalNotes("");
@@ -1271,6 +1125,15 @@ export default function Home() {
     setPreviewSms("");
     setPreviewReady(false);
     setSendStatus(null);
+    setLetterOpen(false);
+    setMoreOpen(false);
+    setPasteOpen(false);
+    setPasteDraft("");
+    setReadError(null);
+    setReadWarnings([]);
+    setLetterFace("email");
+    setShowSent(false);
+    setSection("upload");
     scrollToTopAndFocus();
   };
 
@@ -1278,1308 +1141,793 @@ export default function Home() {
     clearForm();
   };
 
-  const pageBg =
-    "linear-gradient(to bottom, #F7FBFB, #E8F6F5)";
+  const applyExtract = useCallback(
+    (extract: ReferralReaderExtract) => {
+      const resolvedType: AssessmentType =
+        extract.assessmentType === "ADHD" ||
+        extract.assessmentType === "ASD" ||
+        extract.assessmentType === "SLD"
+          ? extract.assessmentType
+          : "ADHD";
+      setChildFirst(extract.childFirst || "");
+      setChildLast(extract.childLast || "");
+      setChildDob(extract.childDob || "");
+      setParentFirst(extract.parentFirst || "");
+      setParentLast(extract.parentLast || "");
+      setParentEmail(extract.parentEmail || "");
+      setParentMobile(extract.parentMobile || "");
+      setAssessmentType(resolvedType);
+      setPathwaySet(
+        extract.assessmentType === "ADHD" ||
+          extract.assessmentType === "ASD" ||
+          extract.assessmentType === "SLD"
+      );
+      setReferrerName(extract.referrerName || "");
+      setReferrerType(extract.referrerType || "");
+      setReferrerEmail(extract.referrerEmail || "");
+      setInternalNotes(extract.internalNotes || "");
+      const fields = {
+        childFirst: extract.childFirst || "",
+        childLast: extract.childLast || "",
+        childDob: extract.childDob || "",
+        parentFirst: extract.parentFirst || "",
+        parentLast: extract.parentLast || "",
+        parentEmail: extract.parentEmail || "",
+        parentMobile: extract.parentMobile || "",
+        assessmentType: resolvedType,
+        bookingLink,
+        clinicPhone,
+        referrerName: extract.referrerName || "",
+      };
+      setPreviewEmailHtml(buildParentEmailHtml(fields));
+      setPreviewSms(buildSmsText(fields));
+      setPreviewReady(true);
+      setReadWarnings(extract.warnings.filter(Boolean));
+      setReadError(null);
+      setSendStatus(null);
+      setLetterFace("email");
+      setPasteOpen(false);
+      setMoreOpen(false);
+      setShowSent(false);
+      setLetterOpen(true);
+      setSection("patient");
+    },
+    [bookingLink, clinicPhone]
+  );
 
-  const shell: CSSProperties = {
-    maxWidth: 1160,
-    margin: "0 auto",
-    padding: 24,
-  };
+  const readReferral = useCallback(
+    async (source: { file?: File | null; text?: string }) => {
+      setReading(true);
+      setReadError(null);
+      setReadWarnings([]);
+      setLetterOpen(false);
+      setShowSent(false);
+      setSection("upload");
+      setDragOver(false);
+      try {
+        const form = new FormData();
+        if (source.file) form.set("file", source.file);
+        else if (source.text?.trim()) form.set("text", source.text);
+        else {
+          setReadError("Drop a referral PDF, or paste the letter.");
+          return;
+        }
+        const res = await fetch("/api/referral-reader", { method: "POST", body: form });
+        const data = (await res.json()) as {
+          success?: boolean;
+          error?: string;
+          extract?: ReferralReaderExtract;
+        };
+        if (!res.ok || data.success !== true || !data.extract) {
+          setReadError(data.error || "Could not read that referral.");
+          return;
+        }
+        applyExtract(data.extract);
+      } catch (e) {
+        setReadError(e instanceof Error ? e.message : "Could not read that referral.");
+      } finally {
+        setReading(false);
+      }
+    },
+    [applyExtract]
+  );
 
-  const headerBar: CSSProperties = {
-    background: "linear-gradient(135deg, #0E5F63 0%, #129A93 100%)",
-    color: "#fff",
-    padding: "20px 24px",
-    borderRadius: 16,
-    boxShadow: "0 4px 14px rgba(14, 95, 99, 0.22)",
-    marginBottom: 24,
-  };
+  const recordReferral = useCallback(
+    (sentEmail: boolean, sentSms: boolean, status: string) => {
+      void fetch("/api/referrals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          child_first_name: childFirst,
+          child_last_name: childLast,
+          child_dob: childDob,
+          parent_first_name: parentFirst,
+          parent_last_name: parentLast,
+          parent_email: parentEmail,
+          parent_mobile: parentMobile,
+          assessment_type: assessmentType,
+          booking_link: bookingLink,
+          clinic_phone: clinicPhone,
+          sent_email: sentEmail,
+          sent_sms: sentSms,
+          send_status: status,
+        }),
+      })
+        .then(async (res) => {
+          let json: { success?: boolean } = {};
+          try {
+            json = (await res.json()) as { success?: boolean };
+          } catch {
+            /* ignore */
+          }
+          if (res.ok && json.success === true) void loadReferrals();
+        })
+        .catch((error) => {
+          console.error("Failed to save referral:", error);
+        });
+    },
+    [
+      assessmentType,
+      bookingLink,
+      childDob,
+      childFirst,
+      childLast,
+      clinicPhone,
+      loadReferrals,
+      parentEmail,
+      parentFirst,
+      parentLast,
+      parentMobile,
+    ]
+  );
 
-  const card: CSSProperties = {
-    background: "#FFFFFF",
-    border: "1px solid #B7E1DE",
-    borderRadius: 16,
-    padding: 24,
-    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.04)",
-    marginBottom: 24,
-  };
+  const sendToParent = useCallback(async () => {
+    if (sending) return;
+    if (!pathwaySet || !validateCoreFields()) return;
+    setSending(true);
+    setSendStatus(null);
+    try {
+      if (parentEmail.trim()) {
+        const emailOk = await sendEmailWithCurrentForm();
+        if (!emailOk) {
+          setSendStatus({ type: "error", message: "The email could not be sent." });
+          return;
+        }
+        const smsResult = await sendSmsWithCurrentForm();
+        if (!smsResult.ok) {
+          recordReferral(true, false, "email_sent");
+          setSendStatus({
+            type: "error",
+            message: "The email was sent. The text could not be sent.",
+          });
+          return;
+        }
+        recordReferral(true, true, "email_sms_sent");
+        setSendStatus({ type: "success", message: "Sent." });
+        return;
+      }
+      const smsResult = await sendSmsWithCurrentForm();
+      if (!smsResult.ok) {
+        setSendStatus({
+          type: "error",
+          message: smsResult.error ?? "The text could not be sent.",
+        });
+        return;
+      }
+      recordReferral(false, true, "sms_sent");
+      setSendStatus({ type: "success", message: "Text sent." });
+    } finally {
+      setSending(false);
+    }
+  }, [
+    parentEmail,
+    pathwaySet,
+    recordReferral,
+    sendEmailWithCurrentForm,
+    sendSmsWithCurrentForm,
+    sending,
+    validateCoreFields,
+  ]);
 
-  const cardReferrer: CSSProperties = {
-    background: "#F7FBFB",
-    border: "1px dashed #B7E1DE",
-    borderRadius: 16,
-    padding: 24,
-    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.03)",
-    marginBottom: 24,
-    opacity: 0.98,
-  };
+  const needLine = !childFirst.trim()
+    ? "Need the child's first name"
+    : !childLast.trim()
+      ? "Need the child's last name"
+      : !childDob.trim()
+        ? "Need the date of birth"
+        : !parentMobile.trim()
+          ? "Need the parent's mobile"
+          : !pathwaySet
+            ? "Choose ADHD, ASD, or SLD"
+            : null;
 
-  const sectionTitle: CSSProperties = {
-    fontSize: 15,
-    fontWeight: 700,
-    color: "#075E63",
-    marginBottom: 14,
-  };
+  const readyToSend = needLine === null;
+  const sendLabel = sending
+    ? "Sending"
+    : parentEmail.trim()
+      ? "Send email and text"
+      : "Send text";
 
-  const labelStyle: CSSProperties = {
+  const sentMonths = useMemo(() => groupSentByMonth(sentRegister), [sentRegister]);
+  const sections = ["upload", "patient", "assessment", "communication"] as const;
+  const sectionIndex = sections.indexOf(section);
+
+  const fieldLabel: CSSProperties = {
     display: "block",
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#075E63",
     marginBottom: 6,
-    marginTop: 14,
-  };
-
-  const labelFirst: CSSProperties = {
-    ...labelStyle,
-    marginTop: 0,
-  };
-
-  const inputStyle: CSSProperties = {
-    width: "100%",
-    height: 44,
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #A7D8D4",
-    background: "#fff",
-    fontSize: 14,
-    boxSizing: "border-box",
-  };
-
-  const textareaStyle: CSSProperties = {
-    ...inputStyle,
-    height: "auto",
-    minHeight: 100,
-    resize: "vertical" as const,
-  };
-
-  const actionBtnBase: CSSProperties = {
-    height: 44,
-    borderRadius: 10,
-    fontWeight: 700,
-    fontSize: 14,
-    whiteSpace: "nowrap",
-    cursor: "pointer",
-    boxSizing: "border-box",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0 16px",
-  };
-
-  const btnPrimary: CSSProperties = {
-    ...actionBtnBase,
-    border: "none",
-    background: "#0E9F98",
-    color: "#fff",
-    boxShadow: "0 6px 14px rgba(14, 159, 152, 0.22)",
-  };
-
-  const btnSecondary: CSSProperties = {
-    ...actionBtnBase,
-    background: "#E8F6F5",
-    border: "1px solid #7CCBC6",
-    color: "#075E63",
-  };
-
-  const btnDestructive: CSSProperties = {
-    ...actionBtnBase,
-    background: "#F3F4F6",
-    border: "1px solid #D1D5DB",
-    color: "#374151",
-  };
-
-  const sendStatusBannerSuccess: CSSProperties = {
-    padding: "12px 14px",
-    borderRadius: 10,
-    fontWeight: 700,
-    marginBottom: 16,
-    fontSize: 14,
-    lineHeight: 1.45,
-    background: "#E6F7F4",
-    border: "1px solid #57C7B8",
-    color: "#075E63",
-  };
-
-  const sendStatusBannerError: CSSProperties = {
-    padding: "12px 14px",
-    borderRadius: 10,
-    fontWeight: 700,
-    marginBottom: 16,
-    fontSize: 14,
-    lineHeight: 1.45,
-    background: "#FEF2F2",
-    border: "1px solid #FCA5A5",
-    color: "#991B1B",
-  };
-
-  const headerSignOutBtn: CSSProperties = {
-    flexShrink: 0,
-    alignSelf: "flex-start",
-    marginTop: 2,
-    padding: "8px 14px",
-    borderRadius: 10,
     fontSize: 13,
-    fontWeight: 700,
-    cursor: "pointer",
-    border: "1px solid rgba(255,255,255,0.45)",
-    background: "rgba(255,255,255,0.12)",
-    color: "#fff",
-    boxSizing: "border-box",
-  };
-
-  const referralIntelPanel: CSSProperties = {
-    background: "#FFFFFF",
-    border: "1px solid #B7E1DE",
-    borderRadius: 16,
-    padding: "14px 16px",
-    marginBottom: 24,
-    boxShadow: "0 4px 14px rgba(14, 95, 99, 0.06)",
-  };
-
-  const referralIntelPill: CSSProperties = {
-    padding: "6px 12px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: "pointer",
-    border: "1px solid #7CCBC6",
-    background: "#E8F6F5",
-    color: "#075E63",
-    boxSizing: "border-box",
-  };
-
-  const referralIntelPillActive: CSSProperties = {
-    ...referralIntelPill,
-    background: "#0E9F98",
-    color: "#fff",
-    border: "1px solid #0E9F98",
-  };
-
-  const registerFilterPill: CSSProperties = {
-    ...referralIntelPill,
-    padding: "5px 10px",
-    fontSize: 11,
-  };
-
-  const registerFilterPillActive: CSSProperties = {
-    ...referralIntelPillActive,
-    padding: "5px 10px",
-    fontSize: 11,
-  };
-
-  const registerExportBtn: CSSProperties = {
-    ...btnSecondary,
-    height: 32,
-    fontSize: 12,
-    padding: "0 12px",
-    fontWeight: 700,
-  };
-
-  const referralIntelStatLabel: CSSProperties = {
-    fontSize: 11,
     fontWeight: 600,
-    color: "#64748b",
-    letterSpacing: "0.02em",
+    color: "#9eb2c6",
+  };
+  const fieldInput: CSSProperties = {
+    width: "100%",
+    boxSizing: "border-box",
+    border: "none",
+    borderBottom: "1px solid #34495c",
+    background: "transparent",
+    color: "#edf3f8",
+    font: "inherit",
+    fontSize: 18,
+    fontWeight: 500,
+    padding: "4px 0 8px",
+  };
+  const hintStyle: CSSProperties = {
+    margin: "6px 0 0",
+    minHeight: 18,
+    fontSize: 14,
+    color: "#f0b4b4",
   };
 
-  const referralIntelStatValue: CSSProperties = {
-    fontSize: 18,
-    fontWeight: 700,
-    color: "#0E9F98",
-    lineHeight: 1.2,
-    marginTop: 2,
-  };
+  function missingMessage(kind: "first" | "last" | "dob" | "mobile" | "pathway") {
+    const text =
+      kind === "first"
+        ? "Need the child's first name"
+        : kind === "last"
+          ? "Need the child's last name"
+          : kind === "dob"
+            ? "Need the date of birth"
+            : kind === "mobile"
+              ? "Need the parent's mobile"
+              : "Choose ADHD, ASD, or SLD";
+    return needLine === text ? text : null;
+  }
 
   return (
     <div
-      className="azuremind-app"
-      style={{ minHeight: "100vh", background: pageBg }}
+      className="referral-desk texlex-surface"
+        style={{
+        flex: 1,
+        minHeight: 0,
+        width: "100%",
+        background: "#102033",
+        color: "#edf3f8",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        fontFamily: "var(--font-geist-sans), Inter, ui-sans-serif, system-ui, sans-serif",
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files?.length) return;
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        void readReferral({ file });
+      }}
     >
-      <div style={shell}>
-        <header
-          style={{
-            ...headerBar,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 16,
+      <nav className="referral-local-nav" aria-label="Referral">
+        <button
+          type="button"
+          className="referral-nav-btn referral-nav-identity"
+          onClick={() => {
+            setShowSent(false);
+            setSection("upload");
           }}
         >
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em" }}>
-              Azure Mind
-            </h1>
-            <p style={{ fontSize: 14, opacity: 0.92, marginTop: 4 }}>
-              Referral Engine
-            </p>
-            <p style={{ fontSize: 12, opacity: 0.78, marginTop: 6 }}>
-              Internal Use Only
-            </p>
-          </div>
-          <SignOutButton style={headerSignOutBtn} />
-        </header>
-
-        <section style={referralIntelPanel}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-            }}
+          Referral
+        </button>
+        <div className="referral-nav-links">
+          {showSent
+            ? null
+            : sections.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className="referral-nav-btn"
+                  aria-current={section === item ? "page" : undefined}
+                  onClick={() => {
+                    setShowSent(false);
+                    setSection(item);
+                  }}
+                >
+                  {item === "upload"
+                    ? "Upload referral"
+                    : item === "patient"
+                      ? "Patient details"
+                      : item === "assessment"
+                        ? "Assessment"
+                        : "Communication"}
+                </button>
+              ))}
+        </div>
+        <div className="referral-nav-end">
+          <button
+            type="button"
+            className="referral-nav-btn"
+            aria-current={showSent ? "page" : undefined}
+            onClick={() => setShowSent(true)}
           >
-            <div style={{ minWidth: 0 }}>
-              <h2
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "#075E63",
-                  margin: 0,
-                }}
-              >
-                Referral Intelligence
-              </h2>
-              <p
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: "#94a3b8",
-                  marginTop: 4,
-                  marginBottom: 0,
-                  lineHeight: 1.35,
-                }}
-              >
-                Last activity: {referralIntelLastActivityLabel}
-              </p>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                alignItems: "center",
-              }}
+            Sent
+          </button>
+          {showSent ? (
+            <button
+              type="button"
+              className="referral-text-btn"
+              disabled={sentRegister.length === 0}
+              onClick={downloadCsv}
             >
-              <button
-                type="button"
-                style={
-                  dateIntelFilter === "today"
-                    ? referralIntelPillActive
-                    : referralIntelPill
-                }
-                onClick={() => setDateIntelFilter("today")}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                style={
-                  dateIntelFilter === "week"
-                    ? referralIntelPillActive
-                    : referralIntelPill
-                }
-                onClick={() => setDateIntelFilter("week")}
-              >
-                This Week
-              </button>
-              <button
-                type="button"
-                style={
-                  dateIntelFilter === "month"
-                    ? referralIntelPillActive
-                    : referralIntelPill
-                }
-                onClick={() => setDateIntelFilter("month")}
-              >
-                This Month
-              </button>
-              <button
-                type="button"
-                style={
-                  dateIntelFilter === "30d"
-                    ? referralIntelPillActive
-                    : referralIntelPill
-                }
-                onClick={() => setDateIntelFilter("30d")}
-              >
-                Last 30 Days
-              </button>
-              <button
-                type="button"
-                style={
-                  dateIntelFilter === "custom"
-                    ? referralIntelPillActive
-                    : referralIntelPill
-                }
-                onClick={() => setDateIntelFilter("custom")}
-              >
-                Custom date range
-              </button>
-            </div>
-          </div>
-          {dateIntelFilter === "custom" ? (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: 10,
-                marginTop: 10,
-                width: "100%",
-              }}
-            >
-              <label
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#075E63",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                From
-                <input
-                  type="date"
-                  value={intelCustomFrom}
-                  onChange={(e) => setIntelCustomFrom(e.target.value)}
-                  style={{ ...inputStyle, width: "auto", minWidth: 132, height: 36 }}
-                />
-              </label>
-              <label
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#075E63",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                To
-                <input
-                  type="date"
-                  value={intelCustomTo}
-                  onChange={(e) => setIntelCustomTo(e.target.value)}
-                  style={{ ...inputStyle, width: "auto", minWidth: 132, height: 36 }}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  const f = intelCustomFrom.trim();
-                  const t = intelCustomTo.trim();
-                  if (!f || !t) return;
-                  setIntelCustomAppliedFrom(f);
-                  setIntelCustomAppliedTo(t);
-                }}
-                style={{
-                  ...btnPrimary,
-                  height: 36,
-                  fontSize: 12,
-                  padding: "0 14px",
-                }}
-              >
-                Apply Range
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIntelCustomFrom("");
-                  setIntelCustomTo("");
-                  setIntelCustomAppliedFrom("");
-                  setIntelCustomAppliedTo("");
-                  setDateIntelFilter("today");
-                }}
-                style={{
-                  ...btnSecondary,
-                  height: 36,
-                  fontSize: 12,
-                  padding: "0 14px",
-                }}
-              >
-                Clear Range
-              </button>
-            </div>
+              Download
+            </button>
           ) : null}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-              gap: "10px 14px",
-              marginTop: 12,
-            }}
-          >
-            <div>
-              <div style={referralIntelStatLabel}>Total referrals</div>
-              <div style={referralIntelStatValue}>
-                {intelligenceStats.total}
-              </div>
-            </div>
-            <div>
-              <div style={referralIntelStatLabel}>ADHD</div>
-              <div style={referralIntelStatValue}>{intelligenceStats.adhd}</div>
-            </div>
-            <div>
-              <div style={referralIntelStatLabel}>ASD</div>
-              <div style={referralIntelStatValue}>{intelligenceStats.asd}</div>
-            </div>
-            <div>
-              <div style={referralIntelStatLabel}>SLD</div>
-              <div style={referralIntelStatValue}>{intelligenceStats.sld}</div>
-            </div>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-              gap: "10px 14px",
-              marginTop: 10,
-            }}
-          >
-            <div>
-              <div style={referralIntelStatLabel}>Email + SMS</div>
-              <div style={referralIntelStatValue}>
-                {intelligenceStats.emailSms}
-              </div>
-            </div>
-            <div>
-              <div style={referralIntelStatLabel}>Email only</div>
-              <div style={referralIntelStatValue}>
-                {intelligenceStats.emailOnly}
-              </div>
-            </div>
-            <div>
-              <div style={referralIntelStatLabel}>SMS only</div>
-              <div style={referralIntelStatValue}>
-                {intelligenceStats.smsOnly}
-              </div>
-            </div>
-          </div>
-        </section>
+          <SignOutButton className="referral-text-btn" />
+        </div>
+        <input
+          ref={dropFileRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void readReferral({ file });
+          }}
+        />
+      </nav>
 
-        <main className="referral-main-grid">
-        <div
-          className="referral-col-left"
-          style={{ display: "flex", flexDirection: "column", gap: 0 }}
-        >
-          <ReferralReaderPanel
-            cardStyle={card}
-            sectionTitleStyle={sectionTitle}
-            inputStyle={inputStyle}
-            textareaStyle={textareaStyle}
-            btnPrimaryStyle={btnPrimary}
-            btnSecondaryStyle={btnSecondary}
-            onApply={(extract: ReferralReaderExtract) => {
-              if (extract.childFirst) setChildFirst(extract.childFirst);
-              if (extract.childLast) setChildLast(extract.childLast);
-              if (extract.childDob) setChildDob(extract.childDob);
-              if (extract.parentFirst) setParentFirst(extract.parentFirst);
-              if (extract.parentLast) setParentLast(extract.parentLast);
-              if (extract.parentEmail) setParentEmail(extract.parentEmail);
-              if (extract.parentMobile) setParentMobile(extract.parentMobile);
-              if (extract.assessmentType) setAssessmentType(extract.assessmentType);
-              if (extract.referrerName) setReferrerName(extract.referrerName);
-              if (extract.referrerType) setReferrerType(extract.referrerType);
-              if (extract.referrerEmail) setReferrerEmail(extract.referrerEmail);
-              if (extract.internalNotes) {
-                setInternalNotes((prev) =>
-                  prev.trim()
-                    ? `${prev.trim()}\n\n${extract.internalNotes}`
-                    : extract.internalNotes
-                );
-              }
-              const resolvedType: AssessmentType = extract.assessmentType || assessmentType;
-              const fields = {
-                childFirst: extract.childFirst || childFirst,
-                childLast: extract.childLast || childLast,
-                childDob: extract.childDob || childDob,
-                parentFirst: extract.parentFirst || parentFirst,
-                parentLast: extract.parentLast || parentLast,
-                parentEmail: extract.parentEmail || parentEmail,
-                parentMobile: extract.parentMobile || parentMobile,
-                assessmentType: resolvedType,
-                bookingLink,
-                clinicPhone,
-              };
-              setPreviewEmailHtml(buildParentEmailHtml(fields));
-              setPreviewSms(buildSmsText(fields));
-              setPreviewReady(true);
-              setSendStatus({
-                type: "success",
-                message: extract.assessmentType
-                  ? "Referral applied — check details, then send the parent email / SMS."
-                  : "Referral applied — pick ADHD, ASD, or SLD below, then send.",
-              });
-              setTimeout(() => setSendStatus(null), 5000);
-            }}
-          />
-
-          <section style={card}>
-            <h2 style={sectionTitle}>
-              Referral details
-            </h2>
-            <div style={{ display: "grid", gap: 14 }}>
-              <div>
-                <label style={labelFirst} htmlFor="childFirst">
-                  Child first name *
-                </label>
-                <input
-                  ref={childFirstNameRef}
-                  id="childFirst"
-                  value={childFirst}
-                  onChange={(e) => setChildFirst(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-  <label style={labelFirst} htmlFor="childLast">
-    Child last name *
-  </label>
-  <input
-    id="childLast"
-    value={childLast}
-    onChange={(e) => setChildLast(e.target.value)}
-    style={inputStyle}
-  />
-</div>
-
-<div>
-  <label style={labelFirst} htmlFor="childDob">
-    Child DOB *
-  </label>
-  <input
-    type="date"
-    id="childDob"
-    value={childDob}
-    onChange={(e) => setChildDob(e.target.value)}
-    style={inputStyle}
-  />
-</div>
-              <div>
-                <label style={labelStyle} htmlFor="parentFirst">
-                  Parent first name *
-                </label>
-                <input
-                  id="parentFirst"
-                  value={parentFirst}
-                  onChange={(e) => setParentFirst(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="parentLast">
-                  Parent last name *
-                </label>
-                <input
-                  id="parentLast"
-                  value={parentLast}
-                  onChange={(e) => setParentLast(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="parentEmail">
-                  Parent email <span style={{ fontWeight: 400 }}>(optional)</span>
-                </label>
-                <input
-                  id="parentEmail"
-                  type="email"
-                  value={parentEmail}
-                  onChange={(e) => setParentEmail(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="parentMobile">
-                  Parent mobile *
-                </label>
-                <input
-                  id="parentMobile"
-                  type="tel"
-                  value={parentMobile}
-                  onChange={(e) => setParentMobile(e.target.value)}
-                  style={inputStyle}
-                  required
-                />
-              </div>
-              <div>
-                <span style={labelStyle}>Assessment type *</span>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 10,
-                  }}
-                >
-                  {(
-                    [
-                      { value: "ADHD" as const, label: "ADHD" },
-                      { value: "ASD" as const, label: "ASD" },
-                      { value: "SLD" as const, label: "SLD" },
-                    ] as const
-                  ).map((t) => (
-                    <label
-                      key={t.value}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: "#075E63",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="assessment"
-                        checked={assessmentType === t.value}
-                        onChange={() => {
-                          setAssessmentType(t.value);
-                          const fields = {
-                            childFirst,
-                            childLast,
-                            childDob,
-                            parentFirst,
-                            parentLast,
-                            parentEmail,
-                            parentMobile,
-                            assessmentType: t.value,
-                            bookingLink,
-                            clinicPhone,
-                          };
-                          setPreviewEmailHtml(buildParentEmailHtml(fields));
-                          setPreviewSms(buildSmsText(fields));
-                          setPreviewReady(true);
-                        }}
-                      />
-                      {t.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="bookingLink">
-                  Booking link *{" "}
-                  <span style={{ fontWeight: 400 }}>(default)</span>
-                </label>
-                <input
-                  id="bookingLink"
-                  type="url"
-                  value={bookingLink}
-                  onChange={(e) => setBookingLink(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="clinicPhone">
-                  Clinic phone *{" "}
-                  <span style={{ fontWeight: 400 }}>(default)</span>
-                </label>
-                <input
-                  id="clinicPhone"
-                  type="tel"
-                  value={clinicPhone}
-                  onChange={(e) => setClinicPhone(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="internalNotes">
-                  Internal notes
-                </label>
-                <textarea
-                  id="internalNotes"
-                  value={internalNotes}
-                  onChange={(e) => setInternalNotes(e.target.value)}
-                  rows={4}
-                  style={{ ...textareaStyle, fontFamily: "inherit" }}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section style={cardReferrer}>
-            <h2 style={{ ...sectionTitle, marginBottom: 8 }}>
-              Internal referrer
-            </h2>
-            <p style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
-              Must never appear in parent-facing email or SMS.
+      <div className="referral-stage">
+        {showSent ? (
+          <div className="referral-sheet">
+            <h1 style={{ margin: 0, fontSize: 34, fontWeight: 500, letterSpacing: "-0.03em" }}>Sent referrals</h1>
+            <p style={{ margin: "8px 0 18px", fontSize: 15, color: "#cad7e3" }}>
+              Communication history, organised by month.
             </p>
-            <div style={{ display: "grid", gap: 14 }}>
-              <div>
-                <label style={labelFirst} htmlFor="referrerName">
-                  Referrer name
-                </label>
-                <input
-                  id="referrerName"
-                  value={referrerName}
-                  onChange={(e) => setReferrerName(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="referrerType">
-                  Referrer type
-                </label>
-                <input
-                  id="referrerType"
-                  value={referrerType}
-                  onChange={(e) => setReferrerType(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle} htmlFor="referrerEmail">
-                  Referrer email
-                </label>
-                <input
-                  id="referrerEmail"
-                  type="email"
-                  value={referrerEmail}
-                  onChange={(e) => setReferrerEmail(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section style={card}>
-            <h2 style={sectionTitle}>
-              Actions
-            </h2>
             {sendStatus ? (
-              <div
-                role="status"
-                style={
-                  sendStatus.type === "success"
-                    ? sendStatusBannerSuccess
-                    : sendStatusBannerError
-                }
-              >
+              <p style={{ margin: "0 0 12px", fontSize: 15, color: sendStatus.type === "error" ? "#f0b4b4" : "#9bd6be" }}>
                 {sendStatus.message}
-              </div>
-            ) : null}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr",
-                  gap: 10,
-                }}
-              >
-                <button
-                  type="button"
-                  style={{ ...btnPrimary, width: "100%" }}
-                  onClick={async () => {
-                    if (!validateCoreFields()) return;
-                    if (!parentEmail.trim()) {
-                      setSendStatus({
-                        type: "error",
-                        message:
-                          "Send failed: Parent email is required to send email. You can still send SMS only.",
-                      });
-                      setTimeout(() => setSendStatus(null), 4000);
-                      return;
-                    }
-                    const emailOk = await sendEmailWithCurrentForm();
-                    if (!emailOk) {
-                      setSendStatus({
-                        type: "error",
-                        message: "Send failed: Email could not be sent.",
-                      });
-                      return;
-                    }
-                    const smsResult = await sendSmsWithCurrentForm();
-                    if (smsResult.ok) {
-                      setSendStatus({
-                        type: "success",
-                        message: "Email and SMS sent successfully.",
-                      });
-                      void fetch("/api/referrals", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          child_first_name: childFirst,
-                          child_last_name: childLast,
-                          child_dob: childDob,
-                          parent_first_name: parentFirst,
-                          parent_last_name: parentLast,
-                          parent_email: parentEmail,
-                          parent_mobile: parentMobile,
-                          assessment_type: assessmentType,
-                          booking_link: bookingLink,
-                          clinic_phone: clinicPhone,
-                          sent_email: true,
-                          sent_sms: true,
-                          send_status: "email_sms_sent",
-                        }),
-                      })
-                        .then(async (res) => {
-                          let json: { success?: boolean } = {};
-                          try {
-                            json = (await res.json()) as { success?: boolean };
-                          } catch {
-                            /* ignore */
-                          }
-                          if (res.ok && json.success === true)
-                            void loadReferrals();
-                        })
-                        .catch((error) => {
-                          console.error("Failed to save referral:", error);
-                        });
-                    } else {
-                      setSendStatus({
-                        type: "error",
-                        message: `Send failed: ${smsResult.error ?? "SMS could not be sent."}`,
-                      });
-                    }
-                  }}
-                >
-                  Send Email + SMS
-                </button>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                }}
-              >
-                <button
-                  type="button"
-                  style={btnSecondary}
-                  onClick={async () => {
-                    if (!validateCoreFields()) return;
-                    if (!parentEmail.trim()) {
-                      setSendStatus({
-                        type: "error",
-                        message:
-                          "Send failed: Parent email is required to send email. You can still send SMS only.",
-                      });
-                      setTimeout(() => setSendStatus(null), 4000);
-                      return;
-                    }
-                    const ok = await sendEmailWithCurrentForm();
-                    if (ok) {
-                      setSendStatus({
-                        type: "success",
-                        message: "Email sent successfully.",
-                      });
-                      void fetch("/api/referrals", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          child_first_name: childFirst,
-                          child_last_name: childLast,
-                          child_dob: childDob,
-                          parent_first_name: parentFirst,
-                          parent_last_name: parentLast,
-                          parent_email: parentEmail,
-                          parent_mobile: parentMobile,
-                          assessment_type: assessmentType,
-                          booking_link: bookingLink,
-                          clinic_phone: clinicPhone,
-                          sent_email: true,
-                          sent_sms: false,
-                          send_status: "email_sent",
-                        }),
-                      })
-                        .then(async (res) => {
-                          let json: { success?: boolean } = {};
-                          try {
-                            json = (await res.json()) as { success?: boolean };
-                          } catch {
-                            /* ignore */
-                          }
-                          if (res.ok && json.success === true)
-                            void loadReferrals();
-                        })
-                        .catch((error) => {
-                          console.error("Failed to save referral:", error);
-                        });
-                    } else {
-                      setSendStatus({
-                        type: "error",
-                        message: "Send failed: Email could not be sent.",
-                      });
-                    }
-                  }}
-                >
-                  Send Email Only
-                </button>
-                <button
-                  type="button"
-                  style={btnSecondary}
-                  onClick={async () => {
-                    if (!validateCoreFields()) return;
-                    const smsResult = await sendSmsWithCurrentForm();
-                    if (smsResult.ok) {
-                      setSendStatus({
-                        type: "success",
-                        message: "SMS sent successfully.",
-                      });
-                      void fetch("/api/referrals", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          child_first_name: childFirst,
-                          child_last_name: childLast,
-                          child_dob: childDob,
-                          parent_first_name: parentFirst,
-                          parent_last_name: parentLast,
-                          parent_email: parentEmail,
-                          parent_mobile: parentMobile,
-                          assessment_type: assessmentType,
-                          booking_link: bookingLink,
-                          clinic_phone: clinicPhone,
-                          sent_email: false,
-                          sent_sms: true,
-                          send_status: "sms_sent",
-                        }),
-                      })
-                        .then(async (res) => {
-                          let json: { success?: boolean } = {};
-                          try {
-                            json = (await res.json()) as { success?: boolean };
-                          } catch {
-                            /* ignore */
-                          }
-                          if (res.ok && json.success === true)
-                            void loadReferrals();
-                        })
-                        .catch((error) => {
-                          console.error("Failed to save referral:", error);
-                        });
-                    } else {
-                      setSendStatus({
-                        type: "error",
-                        message: `Send failed: ${smsResult.error ?? "SMS could not be sent."}`,
-                      });
-                    }
-                  }}
-                >
-                  Send SMS Only
-                </button>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                }}
-              >
-                <button
-                  type="button"
-                  style={btnSecondary}
-                  onClick={() => {
-                    if (!validateCoreFields()) return;
-                    if (!previewReady) {
-                      setSendStatus({
-                        type: "error",
-                        message: "Send failed: Preview is not ready yet.",
-                      });
-                      setTimeout(() => setSendStatus(null), 3000);
-                      return;
-                    }
-                    copyText("Email HTML", previewEmailHtml);
-                  }}
-                >
-                  Copy Email HTML
-                </button>
-                <button
-                  type="button"
-                  style={btnSecondary}
-                  onClick={() => {
-                    if (!validateCoreFields()) return;
-                    if (!previewReady) {
-                      setSendStatus({
-                        type: "error",
-                        message: "Send failed: Preview is not ready yet.",
-                      });
-                      setTimeout(() => setSendStatus(null), 3000);
-                      return;
-                    }
-                    copyText("SMS", previewSms);
-                  }}
-                >
-                  Copy SMS
-                </button>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                }}
-              >
-                <button
-                  type="button"
-                  style={btnSecondary}
-                  onClick={sendAnotherReferral}
-                >
-                  Send Another Referral
-                </button>
-                <button type="button" style={btnDestructive} onClick={clearForm}>
-                  Clear Form
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div
-          className="referral-col-right"
-          style={{ display: "flex", flexDirection: "column", gap: 0 }}
-        >
-          <section id="referral-email-preview" style={card}>
-            <h2 style={sectionTitle}>
-              Email preview (parent-facing)
-            </h2>
-            {previewReady ? (
-              <p className="email-preview-helper">
-                Scroll inside the preview to review the full email.
               </p>
             ) : null}
-            {!previewReady ? (
-              <p style={{ fontSize: 13, color: "#64748b" }}>
-                Use Referral reader (or Generate Preview) to build parent-facing content.
-                Internal referrer fields are excluded.
-              </p>
-            ) : (
-              <div className="email-preview-scroll">
-                <EmailPreviewPlain
-                  childFirst={childFirst}
-                  childLast={childLast}
-                  childDob={childDob}
-                  parentFirst={parentFirst}
-                  parentLast={parentLast}
-                  parentEmail={parentEmail}
-                  parentMobile={parentMobile}
-                  assessmentType={assessmentType}
-                  bookingLink={bookingLink}
-                  clinicPhone={clinicPhone}
-                />
-              </div>
-            )}
-          </section>
-
-          <section style={card}>
-            <h2 style={sectionTitle}>
-              SMS preview (parent-facing)
-            </h2>
-            {!previewReady ? (
-              <p style={{ fontSize: 13, color: "#64748b" }}>
-                Generate preview to see SMS text.
-              </p>
-            ) : (
-              <div className="sms-preview-shell">
-              <pre
-                style={{
-                  margin: 0,
-                  padding: 12,
-                  background: "#fff",
-                  borderRadius: 8,
-                  border: "1px solid #B7E1DE",
-                  fontSize: 13,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  fontFamily: "inherit",
-                }}
-              >
-                {previewSms}
-              </pre>
-              </div>
-            )}
-          </section>
-
-          <section style={card}>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
-              <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
-                Sent register ({sentRegister.length})
-              </h2>
-              <button
-                type="button"
-                style={{
-                  ...registerExportBtn,
-                  opacity: sentRegister.length === 0 ? 0.45 : 1,
-                }}
-                onClick={downloadCsv}
-                disabled={sentRegister.length === 0}
-              >
-                Download CSV
-              </button>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-                marginBottom: 18,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  alignItems: "center",
-                }}
-              >
-                <button
-                  type="button"
-                  style={
-                    registerPeriodFilter === "today"
-                      ? registerFilterPillActive
-                      : registerFilterPill
-                  }
-                  onClick={() => setRegisterPeriodFilter("today")}
-                >
-                  Today
-                </button>
-                <button
-                  type="button"
-                  style={
-                    registerPeriodFilter === "week"
-                      ? registerFilterPillActive
-                      : registerFilterPill
-                  }
-                  onClick={() => setRegisterPeriodFilter("week")}
-                >
-                  This Week
-                </button>
-                <button
-                  type="button"
-                  style={
-                    registerPeriodFilter === "month"
-                      ? registerFilterPillActive
-                      : registerFilterPill
-                  }
-                  onClick={() => setRegisterPeriodFilter("month")}
-                >
-                  This Month
-                </button>
-                <button
-                  type="button"
-                  style={
-                    registerPeriodFilter === "all"
-                      ? registerFilterPillActive
-                      : registerFilterPill
-                  }
-                  onClick={() => setRegisterPeriodFilter("all")}
-                >
-                  All
-                </button>
-              </div>
-              <button
-                type="button"
-                style={
-                  registerShowAllHistory
-                    ? registerFilterPillActive
-                    : registerFilterPill
-                }
-                onClick={() => setRegisterShowAllHistory((v) => !v)}
-                disabled={sentRegister.length === 0}
-              >
-                {registerShowAllHistory
-                  ? "Show recent only"
-                  : "Show all history"}
-              </button>
-            </div>
             {sentRegister.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#64748b", marginTop: 0 }}>
-                No entries yet. Use send placeholders or actions that record to the
-                register.
-              </p>
-            ) : registerFilteredFull.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#64748b", marginTop: 0 }}>
-                No referrals found for this period.
-              </p>
+              <p style={{ fontSize: 16, color: "#cad7e3" }}>Nothing sent yet.</p>
             ) : (
-              <ul
-                style={{
-                  listStyle: "none",
-                  maxHeight: registerShowAllHistory ? 320 : 220,
-                  overflow: "auto",
-                  padding: 0,
-                  margin: 0,
-                  marginTop: 2,
-                }}
-              >
-                {registerDisplayed.map((r) => {
-                  const childDisplay =
-                    [r.childFirst, r.childLast]
-                      .map((s) => (s || "").trim())
-                      .filter(Boolean)
-                      .join(" ") || "(child)";
-                  const parentDisplay = [r.parentFirst, r.parentLast]
-                    .map((s) => (s || "").trim())
-                    .filter(Boolean)
-                    .join(" ");
-                  return (
-                    <li
-                      key={r.id}
-                      style={{
-                        padding: "8px 0",
-                        borderBottom: "1px solid #B7E1DE",
-                        lineHeight: 1.35,
+              sentMonths.map((month, index) => {
+                const open = Object.prototype.hasOwnProperty.call(monthOpen, month.key)
+                  ? monthOpen[month.key]
+                  : index === 0;
+                return (
+                  <section key={month.key}>
+                    <button
+                      type="button"
+                      className="referral-month"
+                      aria-expanded={open}
+                      aria-label={`${month.label}, ${month.rows.length} sent`}
+                      onClick={() =>
+                        setMonthOpen((current) => ({
+                          ...current,
+                          [month.key]: !open,
+                        }))
+                      }
+                    >
+                      <span aria-hidden="true" style={{ width: 14, color: "#a8cdc4" }}>
+                        {open ? "⌄" : "›"}
+                      </span>
+                      <span style={{ flex: 1 }}>{month.label}</span>
+                      <span style={{ color: "#9eb2c6", fontWeight: 500, fontSize: 14 }}>
+                        {month.rows.length} sent
+                      </span>
+                    </button>
+                    {open ? (
+                      <div style={{ padding: "0 0 8px 24px" }}>
+                        <div className="referral-sent-head">
+                          <span>Patient</span>
+                          <span>Assessment</span>
+                          <span>Method</span>
+                          <span>Date and time</span>
+                        </div>
+                        {month.rows.map((row) => {
+                          const child = [row.childFirst, row.childLast].filter(Boolean).join(" ") || "Unnamed";
+                          return (
+                            <div className="referral-sent-row" key={row.id}>
+                              <span>{child}</span>
+                              <span>{row.assessmentType}</span>
+                              <span>{sentChannelLabel(row.channel)}</span>
+                              <span>{new Date(row.at).toLocaleString()}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })
+            )}
+          </div>
+        ) : section === "upload" ? (
+          <div className="referral-sheet referral-upload">
+            <div className="referral-upload-group">
+              <h1 style={{ margin: 0, fontSize: 34, fontWeight: 500, letterSpacing: "-0.03em" }}>Upload the referral</h1>
+              <p style={{ margin: "8px 0 0", fontSize: 16, color: "#cad7e3" }}>
+                Upload a referral PDF to automatically extract the patient and assessment details.
+              </p>
+              {reading ? (
+                <>
+                  <h2 style={{ margin: "18px 0 0", fontSize: 22, fontWeight: 500 }}>Reading the referral</h2>
+                  <p style={{ margin: "8px 0 0", fontSize: 16, color: "#cad7e3" }}>The details will appear in Patient details.</p>
+                </>
+              ) : pasteOpen ? (
+                <div style={{ width: "100%", marginTop: 16 }}>
+                  <textarea
+                    value={pasteDraft}
+                    onChange={(e) => setPasteDraft(e.target.value)}
+                    placeholder="Paste the referral"
+                    rows={8}
+                    style={{
+                      width: "100%",
+                      boxSizing: "border-box",
+                      background: "transparent",
+                      color: "#edf3f8",
+                      border: "none",
+                      borderBottom: "1px solid #34495c",
+                      font: "inherit",
+                      fontSize: 16,
+                      lineHeight: 1.45,
+                      resize: "vertical",
+                      padding: "8px 0",
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 22, marginTop: 14 }}>
+                    <button
+                      type="button"
+                      className="referral-text-btn"
+                      style={{ color: "#edf3f8", textDecoration: "underline", textUnderlineOffset: 4 }}
+                      onClick={() => void readReferral({ text: pasteDraft })}
+                    >
+                      Read the letter
+                    </button>
+                    <button type="button" className="referral-text-btn" onClick={() => setPasteOpen(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="referral-drop"
+                    onClick={() => dropFileRef.current?.click()}
+                    style={dragOver ? { borderColor: "#a8cdc4", background: "#16304a" } : undefined}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#cad7e3" strokeWidth="1.6">
+                      <path d="M12 16V5" />
+                      <path d="M8 8l4-4 4 4" />
+                      <path d="M5 19h14" />
+                    </svg>
+                    <strong>Drop a referral PDF here</strong>
+                    <span>or select a file</span>
+                  </button>
+                  <p className="referral-upload-or">Other ways in</p>
+                  <div className="referral-upload-alt">
+                    <button type="button" className="referral-text-btn" onClick={() => setPasteOpen(true)}>
+                      Paste referral
+                    </button>
+                    <button
+                      type="button"
+                      className="referral-text-btn"
+                      onClick={() => {
+                        setLetterOpen(true);
+                        setShowSent(false);
+                        setPathwaySet(false);
+                        setSection("patient");
                       }}
                     >
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: "#075E63",
-                        }}
-                      >
-                        {childDisplay} — {r.assessmentType} —{" "}
-                        <span style={{ color: "#0E9F98" }}>{r.channel}</span>
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "#94a3b8",
-                          marginTop: 3,
-                          fontWeight: 500,
-                        }}
-                      >
-                        {parentDisplay || "—"} ·{" "}
-                        {new Date(r.at).toLocaleString()}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
-      </main>
+                      Type details
+                    </button>
+                  </div>
+                </>
+              )}
+              {readError ? (
+                <p role="alert" style={{ color: "#f0b4b4", fontSize: 15, marginTop: 16 }}>{readError}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : section === "patient" ? (
+          <div className="referral-sheet">
+            <h1 style={{ margin: "0 0 22px", fontSize: 34, fontWeight: 500, letterSpacing: "-0.03em" }}>Patient details</h1>
+            <div className="referral-field-row">
+              <div>
+                <label style={fieldLabel} htmlFor="desk-first">First name</label>
+                <input
+                  id="desk-first"
+                  ref={childFirstNameRef}
+                  aria-label="Child first name"
+                  value={childFirst}
+                  onChange={(e) => {
+                    setChildFirst(e.target.value);
+                    setSendStatus(null);
+                  }}
+                  style={fieldInput}
+                />
+                <p style={hintStyle}>{missingMessage("first")}</p>
+              </div>
+              <div>
+                <label style={fieldLabel} htmlFor="desk-last">Last name</label>
+                <input
+                  id="desk-last"
+                  aria-label="Child last name"
+                  value={childLast}
+                  onChange={(e) => {
+                    setChildLast(e.target.value);
+                    setSendStatus(null);
+                  }}
+                  style={fieldInput}
+                />
+                <p style={hintStyle}>{missingMessage("last")}</p>
+              </div>
+            </div>
+            <div className="referral-field-row" style={{ marginTop: 8 }}>
+              <div>
+                <label style={fieldLabel} htmlFor="desk-dob">Date of birth</label>
+                <input
+                  id="desk-dob"
+                  type="date"
+                  value={childDob}
+                  onChange={(e) => {
+                    setChildDob(e.target.value);
+                    setSendStatus(null);
+                  }}
+                  style={fieldInput}
+                />
+                <p style={hintStyle}>{missingMessage("dob")}</p>
+              </div>
+              <div>
+                <label style={fieldLabel} htmlFor="desk-mobile">Parent mobile</label>
+                <input
+                  id="desk-mobile"
+                  type="tel"
+                  inputMode="tel"
+                  aria-label="Parent mobile"
+                  value={parentMobile}
+                  onChange={(e) => {
+                    setParentMobile(e.target.value);
+                    setSendStatus(null);
+                  }}
+                  style={fieldInput}
+                />
+                <p style={hintStyle}>{missingMessage("mobile")}</p>
+              </div>
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <label style={fieldLabel} htmlFor="desk-parent-email">Parent email</label>
+              <input
+                id="desk-parent-email"
+                type="email"
+                aria-label="Parent email"
+                value={parentEmail}
+                onChange={(e) => {
+                  setParentEmail(e.target.value);
+                  setSendStatus(null);
+                }}
+                style={fieldInput}
+              />
+            </div>
+            {readWarnings.length ? (
+              <p style={{ margin: "12px 0 0", fontSize: 14, color: "#f0c593" }}>{readWarnings.join(" ")}</p>
+            ) : null}
+            <button
+              type="button"
+              className="referral-text-btn"
+              aria-expanded={moreOpen}
+              style={{ marginTop: 18 }}
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              Additional details <span aria-hidden="true">{moreOpen ? "⌃" : "⌄"}</span>
+            </button>
+            {moreOpen ? (
+              <div style={{ display: "grid", gap: 8, maxWidth: 720, paddingBottom: 8 }}>
+                <div className="referral-field-row">
+                  <div>
+                    <label style={fieldLabel} htmlFor="desk-parent-first">Parent first name</label>
+                    <input id="desk-parent-first" value={parentFirst} onChange={(e) => setParentFirst(e.target.value)} style={fieldInput} />
+                  </div>
+                  <div>
+                    <label style={fieldLabel} htmlFor="desk-parent-last">Parent last name</label>
+                    <input id="desk-parent-last" value={parentLast} onChange={(e) => setParentLast(e.target.value)} style={fieldInput} />
+                  </div>
+                </div>
+                <label style={fieldLabel} htmlFor="desk-booking">Booking link</label>
+                <input id="desk-booking" value={bookingLink} onChange={(e) => setBookingLink(e.target.value)} style={fieldInput} />
+                <label style={fieldLabel} htmlFor="desk-phone">Clinic phone</label>
+                <input id="desk-phone" value={clinicPhone} onChange={(e) => setClinicPhone(e.target.value)} style={fieldInput} />
+                <label style={fieldLabel} htmlFor="desk-referrer">Referrer, office only</label>
+                <input id="desk-referrer" value={referrerName} onChange={(e) => setReferrerName(e.target.value)} style={fieldInput} />
+                <label style={fieldLabel} htmlFor="desk-notes">Internal notes</label>
+                <textarea
+                  id="desk-notes"
+                  value={internalNotes}
+                  rows={3}
+                  onChange={(e) => setInternalNotes(e.target.value)}
+                  style={{ ...fieldInput, resize: "vertical", lineHeight: 1.4 }}
+                />
+                <button
+                  type="button"
+                  className="referral-text-btn"
+                  style={{ color: "#f0b4b4", justifyContent: "flex-start" }}
+                  onClick={clearForm}
+                >
+                  Start again
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : section === "assessment" ? (
+          <div className="referral-sheet">
+            <h1 style={{ margin: 0, fontSize: 34, fontWeight: 500, letterSpacing: "-0.03em" }}>Assessment</h1>
+            <p style={{ margin: "8px 0 22px", fontSize: 16, color: "#cad7e3" }}>
+              Select the assessment pathway for this referral.
+            </p>
+            <div className="referral-assess" role="radiogroup" aria-label="Assessment">
+              {(["ADHD", "ASD", "SLD"] as const).map((type) => {
+                const selected = pathwaySet && assessmentType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => {
+                      setAssessmentType(type);
+                      setPathwaySet(true);
+                      setSendStatus(null);
+                      setLetterFace("email");
+                    }}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: selected ? "#edf3f8" : "#9eb2c6",
+                      font: "inherit",
+                      fontSize: 22,
+                      fontWeight: selected ? 600 : 500,
+                      padding: "8px 0",
+                      cursor: "pointer",
+                      borderBottom: selected ? "2px solid #a8cdc4" : "2px solid transparent",
+                    }}
+                  >
+                    {type}
+                  </button>
+                );
+              })}
+            </div>
+            <p style={hintStyle}>{missingMessage("pathway")}</p>
+            <p style={{ margin: "36px auto 6px", fontSize: 12, letterSpacing: "0.06em", textTransform: "uppercase", color: "#849aaf" }}>
+              Assessment information
+            </p>
+            <p style={{ margin: "0 auto", maxWidth: 460, fontSize: 15, lineHeight: 1.5, color: "#cad7e3" }}>
+              The selected assessment controls the parent communication template and additional fields.
+            </p>
+          </div>
+        ) : (
+          <div className="referral-sheet" style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
+            <h1 style={{ margin: 0, fontSize: 34, fontWeight: 500, letterSpacing: "-0.03em" }}>Parent communication</h1>
+            <div style={{ display: "flex", justifyContent: "center", gap: 28, marginTop: 16 }}>
+              <button
+                type="button"
+                className="referral-nav-btn"
+                aria-pressed={letterFace === "email"}
+                style={{
+                  color: letterFace === "email" ? "#edf3f8" : "#9eb2c6",
+                  borderBottomColor: letterFace === "email" ? "#a8cdc4" : "transparent",
+                  paddingTop: 0,
+                }}
+                onClick={() => setLetterFace("email")}
+              >
+                Email
+              </button>
+              <button
+                type="button"
+                className="referral-nav-btn"
+                aria-pressed={letterFace === "text"}
+                style={{
+                  color: letterFace === "text" ? "#edf3f8" : "#9eb2c6",
+                  borderBottomColor: letterFace === "text" ? "#a8cdc4" : "transparent",
+                  paddingTop: 0,
+                }}
+                onClick={() => setLetterFace("text")}
+              >
+                Text
+              </button>
+            </div>
+            <div className="referral-preview" aria-label="Message preview">
+              <div style={{ padding: "10px 16px 0", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "#849aaf" }}>
+                Message preview
+              </div>
+              {letterFace === "text" ? (
+                <pre className="referral-sms">{previewSms}</pre>
+              ) : pathwaySet ? (
+                <iframe title="Parent letter" srcDoc={previewEmailHtml} style={{ display: "block", width: "100%", height: 420, border: 0, background: "#f7fbfb" }} />
+              ) : (
+                <p style={{ margin: 0, padding: "28px 24px 36px", color: "#cad7e3", fontSize: 16 }}>
+                  Choose ADHD, ASD, or SLD.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {showSent ? null : (
+        <div className="referral-footer">
+          <button
+            type="button"
+            className="referral-text-btn"
+            disabled={sectionIndex <= 0}
+            onClick={() => {
+              if (sectionIndex > 0) setSection(sections[sectionIndex - 1]);
+            }}
+          >
+            ← Back
+          </button>
+          <div className="referral-footer-spacer" />
+          <button type="button" className="referral-text-btn" onClick={() => {
+            if (pasteOpen) {
+              setPasteOpen(false);
+              return;
+            }
+            setShowSent(false);
+            setSection("upload");
+          }}>
+            Cancel
+          </button>
+          {section === "communication" ? (
+            <button
+              type="button"
+              className="referral-text-btn"
+              disabled={!readyToSend || sending}
+              onClick={() => void sendToParent()}
+              style={{
+                color: readyToSend && !sending ? "#edf3f8" : "#5c7388",
+                textDecoration: readyToSend && !sending ? "underline" : "none",
+                textUnderlineOffset: 4,
+              }}
+            >
+              {sendLabel} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="referral-text-btn"
+              disabled={sectionIndex >= sections.length - 1}
+              onClick={() => {
+                if (sectionIndex < sections.length - 1) setSection(sections[sectionIndex + 1]);
+              }}
+              style={{ color: "#edf3f8" }}
+            >
+              Continue →
+            </button>
+          )}
+          {section === "communication" && (sendStatus || needLine) ? (
+            <span style={{ fontSize: 14, color: sendStatus?.type === "success" ? "#9bd6be" : "#f0b4b4" }}>
+              {sendStatus?.message ?? needLine}
+            </span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
-
 const pathwayFaqCardHeaderStyle: CSSProperties = {
   background: "#0E5F63",
   color: "#fff",
@@ -2908,6 +2256,7 @@ function EmailPreviewPlain({
   assessmentType,
   bookingLink,
   clinicPhone,
+  referrerName,
 }: {
   childFirst: string;
   childLast: string;
@@ -2919,6 +2268,7 @@ function EmailPreviewPlain({
   assessmentType: AssessmentType;
   bookingLink: string;
   clinicPhone: string;
+  referrerName?: string;
 }) {
   const html = buildParentEmailHtml({
     childFirst,
@@ -2931,6 +2281,7 @@ function EmailPreviewPlain({
     assessmentType,
     bookingLink,
     clinicPhone,
+    referrerName,
   });
 
   return (
@@ -2947,7 +2298,7 @@ function EmailPreviewPlain({
         srcDoc={html}
         style={{
           width: "100%",
-          minHeight: 720,
+          minHeight: 380,
           border: "none",
           display: "block",
           background: "#F3F8F8",
