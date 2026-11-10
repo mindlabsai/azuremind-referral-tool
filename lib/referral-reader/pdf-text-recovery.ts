@@ -1,7 +1,21 @@
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { PDFParse } from "pdf-parse";
+/**
+ * Serverless-safe PDF text extraction for referral intake.
+ *
+ * Primary text: `unpdf` (Vercel Node — no DOMMatrix / canvas).
+ * Supplemental: pure content-stream scrape for glyphs clipped at the page box.
+ * Scanned / empty PDFs still fall through to Claude vision in extract.ts.
+ */
+
+import { inflateSync } from "node:zlib";
+
+export type ReferralPdfText = {
+  /** Text the referral parser should read. */
+  text: string;
+  /** Primary page-box text from unpdf. */
+  visibleText: string;
+  /** True when content-stream restore added clipped glyphs. */
+  offPage: boolean;
+};
 
 function stripPdfChrome(text: string): string {
   return text
@@ -12,83 +26,68 @@ function stripPdfChrome(text: string): string {
     .trim();
 }
 
-const PDF_WORKER_SRC = pathToFileURL(
-  path.join(process.cwd(), "node_modules/pdf-parse/dist/pdf-parse/web/pdf.worker.mjs")
-).href;
-
-let workerConfigured = false;
-
-function ensurePdfWorker(): void {
-  if (workerConfigured) return;
-  PDFParse.setWorker(PDF_WORKER_SRC);
-  pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
-  workerConfigured = true;
+function joinPdfPages(text: string | string[] | undefined): string {
+  if (!text) return "";
+  if (Array.isArray(text)) return text.filter(Boolean).join("\n\n");
+  return text;
 }
 
-export type ReferralPdfText = {
-  /** Text the referral parser should read. */
-  text: string;
-  /** pdf.js getText output, which clips glyphs outside the page box. */
-  visibleText: string;
-  /** True when showText operators restored glyphs past the page boundary. */
-  offPage: boolean;
-};
-
-type TextGlyph = { unicode?: string };
-
-function glyphString(part: unknown): string {
-  if (!part || typeof part !== "object") return "";
-  const unicode = (part as TextGlyph).unicode;
-  return typeof unicode === "string" ? unicode : "";
+function unescapePdfString(raw: string): string {
+  return raw
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\(/g, "(")
+    .replace(/\\\)/g, ")")
+    .replace(/\\\\/g, "\\");
 }
 
-function showTextString(args: unknown): string {
-  const payload = Array.isArray(args) ? args[0] : args;
-  if (!Array.isArray(payload)) return "";
-  let out = "";
-  for (const part of payload) {
-    if (typeof part === "number") continue;
-    out += glyphString(part);
-  }
-  return out;
-}
-
-async function operatorChunks(data: Uint8Array): Promise<string[]> {
-  const task = pdfjs.getDocument({ data, verbosity: pdfjs.VerbosityLevel.ERRORS });
-  const doc = await task.promise;
+function tjChunksFromStream(stream: Buffer): string[] {
+  const src = stream.toString("latin1");
   const chunks: string[] = [];
-  try {
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-      const page = await doc.getPage(pageNumber);
-      const ops = await page.getOperatorList();
-      for (let i = 0; i < ops.fnArray.length; i++) {
-        const fn = ops.fnArray[i];
-        if (fn !== pdfjs.OPS.showText && fn !== pdfjs.OPS.showSpacedText) continue;
-        const text = showTextString(ops.argsArray[i]).replace(/[ \t]+\n/g, "\n").trim();
-        if (text) chunks.push(text);
-      }
-      page.cleanup();
+  const re = /\((?:\\.|[^\\)])*\)\s*Tj/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(src))) {
+    const inner = match[0].replace(/\)\s*Tj$/, "").slice(1);
+    const text = unescapePdfString(inner).replace(/[ \t]+\n/g, "\n").trim();
+    if (text.length >= 8) chunks.push(text);
+  }
+  // TJ arrays: [(Hello) -10 (world)] TJ
+  const tjArray = /\[([\s\S]*?)\]\s*TJ/g;
+  while ((match = tjArray.exec(src))) {
+    const body = match[1] || "";
+    const parts: string[] = [];
+    const partRe = /\((?:\\.|[^\\)])*\)/g;
+    let partMatch: RegExpExecArray | null;
+    while ((partMatch = partRe.exec(body))) {
+      parts.push(unescapePdfString(partMatch[0].slice(1, -1)));
     }
-  } finally {
-    await doc.destroy();
+    const text = parts.join("").replace(/[ \t]+\n/g, "\n").trim();
+    if (text.length >= 8) chunks.push(text);
   }
   return chunks;
 }
 
-function longestPrefix(text: string, chunk: string): { at: number; len: number } | null {
-  const min = Math.min(24, chunk.length - 1);
-  if (min < 8) return null;
-  for (let len = chunk.length - 1; len >= min; len--) {
-    const pre = chunk.slice(0, len);
-    const at = text.indexOf(pre);
-    if (at === -1) continue;
-    if (text.startsWith(chunk, at)) return null;
-    return { at, len };
+/** Pull literal show-text operators from PDF content streams (no pdfjs). */
+export function scrapePdfContentStreamText(buffer: Buffer): string[] {
+  const latin = buffer.toString("latin1");
+  const chunks: string[] = [];
+  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = streamRe.exec(latin))) {
+    const raw = Buffer.from(match[1], "latin1");
+    // Prefer inflated payload when FlateDecode was used; also try raw.
+    try {
+      chunks.push(...tjChunksFromStream(inflateSync(raw)));
+    } catch {
+      /* not flate */
+    }
+    chunks.push(...tjChunksFromStream(raw));
   }
-  return null;
+  return [...new Set(chunks)];
 }
 
-/** Restore showText runs that pdf.js clipped at the page box. On-page text is left as extracted. */
+/** Restore showText runs that a page-box clip may have truncated. */
 export function restoreOffPageChunks(
   visible: string,
   chunks: string[]
@@ -97,7 +96,18 @@ export function restoreOffPageChunks(
   let offPage = false;
   for (const chunk of chunks) {
     if (chunk.length < 8 || text.includes(chunk)) continue;
-    const hit = longestPrefix(text, chunk);
+    const min = Math.min(24, chunk.length - 1);
+    let hit: { at: number; len: number } | null = null;
+    if (min >= 8) {
+      for (let len = chunk.length - 1; len >= min; len--) {
+        const pre = chunk.slice(0, len);
+        const at = text.indexOf(pre);
+        if (at === -1) continue;
+        if (text.startsWith(chunk, at)) continue;
+        hit = { at, len };
+        break;
+      }
+    }
     if (hit) {
       text = `${text.slice(0, hit.at)}${chunk}${text.slice(hit.at + hit.len)}`;
       offPage = true;
@@ -114,21 +124,21 @@ export function restoreOffPageChunks(
 export async function recoverReferralPdfText(buffer: Buffer): Promise<ReferralPdfText> {
   const empty: ReferralPdfText = { text: "", visibleText: "", offPage: false };
   if (!buffer?.length) return empty;
-  ensurePdfWorker();
-  const parser = new PDFParse({ data: buffer });
+
+  let visibleText = "";
   try {
-    const parsed = await parser.getText();
-    const visibleText = typeof parsed.text === "string" ? parsed.text.trim() : "";
-    const chunks = await operatorChunks(new Uint8Array(buffer));
-    const restored = restoreOffPageChunks(visibleText, chunks);
-    return {
-      text: restored.text,
-      visibleText,
-      offPage: restored.offPage,
-    };
+    const { extractText } = await import("unpdf");
+    const result = await extractText(new Uint8Array(buffer), { mergePages: false });
+    visibleText = stripPdfChrome(joinPdfPages(result.text));
   } catch {
-    return empty;
-  } finally {
-    await parser.destroy().catch(() => undefined);
+    visibleText = "";
   }
+
+  const streamChunks = scrapePdfContentStreamText(buffer);
+  const restored = restoreOffPageChunks(visibleText, streamChunks);
+  return {
+    text: restored.text || visibleText,
+    visibleText,
+    offPage: restored.offPage,
+  };
 }

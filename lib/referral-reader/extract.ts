@@ -1,5 +1,11 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, MODELS } from "@/lib/anthropic-client";
+import {
+  classifyReferralAttachment,
+  defaultContentTypeForKind,
+  type ReferralAttachmentKind,
+} from "./attachment-kinds";
+import { recoverReferralDocxText } from "./docx-text";
 import { applyMobileEvidence } from "./mobile-evidence";
 import { recoverReferralPdfText } from "./pdf-text-recovery";
 import {
@@ -11,6 +17,7 @@ import {
 
 const MAX_TEXT = 80_000;
 const MAX_PDF_BYTES_FOR_VISION = 20 * 1024 * 1024;
+const MAX_IMAGE_BYTES_FOR_VISION = 20 * 1024 * 1024;
 /** Below this many “real” characters, treat PDF text as empty / scan-only. */
 const MIN_MEANINGFUL_CHARS = 40;
 
@@ -492,6 +499,108 @@ async function mapReferralPdfWithVision(buffer: Buffer): Promise<ReferralReaderE
     },
   ];
   return callExtractTool(content);
+}
+
+async function mapReferralImageWithVision(
+  buffer: Buffer,
+  mediaType: "image/jpeg" | "image/png"
+): Promise<ReferralReaderExtract> {
+  if (buffer.length > MAX_IMAGE_BYTES_FOR_VISION) {
+    throw new Error("Image is too large for vision read (max 20MB).");
+  }
+  const data = buffer.toString("base64");
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaType,
+        data,
+      },
+    },
+    {
+      type: "text",
+      text: "This may be a photographed or scanned GP referral. Read all visible text (including handwriting if legible) and extract intake fields via the tool. Use empty strings for anything you cannot read. If this image is not a referral letter (logo, signature only, unrelated photo), leave all fields empty.",
+    },
+  ];
+  return callExtractTool(content);
+}
+
+export async function readReferralFromImage(
+  buffer: Buffer,
+  mediaType: "image/jpeg" | "image/png" = "image/jpeg"
+): Promise<ReferralReaderResult> {
+  try {
+    const extract = await mapReferralImageWithVision(buffer, mediaType);
+    if (!extract.childFirst && !extract.parentEmail && !extract.parentMobile && !extract.childDob) {
+      return {
+        success: false,
+        error: "Could not read patient/parent details from that image.",
+        extract,
+      };
+    }
+    return { success: true, extract, sourceChars: 0 };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Could not read referral image.",
+    };
+  }
+}
+
+export async function readReferralFromDocx(buffer: Buffer): Promise<ReferralReaderResult> {
+  let text = "";
+  try {
+    text = await recoverReferralDocxText(buffer);
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Could not read DOCX text.",
+    };
+  }
+  return readReferralFromText(text);
+}
+
+/**
+ * Unified entry for PDF (text + scanned vision), JPEG/PNG vision, and DOCX text.
+ * Existing PDF pathway is unchanged when kind is pdf.
+ */
+export async function readReferralFromDocument(args: {
+  bytes: Buffer;
+  filename?: string;
+  contentType?: string;
+  kind?: ReferralAttachmentKind | null;
+}): Promise<ReferralReaderResult> {
+  const kind =
+    args.kind ??
+    classifyReferralAttachment({
+      filename: args.filename,
+      contentType: args.contentType,
+    });
+  if (!kind) {
+    return {
+      success: false,
+      error: "Unsupported attachment type. Use PDF, JPEG, PNG, or DOCX.",
+    };
+  }
+  if (kind === "pdf") return readReferralFromPdf(args.bytes);
+  if (kind === "docx") return readReferralFromDocx(args.bytes);
+  const mediaType =
+    kind === "png"
+      ? "image/png"
+      : ((args.contentType?.includes("png")
+          ? "image/png"
+          : "image/jpeg") as "image/jpeg" | "image/png");
+  return readReferralFromImage(args.bytes, mediaType === "image/png" ? "image/png" : "image/jpeg");
+}
+
+export function contentTypeForReferralDocument(args: {
+  filename?: string;
+  contentType?: string;
+}): string {
+  const kind = classifyReferralAttachment(args);
+  if (kind) return defaultContentTypeForKind(kind);
+  return args.contentType?.trim() || "application/octet-stream";
 }
 
 export async function readReferralFromText(text: string): Promise<ReferralReaderResult> {

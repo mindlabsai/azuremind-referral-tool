@@ -6,6 +6,11 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Referral", match: (path: string) => path === "/" },
   {
+    href: "/referral-inbox",
+    label: "Inbox",
+    match: (path: string) => path.startsWith("/referral-inbox"),
+  },
+  {
     href: "/workspace",
     label: "Workspace",
     match: (path: string) => path.startsWith("/workspace"),

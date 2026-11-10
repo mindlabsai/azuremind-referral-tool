@@ -6,8 +6,12 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/auth/")) return true;
   // Vercel cron uses CRON_SECRET; do not require a user session.
   if (pathname.startsWith("/api/cron/")) return true;
-  // Email unsubscribe links must remain reachable without login.
+  // Email unsubscribe links must remain reachable without login (signed token).
   if (pathname.startsWith("/api/follow-ups/unsubscribe")) return true;
+  // Gmail Pub/Sub push (gated by TEXLEX_REFERRAL_INTAKE_LIVE inside the route).
+  if (pathname === "/api/referral-intake/pubsub") return true;
+  // Google redirects here after Allow; validated by OAuth state cookie, not session.
+  if (pathname === "/api/referral-intake/oauth/callback") return true;
   return false;
 }
 

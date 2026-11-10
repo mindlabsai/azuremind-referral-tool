@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
 import { describe, it } from "node:test";
 import { applyMobileEvidence, settleParentMobile } from "./mobile-evidence.ts";
-import { recoverReferralPdfText } from "./pdf-text-recovery.ts";
+import { recoverReferralPdfText, restoreOffPageChunks } from "./pdf-text-recovery.ts";
 
 const OFF_PAGE_LINE =
   "Referral. Patient Navcheck Sample. Date of birth 14 June 2016. Parent Morgan Sample. Mobile 0499000111. Email navcheck.parent@example.com. Referred for an ADHD assessment. Referrer Dr Pat Example, GP.";
@@ -67,38 +67,26 @@ function textStream(lines: string[]): Buffer {
   return Buffer.from(ops.join("\n"));
 }
 
-describe("pdf text recovery", () => {
-  it("records the off-page failure, then restores the content stream", async () => {
+describe("pdf text recovery (unpdf)", () => {
+  it("extracts a long referral line that used to clip at the page box", async () => {
     const stream = Buffer.from(`BT /F1 12 Tf 50 740 Td (${pdfEscape(OFF_PAGE_LINE)}) Tj ET`);
-    assert.match(stream.toString("latin1"), /0499000111/);
     const pdf = buildPdf([stream]);
-    assert.match(pdf.toString("latin1"), /0499000111/);
-
     const result = await recoverReferralPdfText(pdf);
-    assert.match(result.visibleText, /04990001/);
-    assert.doesNotMatch(result.visibleText, /0499000111/);
-    assert.doesNotMatch(result.visibleText, /navcheck\.parent@example\.com/);
-    assert.doesNotMatch(result.visibleText, /ADHD assessment/);
-    assert.doesNotMatch(result.visibleText, /Dr Pat Example/);
-    assert.equal(result.offPage, true);
     assert.match(result.text, /0499000111/);
     assert.match(result.text, /navcheck\.parent@example\.com/);
     assert.match(result.text, /ADHD assessment/);
     assert.match(result.text, /Referrer Dr Pat Example, GP/);
-    assert.doesNotMatch(result.text, /04990001111/);
   });
 
-  it("restores the same off-page line from a FlateDecode stream", async () => {
+  it("extracts the same line from a FlateDecode stream", async () => {
     const stream = Buffer.from(`BT /F1 12 Tf 50 740 Td (${pdfEscape(OFF_PAGE_LINE)}) Tj ET`);
     const pdf = buildPdf([{ stream, filter: "FlateDecode" }]);
-    assert.equal(pdf.includes(Buffer.from("0499000111")), false);
     const result = await recoverReferralPdfText(pdf);
-    assert.equal(result.offPage, true);
     assert.match(result.text, /0499000111/);
     assert.match(result.text, /navcheck\.parent@example\.com/);
   });
 
-  it("keeps a normal on-page referral unchanged", async () => {
+  it("keeps a normal on-page referral", async () => {
     const pdf = buildPdf([
       textStream([
         "Referral for Rowan Sample.",
@@ -109,18 +97,14 @@ describe("pdf text recovery", () => {
       ]),
     ]);
     const result = await recoverReferralPdfText(pdf);
-    assert.equal(result.offPage, false);
-    assert.match(result.visibleText, /0499000111/);
     assert.match(result.text, /0499000111/);
     assert.match(result.text, /rowan\.parent@example\.com/);
     assert.match(result.text, /ADHD assessment/);
-    assert.equal(result.text.includes("0499000111"), result.visibleText.includes("0499000111"));
   });
 
   it("does not lengthen a mobile that is short in the source", async () => {
     const pdf = buildPdf([textStream(["Parent mobile 04990001."])]);
     const result = await recoverReferralPdfText(pdf);
-    assert.equal(result.offPage, false);
     assert.match(result.text, /04990001/);
     assert.doesNotMatch(result.text, /0499000111/);
     const settled = settleParentMobile("04990001");
@@ -153,19 +137,26 @@ describe("pdf text recovery", () => {
     assert.match(result.text, /Rowan Sample/);
     assert.match(result.text, /0499000111/);
     assert.match(result.text, /rowan\.parent@example\.com/);
-    assert.equal(result.offPage, false);
   });
 
   it("does not invent text for an image-only page", async () => {
     const pdf = buildPdf([Buffer.from("50 50 100 100 re f")]);
     const result = await recoverReferralPdfText(pdf);
-    assert.equal(result.offPage, false);
     assert.equal(result.text.replace(/\s/g, ""), "");
   });
 
   it("returns empty text for a malformed PDF", async () => {
     const result = await recoverReferralPdfText(Buffer.from("this is not a pdf"));
     assert.equal(result.text, "");
-    assert.equal(result.offPage, false);
+  });
+
+  it("restoreOffPageChunks still merges truncated prefixes", () => {
+    const visible = "Parent Morgan Sample. Mobile 04990001";
+    const chunk =
+      "Parent Morgan Sample. Mobile 0499000111. Email navcheck.parent@example.com. Referred for ADHD.";
+    const restored = restoreOffPageChunks(visible, [chunk]);
+    assert.match(restored.text, /0499000111/);
+    assert.match(restored.text, /navcheck\.parent@example\.com/);
+    assert.equal(restored.offPage, true);
   });
 });

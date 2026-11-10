@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/follow-ups",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/referral-intake-watch",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/referral-intake-recover",
+      "schedule": "15 */6 * * *"
     }
   ]
 }
