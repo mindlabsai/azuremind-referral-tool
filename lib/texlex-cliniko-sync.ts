@@ -4,6 +4,7 @@ import {
   formatClinikoAddress,
   splitParentName,
 } from "@/lib/cliniko";
+import type { PracticeSource } from "@/lib/practice-source";
 
 export type TexlexPatientDetailsForCliniko = {
   clientName: string;
@@ -15,6 +16,7 @@ export type TexlexPatientDetailsForCliniko = {
   referringPractitioner: string;
   referringPractitionerType: string;
   referringPractitionerEmail: string;
+  parentEmail: string;
   assessmentType: string;
   school: string;
   yearLevel: string;
@@ -37,6 +39,8 @@ export type ClinikoDraftState = {
   connectedName: string;
   syncEnabled: boolean;
   baseline: ClinikoBaseline;
+  /** Practice system this patient id belongs to. Older drafts are Cliniko. */
+  source?: PracticeSource;
 };
 
 export function emptyClinikoDraftState(): ClinikoDraftState | null {
@@ -73,11 +77,36 @@ export function applyClinikoPatientToForm(
     referringPractitioner: customFields.referrerName ?? "",
     referringPractitionerType: customFields.referrerType ?? "",
     referringPractitionerEmail: customFields.referrerEmail ?? "",
+    parentEmail: patient.email?.trim() ?? "",
     assessmentType: customFields.assessmentType ?? "",
     school: customFields.schoolName ?? "",
     yearLevel: customFields.yearLevel ?? "",
     phone: patient.phone_numbers[0]?.number ?? "",
     address,
+  };
+}
+
+export async function loadClinikoDraftLink(
+  patientId: string,
+  engine: "asd" | "adhd"
+): Promise<ClinikoDraftState> {
+  const response = await fetch(`/api/cliniko/patients/${encodeURIComponent(patientId)}?engine=${engine}`);
+  const data = (await response.json()) as {
+    patient?: ClinikoPatientFull;
+    customFields?: Partial<Record<ClinikoCustomFieldKey, string>>;
+    error?: string;
+  };
+  if (!response.ok || !data.patient) {
+    throw new Error(data.error || "Could not load the Cliniko patient.");
+  }
+  const customFields = data.customFields ?? {};
+  const mapped = applyClinikoPatientToForm(data.patient, customFields);
+  return {
+    patientId: String(data.patient.id),
+    connectedName: mapped.clientName || `${data.patient.last_name}, ${data.patient.first_name}`,
+    syncEnabled: true,
+    source: "cliniko",
+    baseline: buildClinikoBaseline(data.patient, customFields, mapped),
   };
 }
 

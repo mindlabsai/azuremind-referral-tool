@@ -14,7 +14,7 @@ export function TexlexSectionHeading({
         className="h-[14px] w-[3px] shrink-0 rounded-[2px] bg-[var(--teal-line)]"
         aria-hidden
       />
-      <h2 className="m-0 text-sm font-medium text-[var(--text-1)]">{children}</h2>
+      <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[#075E63]">{children}</h2>
     </div>
   );
 }

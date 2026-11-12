@@ -203,10 +203,60 @@ export function sanitiseForPdf<T>(draft: T): T {
 export function stripDashes(text: unknown): string {
   if (typeof text !== "string") return "";
   let out = text;
-  out = out.replace(/(\d)\s*[–—]\s*([A-Za-z]?\d)/g, "$1 to $2");
+  out = out.replace(/(\d)\s*[–—-]\s*(\d)/g, "$1 to $2");
   out = out.replace(/\s*[—–]\s*/g, ", ");
+  out = out.replace(/\s+--+\s+/g, ", ");
+  out = out.replace(/\s+-\s+/g, ", ");
   out = out.replace(/,\s*([,.;:)])/g, "$1");
   out = out.replace(/[ \t]{2,}/g, " ");
   out = out.replace(/^\s*,\s*/, "");
+  return out;
+}
+
+const PROFESSIONAL_TITLES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bdevelopmental paediatricians\b/gi, "Developmental Paediatricians"],
+  [/\bdevelopmental pediatricians\b/gi, "Developmental Paediatricians"],
+  [/\bdevelopmental paediatrician\b/gi, "Developmental Paediatrician"],
+  [/\bdevelopmental pediatrician\b/gi, "Developmental Paediatrician"],
+  [/\bregistered psychologists\b/gi, "Registered Psychologists"],
+  [/\bregistered psychologist\b/gi, "Registered Psychologist"],
+  [/\bschool psychologists\b/gi, "School Psychologists"],
+  [/\bschool psychologist\b/gi, "School Psychologist"],
+  [/\bspeech pathologists\b/gi, "Speech Pathologists"],
+  [/\bspeech pathologist\b/gi, "Speech Pathologist"],
+  [/\bspeech therapists\b/gi, "Speech Therapists"],
+  [/\bspeech therapist\b/gi, "Speech Therapist"],
+  [/\boccupational therapists\b/gi, "Occupational Therapists"],
+  [/\boccupational therapist\b/gi, "Occupational Therapist"],
+  [/\bgeneral practitioners\b/gi, "General Practitioners"],
+  [/\bgeneral practitioner\b/gi, "General Practitioner"],
+  [/\bsocial workers\b/gi, "Social Workers"],
+  [/\bsocial worker\b/gi, "Social Worker"],
+  [/\bphysiotherapists\b/gi, "Physiotherapists"],
+  [/\bphysiotherapist\b/gi, "Physiotherapist"],
+  [/\bpaediatricians\b/gi, "Paediatricians"],
+  [/\bpediatricians\b/gi, "Paediatricians"],
+  [/\bpaediatrician\b/gi, "Paediatrician"],
+  [/\bpediatrician\b/gi, "Paediatrician"],
+  [/\bpsychiatrists\b/gi, "Psychiatrists"],
+  [/\bpsychiatrist\b/gi, "Psychiatrist"],
+  [/\bpsychologists\b/gi, "Psychologists"],
+  [/\bpsychologist\b/gi, "Psychologist"],
+  [/\bcounsellors\b/gi, "Counsellors"],
+  [/\bcounselors\b/gi, "Counsellors"],
+  [/\bcounsellor\b/gi, "Counsellor"],
+  [/\bcounselor\b/gi, "Counsellor"],
+  [/\bteachers\b/gi, "Teachers"],
+  [/\bteacher\b/gi, "Teacher"],
+  [/\bgp\b/g, "GP"],
+];
+
+/** Report prose after generation: no dashes, professional titles capitalised. */
+export function polishReportProse(text: unknown): string {
+  let out = stripDashes(text);
+  for (const [pattern, title] of PROFESSIONAL_TITLES) {
+    out = out.replace(pattern, title);
+  }
+  out = out.replace(/\bdr\.?\s+([a-z])/gi, (_match, letter: string) => `Dr ${letter.toUpperCase()}`);
   return out;
 }

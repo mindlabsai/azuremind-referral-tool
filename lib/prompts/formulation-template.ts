@@ -105,50 +105,45 @@ CONCLUSIVE register for the diagnostic determination: this section MAKES the dia
 
 # CONTENT
 
-Required components in order:
+Required components in order (integrated narrative — not a second evidence tour):
 
 1. Opening diagnostic conclusion — the very first sentence of the section
-- State directly whether the client meets DSM-5-TR criteria for Autism Spectrum Disorder, the level of support classification (1, 2, or 3) when applicable, and the core support need this reflects in one clause.
+- When a CLINICAL LOCK opening is supplied, reproduce it verbatim as sentence 1. Do NOT restate, paraphrase, or invent severity levels elsewhere in the section. Severity language outside the locked opening is an error.
 - For ruled-out: "Findings do not support a diagnosis of Autism Spectrum Disorder. [Client]'s presentation is better characterised by [alternative formulation]."
 
-2. Assessment context — one sentence only, demoted after the diagnostic conclusion
-- Briefly note the consensus-based neurodevelopmental assessment pathway and what was integrated (clinical interview, parent-report, direct observation, collateral, structured assessment).
-- Do NOT open the section with methodology or process language.
+2. Developmental course and present-day mechanism — short synthesis
+- When the profile emerged and its stability; how current demands (school year, peers, sensory environment) interact with the profile. Do NOT re-narrate Criterion A/B evidence — those sections already hold it. At most one or two emblematic clinical anchors total.
 
-3. Domain synthesis — one paragraph for social communication, one for restricted/repetitive behaviour. SYNTHESISE; do not re-narrate. The A1-A3 and B1-B4 criterion sections and the Functional Impact section have already documented the granular evidence in full earlier in the report. Do NOT reproduce that evidence behaviour-by-behaviour here. Name the clinical construct in its proper diagnostic language (for example "impairment in social-emotional reciprocity", "reduced integration of nonverbal communicative behaviours", "insistence on sameness", "sensory hyper- and hypo-reactivity") and state that it is met and at what weight. One precise clinical sentence carries what a descriptive paragraph would; trust the terminology and the criterion sections to hold the detail. Cite at most one or two of the most diagnostically telling anchors per domain, and the standardised data where it converges. Do not list every behaviour that built the determination.
+3. Psychosocial weighing and co-occurring conditions (as evidenced)
+- Family/transition/perinatal factors as load on the profile or excluded as cause; co-occurring conditions from notes with specialist review where needed.
 
-4. Co-occurring conditions noted from raw notes (ADHD, language delay, anxiety, learning difficulties)
-- "[Client] additionally presents with [condition], with [appropriate specialist] review required to confirm diagnosis."
+4. Pathway statement — conclusion-dependent, one or two sentences
+- If MEETS: preliminary outcome of the consensus-based pathway; formal confirmation through Developmental Paediatric review is next. Do not write that the diagnosis is confirmed, established, or proven. Do NOT name the referring practitioner.
+- If DOES NOT MEET: clinical conclusion + continued developmental review in general terms where appropriate.
+- If inconclusive: further clarification through the appropriate developmental review pathway.
 
-5. Pathway statement — conclusion-dependent, one or two sentences, no paragraph about the assessor's role, scope, or qualifications.
-- If the conclusion is MEETS: state that this determination is the preliminary diagnostic outcome of the consensus-based pathway, and that formal confirmation through Developmental Paediatric review is the next step. Do not write that the diagnosis is confirmed, established, or proven. State the paediatric need in general terms only; do NOT name the referring practitioner, and do not describe who receives the report (that belongs in Recommendations).
-- If the conclusion is DOES NOT MEET: do not refer to diagnostic finalisation or paediatric confirmation of a diagnosis; state the clinical conclusion and recommend continued developmental review in general terms where appropriate.
-- If INSUFFICIENT/inconclusive: recommend further clinical clarification through the appropriate developmental review pathway, without implying a diagnosis exists to confirm.
-
-6. Closing integrative paragraph — REQUIRED final element
-Conclude the formulation with a single integrative paragraph (4–6 sentences) that:
-- characterises the client as a whole person including identified strengths
-- acknowledges the developmental needs identified
-- frames expected trajectory with appropriate intervention
-- names the collaborative ecosystem (family, paediatric team, allied health, education) required to support the trajectory
+5. Closing — strengths and protective factors woven in 2–3 sentences (not a long block)
+- Capacities to build on, existing supports, prognosis with coordinated intervention.
 
 # STRUCTURE
 
-5-7 paragraphs total. 400-700 words. The final paragraph must be this integrative close.
+3–5 paragraphs total. 250–400 words. Dense synthesis over length. Sentences ideally 30 words or fewer. At most ONE cross-informant convergence statement and ONE pervasiveness/settings statement in the whole section. No stacked intensifiers.
+
+# SEVERITY LANGUAGE BAN
+
+Never state or imply DSM support levels (Level 1/2/3, "requiring support/substantial/very substantial support") outside the locked opening sentence. The locked opening already carries domain-specific levels.
 
 # PARAGRAPH FORMAT (REQUIRED FOR PDF LAYOUT)
 
-Separate **every** logical paragraph with a **blank line** (an empty line between blocks — press Enter twice so there is a visible gap in plain text). Single newlines inside a paragraph are only for short lists, not between major blocks.
+Separate **every** logical paragraph with a **blank line** (an empty line between blocks — press Enter twice so there is a visible gap in plain text).
 
-Use this clinical pivot order (merge related points if needed to stay within 5-7 paragraphs, but keep the sequence clear):
+Use this clinical pivot order (merge related points to stay within 3–5 paragraphs):
 
-1. Paragraph 1 — Diagnostic conclusion statement (must align with the locked opening when provided).
-2. Paragraph 2 — Methodology / assessment context (consensus pathway, sources integrated).
-3. Paragraph 3 — Domain A (social communication and interaction): synthesis of A1–A3 evidence.
-4. Paragraph 4 — Domain B (restricted / repetitive behaviour and interests): synthesis of B1–B4 evidence.
-5. Paragraph 5 — Exclusion, differential, and co-occurring conditions as clinically relevant.
-6. Paragraph 6 — Referral pathway, communication of findings to referrer, and review recommendation.
-7. Paragraph 7 — Strengths-based integrative closing paragraph (required close per rules above).
+1. Paragraph 1 — Diagnostic conclusion (locked opening when provided) + brief assessment context.
+2. Paragraph 2 — Developmental course / present-day mechanism (no criterion re-tour).
+3. Paragraph 3 — Psychosocial weighing, differentials, co-occurring conditions as relevant.
+4. Paragraph 4 — Pathway statement (merge with close if needed).
+5. Paragraph 5 — Strengths-based close (2–3 sentences).
 
 # FORMULATION REASONING
 
@@ -187,9 +182,22 @@ DEFENSIBILITY TEST. Every word should be defensible against the evidence and aga
 - Use direct declarative language for the diagnostic determination and for findings the evidence supports. This does NOT mean forcing certainty onto genuinely uncertain criteria: where a criterion is rated uncertain or its narrative hedges (for example onset that "cannot be reliably determined"), carry that uncertainty forward in calibrated language and do not resolve it to sound more conclusive. Conclusive on what the evidence establishes; calibrated on what it does not.
 - Always cite the consensus pathway framework — this is what makes Texlex defensible (psychologist assesses; specialist confirmation as clinically appropriate)
 - When developmental paediatric confirmation applies in this pathway, state it explicitly — without mislabelling the referring practitioner
-- Always close with the required integrative paragraph described above
+- Close with the strengths-based 2–3 sentences described above
 - For ruled-out cases, do NOT pad with deficit description — describe what was observed and clearly state the alternative formulation
-- When the user message includes a CLINICAL LOCK with a mandatory opening sentence, reproduce that sentence verbatim as the first sentence of your output. It overrides any conflicting inference from criterion narratives. Do not contradict it later in the section`;
+- When the user message includes a CLINICAL LOCK with a mandatory opening sentence, reproduce that sentence verbatim as the first sentence of your output. It overrides any conflicting inference from criterion narratives. Do not contradict it later in the section
+- Do not restate severity levels after the locked opening`;
+
+/** Pass-1 output budget — keep room for locked opening without inviting essay length. */
+export const FORMULATION_MAX_OUTPUT_TOKENS = 1800;
+
+export const FORMULATION_WORD_TARGET = { min: 250, max: 400 } as const;
+
+/** Passed to the voice critic as styleGuidance — compress-or-keep only. */
+export const FORMULATION_CRITIC_RULES = `FORMULATION LENGTH / COMPRESSION LOCK:
+You may KEEP or SHORTEN the draft. You may NEVER lengthen it: output must be <= the draft's word count and <= ${FORMULATION_WORD_TARGET.max} words.
+Do not add new facts, praise sentences, or restated criterion evidence.
+Fix: sentences over ~30 words, repeated convergence or pervasiveness statements, stacked intensifiers, filler ("it is noteworthy that"), and any severity-level language outside the first (locked) sentence — delete those level phrases from body prose.
+If the draft already complies, return it unchanged.`;
 
 export interface FormulationVariables {
   clientName: string;
@@ -220,18 +228,14 @@ export interface FormulationVariables {
 export function buildFormulationUserPrompt(vars: FormulationVariables): string {
   const locked = vars.lockedFormulationOpening?.trim();
   const lockBlock = locked
-    ? `CLINICAL LOCK — MANDATORY OPENING (verbatim first sentence)\n\nThe first sentence of your output MUST be exactly the following (character-for-character, including punctuation and spacing). Do not paraphrase.\n\n${locked}\n\nAfter this sentence, continue with the remainder of the Clinical Formulation per the structure rules (assessment context, criterion synthesis, co-occurring conditions, clinical review pathway, integrative close). Do not contradict the locked opening anywhere in the section. Sentence 2 onward may include methodology and pathway context. Do not mention the referring practitioner.\n\n---\n\n`
+    ? `CLINICAL LOCK — MANDATORY OPENING (verbatim first sentence)\n\nThe first sentence of your output MUST be exactly the following (character-for-character, including punctuation and spacing). Do not paraphrase.\n\n${locked}\n\nAfter this sentence, continue with a concise integrated formulation (developmental course, mechanism, psychosocial weighing, pathway, strengths close). Do NOT re-tour Criterion A/B evidence. Do NOT restate severity levels anywhere after this locked sentence. Do not mention the referring practitioner.\n\n---\n\n`
     : "";
 
   const freeOpeningInstruction = locked
     ? ""
-    : `STRUCTURE INSTRUCTION: The very first sentence of your output must state the diagnostic conclusion clearly. State whether the client meets DSM-5-TR criteria for Autism Spectrum Disorder, the level of support classification (1, 2, or 3), and the core support need this reflects.
+    : `STRUCTURE INSTRUCTION: The very first sentence of your output must state the diagnostic conclusion clearly. When levels apply, state domain-specific support levels once in that opening sentence only; do not repeat level language later.
 
-Example opening sentence: "Allan meets DSM-5-TR criteria for Autism Spectrum Disorder, with a presentation best characterised within the Level 2 range, reflecting a need for substantial support across social communication and restricted, repetitive behaviour domains."
-
-Do NOT begin with methodology or process language. Do NOT begin with "X was assessed via the consensus-based neurodevelopmental assessment pathway..." Methodology can appear in sentence 2 or later, demoted to context.
-
-The reader must know the diagnosis from the first sentence of this section.
+Do NOT begin with methodology or process language. The reader must know the diagnosis from the first sentence of this section.
 
 `;
 
@@ -239,7 +243,7 @@ The reader must know the diagnosis from the first sentence of this section.
 
 # TASK
 
-Draft the Clinical Formulation and Consensus Opinion section.
+Draft the Clinical Formulation and Consensus Opinion section (250–400 words, 3–5 paragraphs).
 
 # CLIENT CONTEXT
 

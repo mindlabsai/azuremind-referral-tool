@@ -117,15 +117,66 @@ type ClinikoApiPatient = {
 export type ClinikoPatientAppointment = {
   id: string;
   starts_at: string | null;
+  ends_at: string | null;
   cancelled_at: string | null;
   archived_at: string | null;
+  notes: string | null;
+  patient_name: string | null;
+  patient_id: string | null;
+  appointment_type_id: string | null;
 };
 
 type ClinikoApiIndividualAppointment = {
   id: string | number;
   starts_at?: string | null;
+  ends_at?: string | null;
   cancelled_at?: string | null;
   archived_at?: string | null;
+  notes?: string | null;
+  patient_name?: string | null;
+  appointment_type?: { links?: { self?: string } } | null;
+  patient?: { links?: { self?: string } } | null;
+};
+
+export type ClinikoPractitioner = {
+  id: string;
+  displayName: string;
+  active: boolean;
+};
+
+type ClinikoApiPractitioner = {
+  id: string | number;
+  display_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  active?: boolean | null;
+  show_in_online_bookings?: boolean | null;
+};
+
+export type ClinikoPatientAttachment = {
+  id: string;
+  filename: string;
+  description: string;
+  contentType: string | null;
+  size: number | null;
+  createdAt: string | null;
+  processingCompleted: boolean;
+  contentUrl: string | null;
+  /** Heuristic: filename/description suggests preferred rating / allied-health collateral. */
+  likelyAsrs: boolean;
+  /** True when mime/extension looks importable into collateral. */
+  importable: boolean;
+};
+
+type ClinikoApiPatientAttachment = {
+  id: string | number;
+  filename?: string | null;
+  description?: string | null;
+  content_type?: string | null;
+  size?: string | number | null;
+  created_at?: string | null;
+  processing_completed?: boolean;
+  content?: { links?: { self?: string } } | null;
 };
 
 let customFieldDefinitionsCache: ClinikoCustomFieldDef[] | null = null;
@@ -406,24 +457,39 @@ export async function clinikoSearchPatients(query: string): Promise<ClinikoPatie
   if (trimmed.length < 2) return [];
 
   const tokens = trimmed.split(/\s+/).filter(Boolean);
-  const requests: Promise<ClinikoPatient[]>[] = [];
+  let merged: ClinikoPatient[] = [];
+
   if (tokens.length === 1) {
     const token = tokens[0]!;
-    requests.push(searchPatientsByFilters([`first_name:~${token}`]));
-    requests.push(searchPatientsByFilters([`last_name:~${token}`]));
+    const batches = await Promise.all([
+      searchPatientsByFilters([`first_name:~${token}`]),
+      searchPatientsByFilters([`last_name:~${token}`]),
+    ]);
+    merged = dedupePatients(batches.flat());
   } else {
-    const [first, ...rest] = tokens;
-    const last = rest.join(" ");
-    requests.push(searchPatientsByFilters([`first_name:~${first}`, `last_name:~${last}`]));
-    requests.push(searchPatientsByFilters([`first_name:~${last}`, `last_name:~${first}`]));
-    requests.push(searchPatientsByFilters([`first_name:~${first}`]));
-    requests.push(searchPatientsByFilters([`last_name:~${last}`]));
+    const first = tokens[0]!;
+    const last = tokens.slice(1).join(" ");
+    // Prefer first+last together — do not flood with every "Jessica" when searching
+    // "Jessica Little".
+    const tight = await Promise.all([
+      searchPatientsByFilters([`first_name:~${first}`, `last_name:~${last}`]),
+      searchPatientsByFilters([`first_name:~${last}`, `last_name:~${first}`]),
+    ]);
+    merged = dedupePatients(tight.flat());
+    if (merged.length === 0) {
+      const loose = await Promise.all([
+        searchPatientsByFilters([`first_name:~${first}`]),
+        searchPatientsByFilters([`last_name:~${last}`]),
+      ]);
+      merged = dedupePatients(loose.flat());
+    }
   }
 
-  const batches = await Promise.all(requests);
-  const merged = dedupePatients(batches.flat()).slice(0, 20);
-  console.log(`[cliniko] clinikoSearchPatients("${trimmed}") found ${merged.length} (${Date.now() - started}ms)`);
-  return merged;
+  const results = merged.slice(0, 20);
+  console.log(
+    `[cliniko] clinikoSearchPatients("${trimmed}") found ${results.length} (${Date.now() - started}ms)`
+  );
+  return results;
 }
 
 export async function clinikoGetPatient(id: string): Promise<ClinikoPatientFull> {
@@ -436,23 +502,125 @@ export async function clinikoGetPatient(id: string): Promise<ClinikoPatientFull>
   return mapped;
 }
 
+function appointmentTypeIdFromSelf(self: string | undefined): string | null {
+  if (!self) return null;
+  const match = self.match(/\/appointment_types\/(\d+)/);
+  return match?.[1] ?? null;
+}
+
+function idFromResourceSelf(self: string | undefined, resource: string): string | null {
+  if (!self) return null;
+  const match = self.match(new RegExp(`/${resource}/(\\d+)`));
+  return match?.[1] ?? null;
+}
+
+function mapIndividualAppointment(
+  appointment: ClinikoApiIndividualAppointment
+): ClinikoPatientAppointment {
+  return {
+    id: String(appointment.id),
+    starts_at: appointment.starts_at ?? null,
+    ends_at: appointment.ends_at ?? null,
+    cancelled_at: appointment.cancelled_at ?? null,
+    archived_at: appointment.archived_at ?? null,
+    notes: typeof appointment.notes === "string" ? appointment.notes : null,
+    patient_name: typeof appointment.patient_name === "string" ? appointment.patient_name : null,
+    patient_id: idFromResourceSelf(appointment.patient?.links?.self, "patients"),
+    appointment_type_id: appointmentTypeIdFromSelf(appointment.appointment_type?.links?.self),
+  };
+}
+
+export async function clinikoListPractitioners(): Promise<ClinikoPractitioner[]> {
+  const response = await clinikoFetch(`/practitioners?per_page=100`);
+  const body = (await response.json()) as { practitioners?: ClinikoApiPractitioner[] };
+  return (body.practitioners ?? []).map((p) => {
+    const displayName =
+      (p.display_name ?? "").trim() ||
+      [p.first_name, p.last_name].map((part) => (part ?? "").trim()).filter(Boolean).join(" ") ||
+      `Practitioner ${p.id}`;
+    return {
+      id: String(p.id),
+      displayName,
+      active: p.active !== false,
+    };
+  });
+}
+
+export function resolveDefaultClinikoPractitionerId(
+  practitioners: ClinikoPractitioner[]
+): string | null {
+  const envId = process.env.CLINIKO_PRACTITIONER_ID?.trim();
+  if (envId) {
+    const match = practitioners.find((p) => p.id === envId);
+    if (match) return match.id;
+    return envId;
+  }
+  const active = practitioners.filter((p) => p.active);
+  const pool = active.length ? active : practitioners;
+  if (pool.length === 1) return pool[0]!.id;
+  return pool[0]?.id ?? null;
+}
+
+export async function clinikoListScheduleAppointments(options: {
+  fromIso: string;
+  toIso: string;
+  practitionerId?: string | null;
+}): Promise<{
+  appointments: ClinikoPatientAppointment[];
+  practitionerId: string | null;
+  practitioners: ClinikoPractitioner[];
+}> {
+  const started = Date.now();
+  const practitioners = await clinikoListPractitioners();
+  const practitionerId =
+    options.practitionerId?.trim() || resolveDefaultClinikoPractitionerId(practitioners);
+
+  const filters = [
+    `starts_at:>=${options.fromIso}`,
+    `starts_at:<${options.toIso}`,
+  ];
+  if (practitionerId) {
+    filters.push(`practitioner_id:=${practitionerId}`);
+  }
+
+  const query = filters.map((f) => `q[]=${encodeURIComponent(f)}`).join("&");
+  console.log(
+    `[cliniko] clinikoListScheduleAppointments from=${options.fromIso} to=${options.toIso} practitioner=${practitionerId ?? "all"}`
+  );
+
+  const all: ClinikoPatientAppointment[] = [];
+  for (let page = 1; page <= 5; page += 1) {
+    const response = await clinikoFetch(
+      `/individual_appointments?per_page=100&page=${page}&sort=starts_at:asc&${query}`
+    );
+    const body = (await response.json()) as {
+      individual_appointments?: ClinikoApiIndividualAppointment[];
+      links?: { next?: string | null };
+    };
+    const batch = (body.individual_appointments ?? []).map(mapIndividualAppointment);
+    all.push(...batch);
+    if (!body.links?.next || batch.length === 0) break;
+  }
+
+  const appointments = all.filter((a) => !a.cancelled_at && !a.archived_at);
+  console.log(
+    `[cliniko] clinikoListScheduleAppointments found ${appointments.length} (${Date.now() - started}ms)`
+  );
+  return { appointments, practitionerId, practitioners };
+}
+
 export async function clinikoGetPatientAppointments(
   patientId: string
 ): Promise<{ appointments: ClinikoPatientAppointment[]; hasUpcomingBooking: boolean }> {
   const started = Date.now();
   console.log(`[cliniko] clinikoGetPatientAppointments(${patientId}) start`);
   const response = await clinikoFetch(
-    `/individual_appointments?per_page=100&q[]=${encodeURIComponent(`patient_id:=${patientId}`)}`
+    `/individual_appointments?per_page=100&sort=starts_at:desc&q[]=${encodeURIComponent(`patient_id:=${patientId}`)}`
   );
   const body = (await response.json()) as {
     individual_appointments?: ClinikoApiIndividualAppointment[];
   };
-  const appointments = (body.individual_appointments ?? []).map((appointment) => ({
-    id: String(appointment.id),
-    starts_at: appointment.starts_at ?? null,
-    cancelled_at: appointment.cancelled_at ?? null,
-    archived_at: appointment.archived_at ?? null,
-  }));
+  const appointments = (body.individual_appointments ?? []).map(mapIndividualAppointment);
 
   const now = Date.now();
   const hasUpcomingBooking = appointments.some((appointment) => {
@@ -467,6 +635,187 @@ export async function clinikoGetPatientAppointments(
     `[cliniko] clinikoGetPatientAppointments(${patientId}) found ${appointments.length}, upcoming=${hasUpcomingBooking} (${Date.now() - started}ms)`
   );
   return { appointments, hasUpcomingBooking };
+}
+
+const IMPORTABLE_ATTACHMENT_EXTENSIONS = new Set([
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".heic",
+  ".heif",
+  ".doc",
+  ".docx",
+]);
+
+const IMPORTABLE_ATTACHMENT_MIME_PREFIXES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+/**
+ * Preferred Cliniko collateral for auto-import / browse defaults.
+ * Matches ASRS, Vanderbilt (parent/teacher), Conners, teacher reports,
+ * OT / allied health, and speech — not clinic letters or unrelated PDFs.
+ */
+export function clinikoAttachmentLooksLikeAsrs(filename: string, description = ""): boolean {
+  const haystack = `${filename} ${description}`.toLowerCase();
+  if (
+    /\basrs\b/.test(haystack) ||
+    haystack.includes("autism spectrum rating") ||
+    haystack.includes("autism spectrum rating scales")
+  ) {
+    return true;
+  }
+  if (haystack.includes("vanderbilt")) return true;
+  if (/\bconners?\b/.test(haystack)) return true;
+  if (
+    /\bteacher\s+report\b/.test(haystack) ||
+    haystack.includes("teacher questionnaire") ||
+    haystack.includes("teacher form") ||
+    haystack.includes("teacher rating")
+  ) {
+    return true;
+  }
+  if (
+    haystack.includes("speech") ||
+    /\bslt\b/.test(haystack) ||
+    haystack.includes("language assessment") ||
+    haystack.includes("speech pathology")
+  ) {
+    return true;
+  }
+  if (
+    /\bot\b/.test(haystack) ||
+    haystack.includes("occupational") ||
+    haystack.includes("allied health") ||
+    haystack.includes("sensory profile") ||
+    haystack.includes("sensory assessment")
+  ) {
+    return true;
+  }
+  // ASD-oriented extras when filename clearly indicates them
+  if (/\bados\b/.test(haystack) || /\badi-?r\b/.test(haystack)) return true;
+  if (/\bbasc\b/.test(haystack)) return true;
+  return false;
+}
+
+function clinikoAttachmentIsImportable(filename: string, contentType: string | null): boolean {
+  const lowerName = filename.toLowerCase();
+  const dot = lowerName.lastIndexOf(".");
+  const ext = dot >= 0 ? lowerName.slice(dot) : "";
+  if (ext && IMPORTABLE_ATTACHMENT_EXTENSIONS.has(ext)) return true;
+  const mime = (contentType ?? "").toLowerCase().split(";")[0]?.trim() ?? "";
+  if (!mime) return false;
+  return IMPORTABLE_ATTACHMENT_MIME_PREFIXES.some((prefix) => mime === prefix || mime.startsWith(`${prefix}+`));
+}
+
+function mapPatientAttachment(raw: ClinikoApiPatientAttachment): ClinikoPatientAttachment {
+  const filename = (raw.filename ?? "").trim() || `attachment-${raw.id}`;
+  const description = (raw.description ?? "").trim();
+  const contentType = typeof raw.content_type === "string" ? raw.content_type : null;
+  const sizeRaw = raw.size;
+  const size =
+    typeof sizeRaw === "number"
+      ? sizeRaw
+      : typeof sizeRaw === "string" && sizeRaw.trim()
+        ? Number(sizeRaw)
+        : null;
+  return {
+    id: String(raw.id),
+    filename,
+    description,
+    contentType,
+    size: Number.isFinite(size) ? size : null,
+    createdAt: raw.created_at ?? null,
+    processingCompleted: Boolean(raw.processing_completed),
+    contentUrl: raw.content?.links?.self ?? null,
+    likelyAsrs: clinikoAttachmentLooksLikeAsrs(filename, description),
+    importable: clinikoAttachmentIsImportable(filename, contentType),
+  };
+}
+
+export async function clinikoListPatientAttachments(
+  patientId: string,
+  options: { maxPages?: number } = {}
+): Promise<ClinikoPatientAttachment[]> {
+  const started = Date.now();
+  const maxPages = Math.min(Math.max(options.maxPages ?? 5, 1), 10);
+  console.log(`[cliniko] clinikoListPatientAttachments(${patientId}) start`);
+  const all: ClinikoPatientAttachment[] = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await clinikoFetch(
+      `/patients/${patientId}/patient_attachments?per_page=100&page=${page}&sort=created_at:desc`
+    );
+    const body = (await response.json()) as {
+      patient_attachments?: ClinikoApiPatientAttachment[];
+      links?: { next?: string | null };
+    };
+    const batch = (body.patient_attachments ?? []).map(mapPatientAttachment);
+    all.push(...batch);
+    if (!body.links?.next || batch.length === 0) break;
+  }
+
+  console.log(
+    `[cliniko] clinikoListPatientAttachments(${patientId}) found ${all.length} (${Date.now() - started}ms)`
+  );
+  return all;
+}
+
+export async function clinikoDownloadPatientAttachment(
+  attachmentId: string
+): Promise<{
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  buffer: Buffer;
+}> {
+  const started = Date.now();
+  console.log(`[cliniko] clinikoDownloadPatientAttachment(${attachmentId}) start`);
+  const metaRes = await clinikoFetch(`/patient_attachments/${attachmentId}`);
+  const meta = (await metaRes.json()) as ClinikoApiPatientAttachment;
+  if (!meta.processing_completed) {
+    throw new Error("Attachment is still processing in Cliniko. Try again shortly.");
+  }
+  const contentPath = `/patient_attachments/${attachmentId}/content`;
+  const apiKey = getClinikoApiKey();
+  if (!apiKey) throw new Error("Cliniko credentials not configured.");
+  const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const contentRes = await fetch(`${getClinikoBaseUrl()}${contentPath}`, {
+    headers: {
+      Authorization: `Basic ${auth}`,
+      Accept: "*/*",
+      "User-Agent": CLINIKO_USER_AGENT,
+    },
+    redirect: "follow",
+  });
+  if (!contentRes.ok) {
+    throw new Error(`Could not download Cliniko attachment (${contentRes.status}).`);
+  }
+  const arrayBuffer = await contentRes.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const filename = (meta.filename ?? "").trim() || `attachment-${attachmentId}`;
+  const contentType =
+    (typeof meta.content_type === "string" && meta.content_type.trim()) ||
+    contentRes.headers.get("content-type") ||
+    "application/octet-stream";
+  console.log(
+    `[cliniko] clinikoDownloadPatientAttachment(${attachmentId}) ${buffer.length} bytes (${Date.now() - started}ms)`
+  );
+  return {
+    id: String(meta.id ?? attachmentId),
+    filename,
+    contentType,
+    size: buffer.length,
+    buffer,
+  };
 }
 
 export async function clinikoCreatePatient(
@@ -622,8 +971,13 @@ export async function clinikoUploadPatientAttachment(
   const presign = (await presignRes.json()) as { url: string; fields: Record<string, string> };
   console.log("[cliniko] presign", JSON.stringify(presign, null, 2));
 
+  // S3 POST keys often contain `${filename}` — resolve before upload so the object
+  // path matches the upload_url we register with Cliniko.
+  const resolvedKey = (presign.fields.key ?? "").replace(/\$\{filename\}/g, filename);
   const form = new FormData();
-  for (const [k, v] of Object.entries(presign.fields)) form.append(k, v);
+  for (const [k, v] of Object.entries(presign.fields)) {
+    form.append(k, k === "key" ? resolvedKey : v);
+  }
   form.append("file", new Blob([typeof content === "string" ? content : new Uint8Array(content)], { type: contentType }), filename);
 
   const s3Res = await fetch(presign.url, { method: "POST", body: form });
@@ -631,7 +985,6 @@ export async function clinikoUploadPatientAttachment(
     throw new Error(`S3 upload failed (${s3Res.status})`);
   }
 
-  const resolvedKey = presign.fields.key.replace("${filename}", encodeURIComponent(filename));
   const uploadUrl = `${presign.url.replace(/\/$/, "")}/${resolvedKey}`;
   const createRes = await clinikoFetch(`/patient_attachments`, {
     method: "POST",
@@ -665,4 +1018,116 @@ export async function clinikoGetLatestStateAttachment(
     filename: match.filename ?? "",
     contentUrl: match.content?.links?.self ?? "",
   };
+}
+
+// ─── Patient forms (registration) ─────────────────────────────────
+export type ClinikoPatientFormSummary = {
+  id: string;
+  name: string;
+  updatedAt: string | null;
+  completedAt: string | null;
+};
+
+export type ClinikoPatientFormQuestion = {
+  name: string;
+  type: string;
+  answer: string | null;
+  selectedAnswers: string[];
+};
+
+export type ClinikoPatientFormDetail = ClinikoPatientFormSummary & {
+  questions: ClinikoPatientFormQuestion[];
+};
+
+type ClinikoApiPatientFormListItem = {
+  id: string | number;
+  name?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+};
+
+type ClinikoApiPatientFormDetail = ClinikoApiPatientFormListItem & {
+  content?: {
+    sections?: Array<{
+      name?: string;
+      questions?: Array<{
+        name?: string;
+        type?: string;
+        answer?: string | null;
+        answers?: Array<{ name?: string | null; selected?: boolean | null }>;
+      }>;
+    }>;
+  } | null;
+};
+
+export async function clinikoListPatientForms(
+  patientId: string,
+  options: { maxPages?: number } = {}
+): Promise<ClinikoPatientFormSummary[]> {
+  const maxPages = Math.min(Math.max(options.maxPages ?? 3, 1), 5);
+  const all: ClinikoPatientFormSummary[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await clinikoFetch(
+      `/patient_forms?per_page=100&page=${page}&sort=updated_at:desc&q[]=${encodeURIComponent(`patient_id:=${patientId}`)}`
+    );
+    const body = (await response.json()) as {
+      patient_forms?: ClinikoApiPatientFormListItem[];
+      links?: { next?: string | null };
+    };
+    const batch = (body.patient_forms ?? []).map((form) => ({
+      id: String(form.id),
+      name: (form.name ?? "").trim() || `Form ${form.id}`,
+      updatedAt: form.updated_at ?? null,
+      completedAt: form.completed_at ?? null,
+    }));
+    all.push(...batch);
+    if (!body.links?.next || batch.length === 0) break;
+  }
+  return all;
+}
+
+export async function clinikoGetPatientForm(formId: string): Promise<ClinikoPatientFormDetail> {
+  const response = await clinikoFetch(`/patient_forms/${formId}`);
+  const form = (await response.json()) as ClinikoApiPatientFormDetail;
+  const questions: ClinikoPatientFormQuestion[] = [];
+  for (const section of form.content?.sections ?? []) {
+    for (const question of section.questions ?? []) {
+      questions.push({
+        name: (question.name ?? "").trim(),
+        type: question.type ?? "text",
+        answer: typeof question.answer === "string" ? question.answer : null,
+        selectedAnswers: (question.answers ?? [])
+          .filter((a) => a.selected)
+          .map((a) => (typeof a.name === "string" ? a.name.trim() : ""))
+          .filter(Boolean),
+      });
+    }
+  }
+  return {
+    id: String(form.id),
+    name: (form.name ?? "").trim() || `Form ${form.id}`,
+    updatedAt: form.updated_at ?? null,
+    completedAt: form.completed_at ?? null,
+    questions,
+  };
+}
+
+export async function clinikoGetRegistrationFormsForPatient(
+  patientId: string
+): Promise<ClinikoPatientFormDetail[]> {
+  const list = await clinikoListPatientForms(patientId);
+  const registration = list.filter(
+    (form) => /registration/i.test(form.name) && /(autism|adhd)/i.test(form.name)
+  );
+  // Fetch every Autism/ADHD registration form — patients often have a blank re-issue
+  // plus an older completed form with the real answers.
+  const details: ClinikoPatientFormDetail[] = [];
+  for (const item of registration) {
+    try {
+      details.push(await clinikoGetPatientForm(item.id));
+    } catch (error) {
+      console.warn(`[cliniko] could not load patient form ${item.id}`, error);
+    }
+  }
+  return details;
 }

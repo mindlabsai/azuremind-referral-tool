@@ -32,6 +32,8 @@ type CriticRequestBody = {
   sectionType?: string;
   draftContent?: string;
   caseContext?: CriticCaseContext;
+  /** Optional register lock from the calling generator (e.g. ADHD consultant formulation). */
+  styleGuidance?: string;
 };
 
 type CriticResponseBody = {
@@ -71,17 +73,22 @@ ${JSON.stringify(ratingsAssigned, null, 2)}`;
 function buildCriticUserMessage(
   sectionType: string,
   draftContent: string,
-  caseContext: CriticCaseContext | undefined
+  caseContext: CriticCaseContext | undefined,
+  styleGuidance?: string
 ): string {
   const purpose =
     SECTION_PURPOSE[sectionType] ??
     `Clinical report section: ${sectionType}. Rewrite for senior neurodevelopmental assessment voice.`;
 
+  const styleBlock = styleGuidance?.trim()
+    ? `\n## Style / register lock (preserve; do not revert)\n\n${styleGuidance.trim()}\n`
+    : "";
+
   return `# Section to rewrite
 
 Section type: ${sectionType}
 Clinical purpose: ${purpose}
-
+${styleBlock}
 ${formatCaseContextBlock(caseContext)}
 
 ---
@@ -92,7 +99,7 @@ ${formatCaseContextBlock(caseContext)}
 ${draftContent}
 <<<DRAFT_END>>>
 
-Rewrite the draft per your system instructions. Return only the rewritten prose.`;
+Rewrite the draft per your system instructions${styleGuidance?.trim() ? " and the style/register lock above" : ""}. Return only the rewritten prose.`;
 }
 
 function fallbackResponse(
@@ -134,6 +141,7 @@ export async function POST(req: NextRequest) {
   const sectionType = typeof body.sectionType === "string" ? body.sectionType.trim() : "unknown";
   const draftContent = typeof body.draftContent === "string" ? body.draftContent : "";
   const caseContext = body.caseContext;
+  const styleGuidance = typeof body.styleGuidance === "string" ? body.styleGuidance : undefined;
 
   if (!draftContent.trim()) {
     return Response.json(
@@ -149,7 +157,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const userMessage = buildCriticUserMessage(sectionType, draftContent, caseContext);
+  const userMessage = buildCriticUserMessage(
+    sectionType,
+    draftContent,
+    caseContext,
+    styleGuidance
+  );
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   try {

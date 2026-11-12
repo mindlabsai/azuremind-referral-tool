@@ -1,4 +1,4 @@
-import { Document, Page } from "@react-pdf/renderer";
+import { Document, Page, View } from "@react-pdf/renderer";
 /* PDF uses built-in Helvetica (see styles.ts). Do not load remote Inter here — fontkit metrics
    can corrupt and yield coordinates outside pdfkit's ±1e21 range, causing "unsupported number". */
 export { BRAND, BRAND_LIGHT, INK, MUTED, RULE, SUBTLE } from "./tokens";
@@ -19,6 +19,7 @@ import { SectionCHeading } from "./sections/SectionCHeading";
 import { Signature } from "./sections/Signature";
 import { styles } from "./styles";
 import type { TexlexPdfDraft } from "./types";
+import { buildAssessmentContextModality } from "@/lib/modality/asd-modality";
 
 export type TexlexPdfDocumentProps = {
   draft: TexlexPdfDraft;
@@ -27,11 +28,16 @@ export type TexlexPdfDocumentProps = {
 };
 
 export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDocumentProps) {
+  const modalityLead = buildAssessmentContextModality({
+    modality: draft.patientDetails.assessmentModality,
+    virtualCareReason: draft.patientDetails.virtualCareReason,
+  });
+
   return (
     <Document>
       <Page size="A4" wrap={false} style={styles.page}>
         <Header draft={draft} logoSrc={logoSrc} />
-        <AssessmentContext />
+        <AssessmentContext modalityLead={modalityLead} />
       </Page>
       <Page size="A4" wrap style={styles.page}>
         <Footer />
@@ -54,8 +60,11 @@ export function TexlexPdfDocument({ draft, logoSrc, signatureSrc }: TexlexPdfDoc
         <FunctionalImpact content={draft.functionalImpactSummary} />
         <Formulation content={draft.clinicalFormulation} />
         <Recommendations content={draft.recommendations} />
-        <Limitations content={draft.limitationsText} />
-        <Signature signatureSrc={signatureSrc} />
+        {/* Keep limitations + signature together so the signature is not orphaned on a blank page. */}
+        <View wrap={false}>
+          <Limitations content={draft.limitationsText} />
+          <Signature signatureSrc={signatureSrc} />
+        </View>
       </Page>
     </Document>
   );

@@ -75,16 +75,16 @@ export function NewReportConfirmModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
-        className="relative z-10 w-full max-w-[480px] rounded-xl border border-border/80 bg-white p-6 shadow-xl dark:bg-card"
+        className="texlex-paper relative z-10 w-full max-w-[480px] rounded-xl border border-[#d8d5cc] bg-[#fafcfc] p-6 text-[#1a2433] shadow-xl"
       >
-        <h2 id={headingId} className="text-lg font-semibold text-foreground">
+        <h2 id={headingId} className="text-lg font-semibold text-[#1a2433]">
           Start a new report?
         </h2>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-3 text-sm leading-relaxed text-[#3d4a55]">
           This will clear all current report data including client details, raw notes, and all generated
           sections. This action cannot be undone.
         </p>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-sm text-[#3d4a55]">
           Your assessor details and date of report will be preserved.
         </p>
         {clinikoSyncInProgress ? (
@@ -92,7 +92,7 @@ export function NewReportConfirmModal({
             A Cliniko sync is in progress. Wait for it to complete before starting a new report.
           </p>
         ) : null}
-        <label className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+        <label className="mt-4 flex items-center gap-2 text-sm text-[#1a2433]">
           <input
             type="checkbox"
             checked={skipConfirmThisSession}
@@ -101,7 +101,13 @@ export function NewReportConfirmModal({
           Don&apos;t ask me again this session
         </label>
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-[#d8d5cc] bg-[#fafcfc] text-[#1a2433] hover:bg-[#eef3f6]"
+            onClick={onCancel}
+          >
             Cancel
           </Button>
           <Button

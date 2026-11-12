@@ -2,15 +2,14 @@ import { NextRequest } from "next/server";
 import { anthropic, MODELS } from "@/lib/anthropic-client";
 import {
   FORMULATION_SYSTEM_PROMPT,
+  FORMULATION_MAX_OUTPUT_TOKENS,
+  FORMULATION_CRITIC_RULES,
   buildFormulationUserPrompt,
   buildLockedFormulationOpening,
   type FormulationVariables,
 } from "@/lib/prompts/formulation-template";
 import { resolveTexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
 import { assessFormulationCompleteness } from "@/lib/texlex-formulation-completeness";
-
-/** PASS 10w-3: long clinical formulation (multi-paragraph); keep isolated from other generators' budgets. */
-const FORMULATION_MAX_OUTPUT_TOKENS = 4096;
 
 const FORMULATION_PASS1_MODEL = MODELS.SONNET;
 const FORMULATION_CRITIC_MODEL = "claude-opus-4-7";
@@ -59,6 +58,7 @@ async function invokeFormulationCritic(
       sectionType: "formulation",
       draftContent: pass1Draft,
       caseContext,
+      styleGuidance: FORMULATION_CRITIC_RULES,
     }),
   });
   if (!res.ok) {
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       return new Response(
         JSON.stringify({
           error:
-            "Cannot generate formulation: diagnostic conclusion is 'meets' but Level A and/or Level B are not determined. Complete criterion ratings first.",
+            "Cannot generate formulation: diagnostic conclusion is 'meets' but Level A and/or Level B are not confirmed. Confirm severity levels with clinical rationale before generating.",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );

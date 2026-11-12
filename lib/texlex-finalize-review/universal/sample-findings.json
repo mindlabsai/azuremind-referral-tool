@@ -1,0 +1,49 @@
+{
+  "note": "Synthetic only. Alex Example is not a patient.",
+  "asdZero": {
+    "universalReviewV2": true,
+    "markerPack": "ASD",
+    "display": "No material issues found in the material available",
+    "sourceCoverage": "Raw notes were not included in this pass. 1 draft section with text was included. Raw notes were not supplied, so they could not be checked.",
+    "findings": []
+  },
+  "asdIdentity": {
+    "universalReviewV2": true,
+    "markerPack": "ASD",
+    "display": "1 item worth checking",
+    "findings": [
+      {
+        "kind": "name_mismatch",
+        "severity": "blocking",
+        "sectionId": "presenting-concerns",
+        "title": "Possible wrong name: “Liam”",
+        "detail": "“Liam” does not match client/parent demographics (client first name: Alex).",
+        "evidenceExcerpt": "Liam's Autism presentation was discussed.",
+        "suggestedEdit": "Replace “Liam” with “Alex” only if it refers to the client; otherwise remove the foreign name."
+      }
+    ]
+  },
+  "adhdLockedConclusion": {
+    "universalReviewV2": true,
+    "markerPack": "ADHD",
+    "display": "1 item worth checking",
+    "findings": [
+      {
+        "kind": "major_inconsistency",
+        "severity": "blocking",
+        "sectionId": "clinical-formulation",
+        "title": "Formulation conflicts with the locked does-not-meet conclusion",
+        "detail": "The locked conclusion is does not meet. The formulation says the criteria for ADHD are met.",
+        "evidenceExcerpt": "meets criteria for ADHD",
+        "suggestedEdit": null,
+        "supportStatus": "locked_conclusion"
+      }
+    ]
+  },
+  "sld": {
+    "markerPack": null,
+    "active": false,
+    "questionsSpecified": true,
+    "reason": "SLD has no report editor or review route. The SLD marker questions stay unused."
+  }
+}

@@ -31,20 +31,83 @@ import {
   sanitiseExtractedNumber,
   sanitiseForPdf,
   stripScientificNotationGarbageFromText,
-  stripDashes,
+  polishReportProse,
 } from "@/lib/texlex-pdf-sanitize";
 import {
   buildLockedFormulationOpening,
   type FormulationCriterionSnapshot,
 } from "@/lib/prompts/formulation-template";
+import {
+  buildDefaultSeverityRationale,
+  buildSeveritySuggestion,
+  confirmSeverity,
+  parseStoredSeverityAudit,
+  severityAuditRecord,
+  severitySourceLabel,
+  type DsmLevel,
+  type SeverityAuditRecord,
+} from "@/lib/severity/severity-confirmation";
+import {
+  buildAssessmentContextModality,
+  ensureInPersonConfirmationText,
+  gateModality,
+  parseAsdAssessmentModality,
+  type AsdAssessmentModality,
+} from "@/lib/modality/asd-modality";
 import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
+import { ClinikoCollateralImport } from "./components/ClinikoCollateralImport";
+import { TexlexScribe } from "./components/TexlexScribe";
 import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { TexlexModelPill } from "./components/TexlexModelPill";
 import { TexlexReportSidebarNav } from "./components/TexlexReportSidebarNav";
-import { TexlexReportHeader } from "./components/TexlexReportHeader";
+import {
+  TexlexReportHeader,
+  type TexlexPdfBusyMode,
+} from "./components/TexlexReportHeader";
 import { NewReportConfirmModal } from "./components/NewReportConfirmModal";
-import type { ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import { SavedDraftsByName } from "./components/SavedDraftsByName";
+import { TexlexPdfPreviewPane } from "./components/TexlexPdfPreviewPane";
+import { TexlexReportImport } from "./components/TexlexReportImport";
+import { TexlexAuditorCaseListPanel } from "./components/TexlexAuditorCaseListPanel";
+import { TexlexFinalizeReviewPanel } from "./components/TexlexFinalizeReviewPanel";
+import { TexlexSendDrawer } from "./components/TexlexSendDrawer";
+import { buildAsdAuditChecklist } from "@/lib/texlex-finalize-review/audit-checklist";
+import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
+import { parseRecipientList } from "@/lib/texlex-comms/letters";
+import { buildAsdReviewSections } from "@/lib/texlex-finalize-review/assemble-corpus";
+import { placeReviewAlternative } from "@/lib/texlex-finalize-review/apply-minimal";
+import {
+  proposalChangesLockedLevel,
+  proposalFlipsConclusion,
+} from "@/lib/texlex-finalize-review/universal/locked";
+import {
+  computeReviewSummary,
+  type ReviewFinding,
+  type ReviewRun,
+} from "@/lib/texlex-finalize-review/types";
+import { loadClinikoDraftLink, type ClinikoDraftState } from "@/lib/texlex-cliniko-sync";
+import { practiceApiBase, practiceLabel } from "@/lib/practice-source";
+import {
+  clearAsdLegacyLocalDraftKeys,
+  clearEngineActiveDraftPointer,
+  clearLocalEngineDraft,
+  draftMatchesStorageKey,
+  engineLocalDraftKey,
+  formatLocalDraftClockTime,
+  migrateAsdLegacyLocalDrafts,
+  readEngineActiveDraftKey,
+  readLocalEngineDraft,
+  writeLocalEngineDraft,
+} from "@/lib/engine-draft-storage";
+import {
+  fetchReportStateForEngine,
+  saveReportStateForEngine,
+} from "@/lib/texlex-report-state";
+import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
+import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
+import { ASD_CRITERION_CODES } from "@/lib/texlex-report-import/types";
+import { finalizeImportedReport } from "@/lib/texlex-report-import/scrub-content";
 import { EngineAssistant } from "../components/EngineAssistant";
 import { useAsdEnginePipeline } from "../asd-engine-core";
 import {
@@ -76,34 +139,14 @@ import {
   resolveFunctionalImpactDisplay,
   safeFilenamePart,
 } from "./pdf/utils";
+import {
+  collateralDocNeedsPdfBytes,
+  importClinikoAttachmentsIntoCollateral,
+  mergeCollateralDocsPreferringReadyBytes,
+  mergeImportedCollateralDocs,
+} from "@/lib/collateral/import-cliniko-attachments";
 
-const STORAGE_KEY = "texlex-report-draft-v1";
-const STORAGE_KEY_PREFIX = "texlex-draft";
-const LEGACY_STORAGE_KEY = "texlex-report-draft-v1";
-
-function slugifyName(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
-function getStorageKey(
-  clinikoId: string | null | undefined,
-  clientName: string | null | undefined
-): string | null {
-  if (clinikoId) {
-    return `${STORAGE_KEY_PREFIX}-cliniko-${clinikoId}`;
-  }
-  if (clientName && clientName.trim().length > 0) {
-    return `${STORAGE_KEY_PREFIX}-manual-${slugifyName(clientName)}`;
-  }
-  return null;
-}
-
-const AUTO_SAVE_DEBOUNCE_MS = 2000;
+const AUTO_SAVE_DEBOUNCE_MS = 1500;
 const METADATA_INPUT_MAX_LENGTH = 500;
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -198,8 +241,15 @@ export type PatientDetails = {
   referringPractitioner: string;
   referringPractitionerType: string;
   referringPractitionerEmail: string;
+  /** Parent/carer email(s) for Texlex send — often Cliniko patient email. */
+  parentEmail: string;
+  parent2Email: string;
   assessmentType: string;
   assessmentDates: string[];
+  /** Aligned with ADHD: in-clinic | virtual | unset. */
+  assessmentModality: AsdAssessmentModality;
+  /** Required when assessmentModality is virtual. */
+  virtualCareReason: string;
   school: string;
   reportDate: string;
   yearLevel: string;
@@ -228,6 +278,42 @@ function patientDetailsAfterNewReport(): PatientDetails {
   };
 }
 
+/** Clinical working content only — ignores Cliniko link and demographics. */
+function texlexHasClinicalWorkingContent(
+  args: {
+    rawNotes: string;
+    collateralDocs: CollateralDoc[];
+    criteria: Record<CriterionCode, CriterionState>;
+    presentingConcernsRaw: string;
+    presentingConcerns: string;
+    background: BackgroundState;
+    collateralSummary: string;
+    functionalImpactSummary: string;
+    clinicalFormulation: string;
+    recommendations: string;
+    limitationsText: string;
+    diagnosticConclusion?: TexlexDiagnosticConclusion;
+  },
+  options?: { ignoreCollateralDocs?: boolean }
+): boolean {
+  if (resolveTexlexDiagnosticConclusion(args.diagnosticConclusion) !== "inconclusive") return true;
+  if (args.rawNotes.trim()) return true;
+  // Calendar auto-import must not block draft restore of notes/sections.
+  if (!options?.ignoreCollateralDocs && args.collateralDocs.length > 0) return true;
+  if (args.presentingConcernsRaw.trim() || args.presentingConcerns.trim()) return true;
+  if (args.collateralSummary.trim() || args.functionalImpactSummary.trim()) return true;
+  if (args.clinicalFormulation.trim() || args.recommendations.trim()) return true;
+  if (args.limitationsText.trim() !== TEXLEX_LIMITATIONS.trim()) return true;
+  for (const key of Object.keys(args.background) as (keyof BackgroundState)[]) {
+    if (args.background[key].trim()) return true;
+  }
+  for (const code of CRITERION_CODES) {
+    const row = args.criteria[code];
+    if (row.rating !== null || row.indicators.trim() || row.lastGenerated) return true;
+  }
+  return false;
+}
+
 function isTexlexDraftEffectivelyEmpty(args: {
   patientDetails: PatientDetails;
   rawNotes: string;
@@ -241,7 +327,7 @@ function isTexlexDraftEffectivelyEmpty(args: {
   clinicalFormulation: string;
   recommendations: string;
   limitationsText: string;
-  cliniko: ClinikoDraftState | null;
+  cliniko?: ClinikoDraftState | null;
   diagnosticConclusion?: TexlexDiagnosticConclusion;
 }): boolean {
   const {
@@ -263,7 +349,7 @@ function isTexlexDraftEffectivelyEmpty(args: {
 
   if (resolveTexlexDiagnosticConclusion(diagnosticConclusion) !== "inconclusive") return false;
 
-  if (cliniko) return false;
+  if (cliniko ?? null) return false;
   if (rawNotes.trim()) return false;
   if (collateralDocs.length > 0) return false;
   if (presentingConcernsRaw.trim() || presentingConcerns.trim()) return false;
@@ -291,7 +377,11 @@ function isTexlexDraftEffectivelyEmpty(args: {
     details.referringPractitioner.trim() ||
     details.referringPractitionerType.trim() ||
     details.referringPractitionerEmail.trim() ||
+    details.parentEmail.trim() ||
+    details.parent2Email.trim() ||
     details.assessmentType.trim() ||
+    details.assessmentModality ||
+    details.virtualCareReason.trim() ||
     details.school.trim() ||
     details.yearLevel.trim() ||
     details.phone.trim() ||
@@ -317,8 +407,12 @@ function emptyPatientDetails(): PatientDetails {
     referringPractitioner: "",
     referringPractitionerType: "",
     referringPractitionerEmail: "",
+    parentEmail: "",
+    parent2Email: "",
     assessmentType: "",
     assessmentDates: [""],
+    assessmentModality: "",
+    virtualCareReason: "",
     school: "",
     reportDate: new Date().toISOString().slice(0, 10),
     yearLevel: "",
@@ -379,8 +473,12 @@ function migratePatientDetails(raw: unknown): PatientDetails {
         typeof r.referringPractitionerEmail === "string"
           ? r.referringPractitionerEmail
           : next.referringPractitionerEmail,
+      parentEmail: typeof r.parentEmail === "string" ? r.parentEmail : next.parentEmail,
+      parent2Email: typeof r.parent2Email === "string" ? r.parent2Email : next.parent2Email,
       assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : next.assessmentType,
       assessmentDates: assessmentDatesMerged,
+      assessmentModality: parseAsdAssessmentModality(r.assessmentModality),
+      virtualCareReason: typeof r.virtualCareReason === "string" ? r.virtualCareReason : next.virtualCareReason,
       school: typeof r.school === "string" ? r.school : next.school,
       reportDate: typeof r.reportDate === "string" && r.reportDate ? r.reportDate : next.reportDate,
       yearLevel: typeof r.yearLevel === "string" ? r.yearLevel : next.yearLevel,
@@ -407,8 +505,12 @@ function migratePatientDetails(raw: unknown): PatientDetails {
     referringPractitionerType: typeof r.referringPractitionerType === "string" ? r.referringPractitionerType : "",
     referringPractitionerEmail:
       typeof r.referringPractitionerEmail === "string" ? r.referringPractitionerEmail : "",
+    parentEmail: typeof r.parentEmail === "string" ? r.parentEmail : "",
+    parent2Email: typeof r.parent2Email === "string" ? r.parent2Email : "",
     assessmentType: typeof r.assessmentType === "string" ? r.assessmentType : "",
     assessmentDates: assessmentDatesMerged,
+    assessmentModality: parseAsdAssessmentModality(r.assessmentModality),
+    virtualCareReason: typeof r.virtualCareReason === "string" ? r.virtualCareReason : "",
     school: typeof r.school === "string" ? r.school : "",
     reportDate: typeof r.reportDate === "string" && r.reportDate ? r.reportDate : next.reportDate,
     yearLevel: typeof r.yearLevel === "string" ? r.yearLevel : "",
@@ -696,7 +798,7 @@ async function streamTexlexWithCriticSse(
       if (!line.startsWith("data: ")) continue;
       const data = line.slice(6).trim();
       if (data === "[DONE]") {
-        const content = stripDashes(finalContent || assembled);
+        const content = polishReportProse(finalContent || assembled);
         if (meta) onComplete(meta, content);
         return content;
       }
@@ -743,34 +845,13 @@ async function streamTexlexWithCriticSse(
       }
     }
   }
-  const content = stripDashes(finalContent || assembled);
+  const content = polishReportProse(finalContent || assembled);
   if (meta) onComplete(meta, content);
   return content;
 }
 
-// Fallback: derive DSM-5-TR support levels from clinician-set criterion ratings
-// when the engine (deriveLevelOfSupport) returns determinable: false.
-// Per DSM-5-TR: Level A = max(A1, A2, A3); Level B = max(B1..B4).
-function deriveLevelsFromCriterionRatings(
-  criteriaState: Record<CriterionCode, CriterionState>
-): { levelA: number | null; levelB: number | null; determinable: boolean } {
-  const aCodes: CriterionCode[] = ["A1", "A2", "A3"] as CriterionCode[];
-  const bCodes: CriterionCode[] = ["B1", "B2", "B3", "B4"] as CriterionCode[];
-  const readRating = (code: CriterionCode): number | null => {
-    const r = criteriaState[code]?.rating;
-    if (typeof r === "number" && r >= 1 && r <= 3) return r;
-    return null;
-  };
-  const aRatings = aCodes.map(readRating).filter((v): v is number => v != null);
-  const bRatings = bCodes.map(readRating).filter((v): v is number => v != null);
-  // Require at least one rated criterion in each domain
-  if (aRatings.length === 0 || bRatings.length === 0) {
-    return { levelA: null, levelB: null, determinable: false };
-  }
-  const levelA = Math.max(...aRatings);
-  const levelB = Math.max(...bRatings);
-  return { levelA, levelB, determinable: true };
-}
+// Severity for formulation is clinician-confirmed (engine suggestion only).
+// Criterion ratings are evidence-strength and must never be mapped to DSM levels.
 
 function criteriaSnapshotForFormulationLock(
   criteriaState: Record<CriterionCode, CriterionState>
@@ -843,8 +924,12 @@ function normalizePatientDetailsForPdf(details: PatientDetails): PatientDetails 
     referringPractitioner: normalizeTexlexTextForPdf(details.referringPractitioner),
     referringPractitionerType: normalizeTexlexTextForPdf(details.referringPractitionerType),
     referringPractitionerEmail: normalizeTexlexTextForPdf(details.referringPractitionerEmail),
+    parentEmail: normalizeTexlexTextForPdf(details.parentEmail),
+    parent2Email: normalizeTexlexTextForPdf(details.parent2Email),
     assessmentType: normalizeTexlexTextForPdf(details.assessmentType),
     assessmentDates: dates.length ? dates : [""],
+    assessmentModality: parseAsdAssessmentModality(details.assessmentModality),
+    virtualCareReason: normalizeTexlexTextForPdf(details.virtualCareReason),
     school: normalizeTexlexTextForPdf(details.school),
     reportDate: normalizeTexlexTextForPdf(details.reportDate),
     yearLevel: normalizeTexlexTextForPdf(details.yearLevel),
@@ -882,7 +967,8 @@ function criteriaStateForPdfRenderer(
           code,
           indicators: normalizeTexlexTextForPdf(c.indicators),
           rating: clampCriterionRatingForPdfExport(c.rating),
-          suggestedRating: clampCriterionRatingForPdfExport(c.suggestedRating),
+          // Never send suggested into the PDF path as a display fallback.
+          suggestedRating: null,
           markerCount: safeMarkerCountForPdfExport(c.markerCount),
           lastGenerated: null,
         },
@@ -1071,7 +1157,9 @@ const DOC_CATEGORIES = [
   "Cognitive assessment (WISC / WPPSI / WAIS)",
   "Adaptive functioning (ABAS-3 / Vineland-3)",
   "ASD-specific (ADOS-2 / ADI-R)",
+  "ASRS (Autism Spectrum Rating Scales)",
   "Behaviour rating scale (BASC-3 / Conners-3)",
+  "ADHD rating scale (Vanderbilt / Conners)",
   "Speech and language assessment",
   "Occupational therapy / sensory assessment",
   "Academic achievement (WIAT / WJ-IV)",
@@ -1139,9 +1227,10 @@ function migrateCollateralDocsFromStorage(raw: unknown): CollateralDoc[] {
           ? o.category
           : DEFAULT_DOC_CATEGORY;
       const extractionStatus =
-        o.extractionStatus === "ready" || o.extractionStatus === "failed"
-          ? o.extractionStatus
-          : "pending";
+        o.extractionStatus === "failed"
+          ? "failed"
+          : // Never trust "ready" from storage — PDF bytes are stripped on save.
+            "pending";
       out.push({
         id,
         filename: o.filename,
@@ -1520,6 +1609,7 @@ function migrateBackgroundFromStorage(raw: unknown): BackgroundState {
 }
 
 export type TexlexReportDraftV1 = {
+  engine?: "asd";
   patientDetails: PatientDetails;
   cliniko?: ClinikoDraftState | null;
   rawNotes: string;
@@ -1536,6 +1626,12 @@ export type TexlexReportDraftV1 = {
   lastSaved: string;
   /** Clinician-set diagnostic framing for formulation + auto-rating caps. Omitted in older saves = inconclusive. */
   diagnosticConclusion?: TexlexDiagnosticConclusion;
+  /** Audit trail for confirmed DSM severity used in formulation lock. */
+  severityAudit?: SeverityAuditRecord | null;
+  /** Finalize review passes (newest last). */
+  finalizeReviewRuns?: ReviewRun[];
+  /** True after Final PDF downloaded (+ Cliniko attempt). Unlocks Send via Texlex. */
+  finalPackageReady?: boolean;
 };
 
 const A_CRITERION_CODES = ["A1", "A2", "A3"] as const satisfies readonly CriterionCode[];
@@ -1611,6 +1707,11 @@ function buildComparableDraftFromStorage(data: Partial<TexlexReportDraftV1>): Om
       data.diagnosticConclusion === "inconclusive"
         ? data.diagnosticConclusion
         : "inconclusive",
+    severityAudit: parseStoredSeverityAudit(data.severityAudit),
+    finalizeReviewRuns: Array.isArray(data.finalizeReviewRuns)
+      ? (data.finalizeReviewRuns as ReviewRun[]).slice(-20)
+      : [],
+    finalPackageReady: data.finalPackageReady === true,
   };
 }
 
@@ -1629,6 +1730,9 @@ function defaultDraft(): Omit<TexlexReportDraftV1, "lastSaved"> {
     recommendations: "",
     limitationsText: TEXLEX_LIMITATIONS,
     diagnosticConclusion: "inconclusive",
+    severityAudit: null,
+    finalizeReviewRuns: [],
+    finalPackageReady: false,
   };
 }
 
@@ -1650,6 +1754,13 @@ function formatSavedAgo(iso: string | null, now: number): string {
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   return `${h}h ago`;
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  );
 }
 
 function countWords(s: string): number {
@@ -1857,7 +1968,7 @@ function CriterionCard({
   };
 }) {
   return (
-    <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+    <Card id={criterionSectionId(code)} className={TEXLEX_SECTION_CONTAINER_CLASS}>
       <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -1959,20 +2070,41 @@ export default function TexlexReportPage() {
   const [diagnosticConclusion, setDiagnosticConclusion] = useState<TexlexDiagnosticConclusion>(
     base.diagnosticConclusion ?? "inconclusive"
   );
+  const [severityLevelA, setSeverityLevelA] = useState<DsmLevel | undefined>();
+  const [severityLevelB, setSeverityLevelB] = useState<DsmLevel | undefined>();
+  const [severityRationale, setSeverityRationale] = useState("");
+  const [severityAudit, setSeverityAudit] = useState<SeverityAuditRecord | null>(null);
+  const [finalizeReviewRuns, setFinalizeReviewRuns] = useState<ReviewRun[]>([]);
+  const [finalizeReviewing, setFinalizeReviewing] = useState(false);
+  const [finalizeReviewError, setFinalizeReviewError] = useState<string | null>(null);
+  const [finalPackageReady, setFinalPackageReady] = useState(false);
+  const [sendDrawerOpen, setSendDrawerOpen] = useState(false);
+  const [todayOpen, setTodayOpen] = useState(true);
   const [editLimitations, setEditLimitations] = useState(false);
 
   const [hydrated, setHydrated] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  /** Last successful Supabase confirmed-save — used for beforeunload dirty check. */
+  const [lastCloudSavedAt, setLastCloudSavedAt] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const [lastEditAt, setLastEditAt] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [saveToast, setSaveToast] = useState(false);
-  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfBusyMode, setPdfBusyMode] = useState<TexlexPdfBusyMode>(null);
+  const pdfDownloading = pdfBusyMode !== null;
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [clinikoSyncInProgress, setClinikoSyncInProgress] = useState(false);
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
   const [skipNewReportConfirmSession, setSkipNewReportConfirmSession] = useState(false);
   const [newReportToast, setNewReportToast] = useState(false);
+  const [reportEpoch, setReportEpoch] = useState(0);
   const [clinikoIntakeResetKey, setClinikoIntakeResetKey] = useState(0);
+  const [localDraftRestoredNotice, setLocalDraftRestoredNotice] = useState<{
+    lastSaved: string;
+    storageKey: string;
+  } | null>(null);
   const [draftResumePrompt, setDraftResumePrompt] = useState<{
     patientLabel: string;
     lastSavedLabel: string;
@@ -1984,8 +2116,31 @@ export default function TexlexReportPage() {
   const saveToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const clinikoToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const newReportToastTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const suppressAutosaveRef = useRef(false);
+  const cloudResumeHandledPatientRef = useRef<string | null>(null);
   const debouncedRawNotes = useDebouncedValue(rawNotes, 400);
   const pipeline = useAsdEnginePipeline(debouncedRawNotes);
+
+  const severitySuggestion = useMemo(
+    () => buildSeveritySuggestion(pipeline.levelOfSupport),
+    [pipeline.levelOfSupport]
+  );
+  const severityRationaleTouchedRef = useRef(false);
+  const severityLevelsTouchedRef = useRef(false);
+
+  // Prefill editable Level A/B + rationale from engine when not clinician-locked.
+  useEffect(() => {
+    if (!severitySuggestion.determinable) return;
+    if (severityAudit) return;
+    if (!severityLevelsTouchedRef.current) {
+      setSeverityLevelA(severitySuggestion.levelA);
+      setSeverityLevelB(severitySuggestion.levelB);
+    }
+    if (!severityRationaleTouchedRef.current) {
+      const draft = buildDefaultSeverityRationale(severitySuggestion);
+      if (draft) setSeverityRationale(draft);
+    }
+  }, [severitySuggestion, severityAudit]);
 
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [sectionGenErrors, setSectionGenErrors] = useState<Partial<Record<string, string>>>({});
@@ -2011,13 +2166,32 @@ export default function TexlexReportPage() {
   );
   const streamAbortRef = useRef<AbortController | null>(null);
   const genSessionRef = useRef(0);
-  const processedDraftResumeKeyRef = useRef<string | null>(null);
+  const reportStoppedRef = useRef(false);
+  /** Bumped on New Report / full reset so stale autosave/unmount cannot revive an old draft. */
+  const draftWriteEpochRef = useRef(0);
+  /** >0 while calendar/search load (+ file import) is in flight — blocks draft restore races. */
+  const clinikoPatientLoadLockRef = useRef(0);
+  const [clinikoPatientLoadGate, setClinikoPatientLoadGate] = useState(0);
 
-  const applyLocalDraftData = useCallback((data: Partial<TexlexReportDraftV1>) => {
-    if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
-    if (data.cliniko) setCliniko(data.cliniko);
+  const applyLocalDraftData = useCallback((
+    data: Partial<TexlexReportDraftV1>,
+    options?: { clinicalOnly?: boolean }
+  ) => {
+    // clinicalOnly: keep the Cliniko-loaded demographics/link (fixes polluted drafts
+    // e.g. Emma Pate key still carrying Jessica Little's clientName).
+    if (!options?.clinicalOnly) {
+      if (data.patientDetails) setPatientDetails(() => migratePatientDetails(data.patientDetails));
+      if ("cliniko" in data) setCliniko(data.cliniko ?? null);
+    }
     if (typeof data.rawNotes === "string") setRawNotes(data.rawNotes);
-    if (Array.isArray(data.collateralDocs)) setCollateralDocs(migrateCollateralDocsFromStorage(data.collateralDocs));
+    if (Array.isArray(data.collateralDocs)) {
+      setCollateralDocs((prev) =>
+        mergeCollateralDocsPreferringReadyBytes(
+          prev,
+          migrateCollateralDocsFromStorage(data.collateralDocs)
+        )
+      );
+    }
     if (data.criteria) {
       setCriteria((c) => {
         const next = { ...c };
@@ -2038,6 +2212,21 @@ export default function TexlexReportPage() {
     if (typeof data.limitationsText === "string") setLimitationsText(data.limitationsText);
     if (data.diagnosticConclusion === "meets" || data.diagnosticConclusion === "does_not_meet" || data.diagnosticConclusion === "inconclusive") {
       setDiagnosticConclusion(data.diagnosticConclusion);
+    }
+    const restoredAudit = parseStoredSeverityAudit(data.severityAudit);
+    setSeverityAudit(restoredAudit);
+    if (restoredAudit) {
+      setSeverityLevelA(restoredAudit.confirmed_levelA);
+      setSeverityLevelB(restoredAudit.confirmed_levelB);
+      setSeverityRationale(restoredAudit.rationale);
+      severityRationaleTouchedRef.current = true;
+      severityLevelsTouchedRef.current = true;
+    }
+    if (Array.isArray(data.finalizeReviewRuns)) {
+      setFinalizeReviewRuns(data.finalizeReviewRuns.slice(-20) as ReviewRun[]);
+    }
+    if (typeof data.finalPackageReady === "boolean") {
+      setFinalPackageReady(data.finalPackageReady);
     }
     if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
   }, []);
@@ -2141,8 +2330,10 @@ export default function TexlexReportPage() {
           controller.signal
         );
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return null;
-        if (err instanceof Error && err.name === "AbortError") return null;
+        if (isAbortError(err)) {
+          reportStoppedRef.current = true;
+          return null;
+        }
         console.error(`${code} generation error:`, err);
         if (genSessionRef.current === session) {
           setSectionGenErrors((p) => ({
@@ -2204,6 +2395,7 @@ export default function TexlexReportPage() {
   const handleGenerateCriterion = useCallback(
     (code: CriterionCode) => {
       const sid = criterionSectionId(code);
+      if (generatingSectionId && generatingSectionId !== sid) return;
       if (generatingSectionId === sid) {
         streamAbortRef.current?.abort();
         return;
@@ -2215,8 +2407,7 @@ export default function TexlexReportPage() {
 
   const handleRegenerateCriterion = useCallback(
     (code: CriterionCode) => {
-      const sid = criterionSectionId(code);
-      if (generatingSectionId === sid) return;
+      if (generatingSectionId) return;
       void startCriterionGeneration(code);
     },
     [generatingSectionId, startCriterionGeneration]
@@ -2260,8 +2451,10 @@ export default function TexlexReportPage() {
       );
       return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return null;
-      if (err instanceof Error && err.name === "AbortError") return null;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return null;
+      }
       console.error("Presenting concerns generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -2280,6 +2473,7 @@ export default function TexlexReportPage() {
 
   const handleGeneratePresentingConcerns = useCallback(() => {
     const sectionId = "presenting-concerns";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2288,7 +2482,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runPresentingConcernsStream]);
 
   const handleRegeneratePresentingConcerns = useCallback(() => {
-    if (generatingSectionId === "presenting-concerns") return;
+    if (generatingSectionId) return;
     void runPresentingConcernsStream();
   }, [generatingSectionId, runPresentingConcernsStream]);
 
@@ -2342,8 +2536,10 @@ export default function TexlexReportPage() {
         );
         return generated;
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return null;
-        if (err instanceof Error && err.name === "AbortError") return null;
+        if (isAbortError(err)) {
+          reportStoppedRef.current = true;
+          return null;
+        }
         console.error("Background generation error:", err);
         if (genSessionRef.current === session) {
           setSectionGenErrors((p) => ({
@@ -2365,6 +2561,7 @@ export default function TexlexReportPage() {
   const handleGenerateBackground = useCallback(
     (key: BackgroundSectionKey) => {
       const sectionId = BACKGROUND_STREAM_SLUG[key];
+      if (generatingSectionId && generatingSectionId !== sectionId) return;
       if (generatingSectionId === sectionId) {
         streamAbortRef.current?.abort();
         return;
@@ -2376,8 +2573,7 @@ export default function TexlexReportPage() {
 
   const handleRegenerateBackground = useCallback(
     (key: BackgroundSectionKey) => {
-      const sectionId = BACKGROUND_STREAM_SLUG[key];
-      if (generatingSectionId === sectionId) return;
+      if (generatingSectionId) return;
       void runBackgroundStream(key);
     },
     [generatingSectionId, runBackgroundStream]
@@ -2385,10 +2581,30 @@ export default function TexlexReportPage() {
 
   const runCollateralSummaryStream = useCallback(async (): Promise<string | null> => {
     const sectionId = "collateral-summary";
-    const collateralContent = collateralDocs.length
-      ? buildCollateralManifestForApi(collateralDocs)
+    const patientId = cliniko?.patientId?.trim() || null;
+
+    // Draft save strips pdfBase64. Re-pull Cliniko PDFs before generate when stubs remain.
+    let docsForGenerate = collateralDocs;
+    if (patientId && collateralDocs.some((d) => collateralDocNeedsPdfBytes(d))) {
+      try {
+        const result = await importClinikoAttachmentsIntoCollateral({
+          patientId,
+          existingDocs: collateralDocs,
+          asrsOnly: false,
+        });
+        if (result.additions.length > 0) {
+          docsForGenerate = mergeImportedCollateralDocs(collateralDocs, result.additions);
+          setCollateralDocs(docsForGenerate);
+        }
+      } catch (err) {
+        console.warn("[Texlex] Could not rehydrate Cliniko collateral PDFs before generate:", err);
+      }
+    }
+
+    const collateralContent = docsForGenerate.length
+      ? buildCollateralManifestForApi(docsForGenerate)
       : "";
-    const pdfPayload = buildCollateralPdfPayload(collateralDocs);
+    const pdfPayload = buildCollateralPdfPayload(docsForGenerate);
     const hasReadyPdfs = pdfPayload.collateralPdfDocuments.length > 0;
     const masterInput = rawNotes.trim();
     if (
@@ -2413,7 +2629,10 @@ export default function TexlexReportPage() {
     if (contextNotes.length < GENERATION_MIN_NOTES_CHARS && !hasReadyPdfs) {
       setSectionGenErrors((p) => ({
         ...p,
-        [sectionId]: GENERATION_MIN_NOTES_ERROR,
+        [sectionId]:
+          docsForGenerate.length > 0 && !hasReadyPdfs
+            ? "Collateral PDFs are listed but not loaded for AI yet. Re-import from Cliniko (calendar toggle or Browse Cliniko files), then Generate again."
+            : GENERATION_MIN_NOTES_ERROR,
       }));
       return null;
     }
@@ -2474,8 +2693,10 @@ export default function TexlexReportPage() {
       );
       return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return null;
-      if (err instanceof Error && err.name === "AbortError") return null;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return null;
+      }
       console.error("Collateral summary generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -2490,10 +2711,19 @@ export default function TexlexReportPage() {
         streamAbortRef.current = null;
       }
     }
-  }, [collateralDocs, criteria, diagnosticConclusion, patientDetails, rawNotes, setSectionVoiceCriticBadge]);
+  }, [
+    cliniko?.patientId,
+    collateralDocs,
+    criteria,
+    diagnosticConclusion,
+    patientDetails,
+    rawNotes,
+    setSectionVoiceCriticBadge,
+  ]);
 
   const handleGenerateCollateralSummary = useCallback(() => {
     const sectionId = "collateral-summary";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2502,7 +2732,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runCollateralSummaryStream]);
 
   const handleRegenerateCollateralSummary = useCallback(() => {
-    if (generatingSectionId === "collateral-summary") return;
+    if (generatingSectionId) return;
     void runCollateralSummaryStream();
   }, [generatingSectionId, runCollateralSummaryStream]);
 
@@ -2593,8 +2823,10 @@ export default function TexlexReportPage() {
         }
         return generated;
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return null;
-        if (err instanceof Error && err.name === "AbortError") return null;
+        if (isAbortError(err)) {
+          reportStoppedRef.current = true;
+          return null;
+        }
         console.error("Functional impact generation error:", err);
         if (genSessionRef.current === session) {
           setFunctionalImpactSummary(FUNCTIONAL_IMPACT_RENDER_FALLBACK);
@@ -2626,6 +2858,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateFunctionalImpact = useCallback(() => {
     const sectionId = "functional-impact-summary";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2634,12 +2867,15 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runFunctionalImpactStream]);
 
   const handleRegenerateFunctionalImpact = useCallback(() => {
-    if (generatingSectionId === "functional-impact-summary") return;
+    if (generatingSectionId) return;
     void runFunctionalImpactStream();
   }, [generatingSectionId, runFunctionalImpactStream]);
 
   const runFormulationStream = useCallback(
-    async (snapshot?: ReportGenerationSnapshot): Promise<string | null> => {
+    async (
+      snapshot?: ReportGenerationSnapshot,
+      options?: { mode?: "first" | "regenerate" }
+    ): Promise<string | null> => {
     const sectionId = "clinical-formulation";
     const masterInput = rawNotes.trim();
     if (masterInput.length < GENERATION_MIN_NOTES_CHARS) {
@@ -2649,6 +2885,19 @@ export default function TexlexReportPage() {
       }));
       return null;
     }
+
+    const modalityGate = gateModality({
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    });
+    if (!modalityGate.ok) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: modalityGate.errors.join(" "),
+      }));
+      return null;
+    }
+
     const source = snapshot ?? {
       presentingConcerns,
       background,
@@ -2657,24 +2906,39 @@ export default function TexlexReportPage() {
       clinicalFormulation,
       diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
     };
+    const existingFormulation = source.clinicalFormulation.trim();
+    const severityMode: "first" | "regenerate" =
+      options?.mode ?? (existingFormulation || severityAudit ? "regenerate" : "first");
     const effectiveConclusion = resolveTexlexDiagnosticConclusion(source.diagnosticConclusion);
     const criteriaLock = criteriaSnapshotForFormulationLock(source.criteria);
-    const los = pipeline.levelOfSupport;
-    // Use engine when determinable; otherwise fall back to clinician-set criterion ratings.
-    const engineDetermined = Boolean(los?.determinable) && los?.levelA != null && los?.levelB != null;
-    const fallback = engineDetermined ? null : deriveLevelsFromCriterionRatings(source.criteria);
-    const resolvedLevelA = engineDetermined ? (los?.levelA ?? null) : (fallback?.levelA ?? null);
-    const resolvedLevelB = engineDetermined ? (los?.levelB ?? null) : (fallback?.levelB ?? null);
-    const resolvedDeterminable = engineDetermined || Boolean(fallback?.determinable);
-
-    if (effectiveConclusion === "meets" && (!resolvedDeterminable || resolvedLevelA == null || resolvedLevelB == null)) {
+    const suggestion = buildSeveritySuggestion(pipeline.levelOfSupport);
+    const severityGate = confirmSeverity({
+      levelA: severityLevelA,
+      levelB: severityLevelB,
+      suggestion,
+      confirmedBy: patientDetails.assessor,
+      rationale: severityRationale,
+      conclusion: effectiveConclusion,
+      mode: severityMode,
+    });
+    if (!severityGate.ok) {
       setSectionGenErrors((p) => ({
         ...p,
-        [sectionId]:
-          "Cannot generate formulation: diagnostic conclusion is 'meets' but Level A and/or Level B cannot be determined. Set criterion ratings (rating 1–3) for at least one A criterion and one B criterion.",
+        [sectionId]: severityGate.errors.join(" "),
       }));
       return null;
     }
+
+    const confirmed = severityGate.confirmed;
+    const resolvedLevelA = confirmed?.levelA ?? null;
+    const resolvedLevelB = confirmed?.levelB ?? null;
+    const resolvedDeterminable = Boolean(confirmed);
+
+    if (confirmed) {
+      const audit = severityAuditRecord(confirmed);
+      setSeverityAudit(audit);
+    }
+
     const lockedOpening = buildLockedFormulationOpening({
       conclusion: effectiveConclusion,
       clientName: patientDetails.clientName,
@@ -2739,8 +3003,10 @@ export default function TexlexReportPage() {
       );
       return generated;
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return null;
-      if (err instanceof Error && err.name === "AbortError") return null;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return null;
+      }
       console.error("Formulation generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -2767,21 +3033,29 @@ export default function TexlexReportPage() {
       presentingConcerns,
       rawNotes,
       setSectionVoiceCriticBadge,
+      severityLevelA,
+      severityLevelB,
+      severityRationale,
+      severityAudit,
+      clinicalFormulation,
     ]
   );
 
   const handleGenerateFormulation = useCallback(() => {
     const sectionId = "clinical-formulation";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
     }
-    void runFormulationStream();
-  }, [generatingSectionId, runFormulationStream]);
+    const mode: "first" | "regenerate" =
+      clinicalFormulation.trim() || severityAudit ? "regenerate" : "first";
+    void runFormulationStream(undefined, { mode });
+  }, [clinicalFormulation, generatingSectionId, runFormulationStream, severityAudit]);
 
   const handleRegenerateFormulation = useCallback(() => {
-    if (generatingSectionId === "clinical-formulation") return;
-    void runFormulationStream();
+    if (generatingSectionId) return;
+    void runFormulationStream(undefined, { mode: "regenerate" });
   }, [generatingSectionId, runFormulationStream]);
 
   const runRecommendationsStream = useCallback(async () => {
@@ -2791,6 +3065,17 @@ export default function TexlexReportPage() {
       setSectionGenErrors((p) => ({
         ...p,
         [sectionId]: GENERATION_MIN_NOTES_ERROR,
+      }));
+      return;
+    }
+    const modalityGate = gateModality({
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    });
+    if (!modalityGate.ok) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        [sectionId]: modalityGate.errors.join(" "),
       }));
       return;
     }
@@ -2813,6 +3098,10 @@ export default function TexlexReportPage() {
     const criteriaState = buildCriteriaStateBlock(criteria);
     const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
     const chronologicalAge = computeChronologicalAge(patientDetails.dob);
+    const modalityInput = {
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    };
     try {
       await streamTexlexWithCriticSse(
         "/api/generate/recommendations",
@@ -2832,15 +3121,17 @@ export default function TexlexReportPage() {
         },
         (delta) => setRecommendations((prev) => prev + delta),
         (meta, finalContent) => {
-          setRecommendations(finalContent);
+          setRecommendations(ensureInPersonConfirmationText(finalContent, modalityInput));
           setSectionVoiceCriticBadge(sectionId, meta);
           logVoiceCriticComplete("Recommendations", meta);
         },
         controller.signal
       );
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (err instanceof Error && err.name === "AbortError") return;
+      if (isAbortError(err)) {
+        reportStoppedRef.current = true;
+        return;
+      }
       console.error("Recommendations generation error:", err);
       if (genSessionRef.current === session) {
         setSectionGenErrors((p) => ({
@@ -2866,6 +3157,7 @@ export default function TexlexReportPage() {
 
   const handleGenerateRecommendations = useCallback(() => {
     const sectionId = "recommendations";
+    if (generatingSectionId && generatingSectionId !== sectionId) return;
     if (generatingSectionId === sectionId) {
       streamAbortRef.current?.abort();
       return;
@@ -2874,7 +3166,7 @@ export default function TexlexReportPage() {
   }, [generatingSectionId, runRecommendationsStream]);
 
   const handleRegenerateRecommendations = useCallback(() => {
-    if (generatingSectionId === "recommendations") return;
+    if (generatingSectionId) return;
     void runRecommendationsStream();
   }, [generatingSectionId, runRecommendationsStream]);
 
@@ -2888,6 +3180,37 @@ export default function TexlexReportPage() {
       return;
     }
 
+    const modalityGate = gateModality({
+      modality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+    });
+    if (!modalityGate.ok) {
+      setSectionGenErrors((p) => ({
+        ...p,
+        "report-generation": modalityGate.errors.join(" "),
+      }));
+      return;
+    }
+
+    if (resolveTexlexDiagnosticConclusion(diagnosticConclusion) === "meets") {
+      const severityGate = confirmSeverity({
+        levelA: severityLevelA,
+        levelB: severityLevelB,
+        suggestion: buildSeveritySuggestion(pipeline.levelOfSupport),
+        confirmedBy: patientDetails.assessor,
+        rationale: severityRationale,
+        conclusion: "meets",
+        mode: clinicalFormulation.trim() || severityAudit ? "regenerate" : "first",
+      });
+      if (!severityGate.ok) {
+        setSectionGenErrors((p) => ({
+          ...p,
+          "report-generation": severityGate.errors.join(" "),
+        }));
+        return;
+      }
+    }
+
     setSectionGenErrors((p) => {
       const next = { ...p };
       delete next["report-generation"];
@@ -2895,6 +3218,7 @@ export default function TexlexReportPage() {
     });
 
     try {
+      reportStoppedRef.current = false;
       const snapshot: ReportGenerationSnapshot = {
         presentingConcerns,
         background: cloneBackgroundState(background),
@@ -2905,6 +3229,7 @@ export default function TexlexReportPage() {
       };
 
       const presentingGenerated = await runPresentingConcernsStream();
+      if (reportStoppedRef.current) return;
       if (presentingGenerated) snapshot.presentingConcerns = presentingGenerated;
 
       const backgroundKeys: BackgroundSectionKey[] = [
@@ -2915,10 +3240,12 @@ export default function TexlexReportPage() {
       ];
       for (const key of backgroundKeys) {
         const generated = await runBackgroundStream(key);
+        if (reportStoppedRef.current) return;
         if (generated) snapshot.background[key] = generated;
       }
 
       const collateralGenerated = await runCollateralSummaryStream();
+      if (reportStoppedRef.current) return;
       if (collateralGenerated) snapshot.collateralSummary = collateralGenerated;
 
       const applyCriterionNarrative = async (code: CriterionCode) => {
@@ -2939,18 +3266,24 @@ export default function TexlexReportPage() {
 
       for (const code of [...A_CRITERION_CODES, ...B_CRITERION_CODES]) {
         await applyCriterionNarrative(code);
+        if (reportStoppedRef.current) return;
       }
 
       const functionalImpactGenerated = await runFunctionalImpactStream(snapshot);
+      if (reportStoppedRef.current) return;
       if (!functionalImpactGenerated) {
         throw new Error("Functional impact generation did not return prose");
       }
 
       for (const code of C_CRITERION_CODES) {
         await applyCriterionNarrative(code);
+        if (reportStoppedRef.current) return;
       }
 
-      const formulationGenerated = await runFormulationStream(snapshot);
+      const formulationGenerated = await runFormulationStream(snapshot, {
+        mode: snapshot.clinicalFormulation.trim() || severityAudit ? "regenerate" : "first",
+      });
+      if (reportStoppedRef.current) return;
       if (formulationGenerated) snapshot.clinicalFormulation = formulationGenerated;
 
       await runRecommendationsStream();
@@ -2971,15 +3304,122 @@ export default function TexlexReportPage() {
     runRecommendationsStream,
     startCriterionGeneration,
     diagnosticConclusion,
+    patientDetails.assessmentModality,
+    patientDetails.virtualCareReason,
+    patientDetails.assessor,
+    pipeline.levelOfSupport,
+    severityLevelA,
+    severityLevelB,
+    severityRationale,
+    clinicalFormulation,
+    severityAudit,
   ]);
 
   const handleGenerateReport = useCallback(() => {
     if (generatingSectionId) {
+      reportStoppedRef.current = true;
       streamAbortRef.current?.abort();
       return;
     }
     void runFullReportGeneration();
   }, [generatingSectionId, runFullReportGeneration]);
+
+  const [sessionSectionsGenerating, setSessionSectionsGenerating] = useState(false);
+
+  /** Option A: presenting concerns + four backgrounds from scribe transcript (not collateral). */
+  const runSessionNarrativeFromTranscript = useCallback(
+    async (transcript: string) => {
+      const sessionNotes = transcript.trim();
+      if (sessionNotes.length < GENERATION_MIN_NOTES_CHARS) {
+        throw new Error(GENERATION_MIN_NOTES_ERROR);
+      }
+
+      const existing = rawNotes.trim();
+      const mergedNotes =
+        !existing
+          ? sessionNotes
+          : existing.includes(sessionNotes)
+            ? existing
+            : `${existing}\n\n--- Whisper transcript ---\n\n${sessionNotes}`;
+
+      setLastEditAt(Date.now());
+      setRawNotes(mergedNotes);
+
+      streamAbortRef.current?.abort();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const session = ++genSessionRef.current;
+      setSessionSectionsGenerating(true);
+
+      const patientPayload = {
+        clientName: patientDetails.clientName,
+        pronouns: patientDetails.pronouns,
+        chronologicalAge: computeChronologicalAge(patientDetails.dob),
+        yearLevel: patientDetails.yearLevel,
+        rawNotes: mergedNotes,
+      };
+
+      try {
+        setGeneratingSectionId("presenting-concerns");
+        setSectionGenErrors((p) => {
+          const n = { ...p };
+          delete n["presenting-concerns"];
+          delete n["session-sections"];
+          return n;
+        });
+        setPresentingConcerns("");
+        await streamTexlexSse(
+          "/api/generate/presenting-concerns",
+          patientPayload,
+          (delta) => setPresentingConcerns((prev) => prev + delta),
+          controller.signal
+        );
+
+        const backgroundKeys: BackgroundSectionKey[] = [
+          "pregnancyBirth",
+          "earlyDevelopment",
+          "educationalHistory",
+          "emotionalBehaviouralSensory",
+        ];
+        for (const key of backgroundKeys) {
+          if (controller.signal.aborted) return;
+          const sectionId = BACKGROUND_STREAM_SLUG[key];
+          setGeneratingSectionId(sectionId);
+          setSectionGenErrors((p) => {
+            const n = { ...p };
+            delete n[sectionId];
+            return n;
+          });
+          setBackground((b) => ({ ...b, [key]: "" }));
+          await streamTexlexSse(
+            `/api/generate/${sectionId}`,
+            patientPayload,
+            (delta) => setBackground((b) => ({ ...b, [key]: b[key] + delta })),
+            controller.signal
+          );
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        console.error("Session narrative generation error:", err);
+        if (genSessionRef.current === session) {
+          setSectionGenErrors((p) => ({
+            ...p,
+            "session-sections":
+              err instanceof Error ? err.message : "Session section generation failed.",
+          }));
+        }
+        throw err instanceof Error ? err : new Error("Session section generation failed.");
+      } finally {
+        if (genSessionRef.current === session) {
+          setGeneratingSectionId(null);
+          streamAbortRef.current = null;
+          setSessionSectionsGenerating(false);
+        }
+      }
+    },
+    [patientDetails, rawNotes]
+  );
 
   const getCriterionGenerateProps = useCallback(
     (code: CriterionCode) => {
@@ -2988,7 +3428,8 @@ export default function TexlexReportPage() {
       return {
         onGenerate: () => handleGenerateCriterion(code),
         onRegenerate: () => handleRegenerateCriterion(code),
-        regenerateDisabled: active,
+        generateDisabled: Boolean(generatingSectionId) && !active,
+        regenerateDisabled: Boolean(generatingSectionId),
         generateLabel: active ? ("Stop" as const) : ("Generate" as const),
         topSlot: active ? (
           <span className="inline-flex w-full basis-full items-center gap-1.5 text-xs text-muted-foreground">
@@ -3068,20 +3509,32 @@ export default function TexlexReportPage() {
     }, 4000);
   }, []);
 
+  const linkClinikoFromCollateral = useCallback(async (patientId: string) => {
+    const linked = await loadClinikoDraftLink(patientId, "asd");
+    touch();
+    setCliniko(linked);
+  }, [touch]);
+
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (raw) {
-        const data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
-        applyLocalDraftData(data);
-        try {
-          localStorage.removeItem(LEGACY_STORAGE_KEY);
-        } catch {
-          /* ignore */
+    migrateAsdLegacyLocalDrafts();
+    const activeKey =
+      readEngineActiveDraftKey("asd") ?? engineLocalDraftKey("asd", null);
+    const draft = readLocalEngineDraft<Partial<TexlexReportDraftV1>>(activeKey);
+    if (draft && draftMatchesStorageKey("asd", activeKey, draft)) {
+      const comparable = buildComparableDraftFromStorage(draft);
+      if (!isTexlexDraftEffectivelyEmpty(comparable)) {
+        suppressAutosaveRef.current = true;
+        applyLocalDraftData(draft);
+        // Local restore is not a Supabase confirmed-save — keep tab-close warning armed.
+        setLastEditAt(Date.now());
+        setLocalDraftRestoredNotice({
+          lastSaved: draft.lastSaved ?? new Date().toISOString(),
+          storageKey: activeKey,
+        });
+        if (draft.cliniko?.patientId) {
+          cloudResumeHandledPatientRef.current = draft.cliniko.patientId;
         }
       }
-    } catch {
-      /* ignore corrupt storage */
     }
     setHydrated(true);
   }, [applyLocalDraftData]);
@@ -3112,6 +3565,7 @@ export default function TexlexReportPage() {
   const persistPayload = useMemo((): TexlexReportDraftV1 => {
     const lastSaved = new Date().toISOString();
     return {
+      engine: "asd",
       patientDetails,
       cliniko,
       rawNotes,
@@ -3127,6 +3581,9 @@ export default function TexlexReportPage() {
       limitationsText,
       lastSaved,
       diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
+      severityAudit,
+      finalizeReviewRuns: finalizeReviewRuns.slice(-20),
+      finalPackageReady,
     };
   }, [
     patientDetails,
@@ -3143,6 +3600,9 @@ export default function TexlexReportPage() {
     recommendations,
     limitationsText,
     diagnosticConclusion,
+    severityAudit,
+    finalizeReviewRuns,
+    finalPackageReady,
   ]);
 
   const draftIsEffectivelyEmpty = useMemo(
@@ -3181,107 +3641,119 @@ export default function TexlexReportPage() {
     ]
   );
 
+  const asdClinicalSnapshotRef = useRef({
+    rawNotes,
+    collateralDocs,
+    criteria,
+    presentingConcernsRaw,
+    presentingConcerns,
+    background,
+    collateralSummary,
+    functionalImpactSummary,
+    clinicalFormulation,
+    recommendations,
+    limitationsText,
+    diagnosticConclusion,
+  });
+  asdClinicalSnapshotRef.current = {
+    rawNotes,
+    collateralDocs,
+    criteria,
+    presentingConcernsRaw,
+    presentingConcerns,
+    background,
+    collateralSummary,
+    functionalImpactSummary,
+    clinicalFormulation,
+    recommendations,
+    limitationsText,
+    diagnosticConclusion,
+  };
+
+  // Supabase resume only when a Cliniko patient is linked and no matching local draft was restored.
   useEffect(() => {
     if (!hydrated) return;
-    const activeKey = getStorageKey(cliniko?.patientId ?? null, patientDetails.clientName);
-    if (draftResumePrompt && draftResumePrompt.activeKey !== activeKey) {
-      setDraftResumePrompt(null);
-    }
-    if (!activeKey) {
-      processedDraftResumeKeyRef.current = null;
+    if (clinikoPatientLoadLockRef.current > 0) return;
+    const patientId = cliniko?.patientId;
+    if (!patientId) {
       setDraftResumePrompt(null);
       return;
     }
-    if (draftResumePrompt?.activeKey === activeKey) return;
-    if (processedDraftResumeKeyRef.current === activeKey) return;
+    if (cloudResumeHandledPatientRef.current === patientId) return;
 
-    let raw: string | null = null;
-    try {
-      raw = localStorage.getItem(activeKey);
-    } catch {
-      return;
-    }
-    if (!raw) {
-      const fallbackPatientId = cliniko?.patientId;
-      if (fallbackPatientId) {
-        processedDraftResumeKeyRef.current = activeKey;
-        void (async () => {
-          const remote = await fetchReportStateFromSupabase(fallbackPatientId);
-          if (!remote) return;
-          const patientLabel =
-            patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
-          const lastSavedLabel =
-            typeof remote.lastSaved === "string" ? formatSavedAgo(remote.lastSaved, Date.now()) : "saved in Cliniko/cloud";
-          setDraftResumePrompt((prev) => (prev?.activeKey === activeKey ? prev : { patientLabel, lastSavedLabel, stored: remote, activeKey }));
-        })();
+    const localKey = engineLocalDraftKey("asd", patientId);
+    const localDraft = readLocalEngineDraft<Partial<TexlexReportDraftV1>>(localKey);
+    if (
+      localDraft &&
+      draftMatchesStorageKey("asd", localKey, localDraft) &&
+      !isTexlexDraftEffectivelyEmpty(buildComparableDraftFromStorage(localDraft))
+    ) {
+      // Restore clinical content only — never overwrite Cliniko-loaded name/demographics
+      // (polluted asd:{emmaId} drafts previously stored Jessica Little's clientName).
+      // Ignore collateralDocs for the "already working" gate so calendar file import
+      // does not block restoring notes/sections from the draft.
+      if (
+        !texlexHasClinicalWorkingContent(asdClinicalSnapshotRef.current, {
+          ignoreCollateralDocs: true,
+        })
+      ) {
+        suppressAutosaveRef.current = true;
+        applyLocalDraftData(localDraft, { clinicalOnly: true });
+        setLocalDraftRestoredNotice({
+          lastSaved: localDraft.lastSaved ?? new Date().toISOString(),
+          storageKey: localKey,
+        });
       }
+      cloudResumeHandledPatientRef.current = patientId;
       return;
     }
 
-    let data: Partial<TexlexReportDraftV1>;
-    try {
-      data = JSON.parse(raw) as Partial<TexlexReportDraftV1>;
-    } catch {
-      processedDraftResumeKeyRef.current = activeKey;
-      return;
-    }
+    let cancelled = false;
+    void (async () => {
+      const remote = await fetchReportStateFromSupabase(patientId);
+      if (cancelled) return;
+      cloudResumeHandledPatientRef.current = patientId;
+      if (!remote) return;
+      const patientLabel =
+        patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
+      const lastSavedLabel =
+        typeof remote.lastSaved === "string"
+          ? formatSavedAgo(remote.lastSaved, Date.now())
+          : "saved in Cliniko/cloud";
+      setDraftResumePrompt({
+        patientLabel,
+        lastSavedLabel,
+        stored: remote,
+        activeKey: localKey,
+      });
+    })();
 
-    if (draftIsEffectivelyEmpty) {
-      applyLocalDraftData(data);
-      if (typeof data.lastSaved === "string") setLastSavedAt(data.lastSaved);
-      processedDraftResumeKeyRef.current = activeKey;
-      return;
-    }
-
-    try {
-      const storedComparable = buildComparableDraftFromStorage(data);
-      const currentComparable = omitLastSaved(persistPayload);
-      if (JSON.stringify(storedComparable) === JSON.stringify(currentComparable)) {
-        processedDraftResumeKeyRef.current = activeKey;
-        return;
-      }
-    } catch {
-      processedDraftResumeKeyRef.current = activeKey;
-      return;
-    }
-
-    const patientLabel =
-      patientDetails.clientName.trim() || cliniko?.connectedName?.trim() || "this patient";
-    const lastSavedLabel =
-      typeof data.lastSaved === "string" ? formatSavedAgo(data.lastSaved, Date.now()) : "unknown time";
-
-    setDraftResumePrompt((prev) => {
-      if (prev?.activeKey === activeKey) return prev;
-      return { patientLabel, lastSavedLabel, stored: data, activeKey };
-    });
+    return () => {
+      cancelled = true;
+    };
   }, [
-    hydrated,
-    cliniko?.patientId,
-    cliniko?.connectedName,
-    patientDetails.clientName,
-    draftIsEffectivelyEmpty,
-    persistPayload,
     applyLocalDraftData,
-    draftResumePrompt,
+    cliniko?.connectedName,
+    cliniko?.patientId,
+    clinikoPatientLoadGate,
+    hydrated,
+    patientDetails.clientName,
   ]);
 
-  const startNewReport = useCallback(() => {
+  const resetAllReportState = useCallback(() => {
     streamAbortRef.current?.abort();
     genSessionRef.current += 1;
+    draftWriteEpochRef.current += 1;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    const activeKey = getStorageKey(cliniko?.patientId ?? null, patientDetails.clientName);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-      if (activeKey) localStorage.removeItem(activeKey);
-    } catch {
-      /* ignore */
-    }
+    suppressAutosaveRef.current = true;
+    cloudResumeHandledPatientRef.current = null;
+    setReportEpoch((epoch) => epoch + 1);
 
     setDraftResumePrompt(null);
-    processedDraftResumeKeyRef.current = null;
+    setLocalDraftRestoredNotice(null);
 
     const fresh = defaultDraft();
     setPatientDetails(patientDetailsAfterNewReport());
@@ -3301,21 +3773,113 @@ export default function TexlexReportPage() {
     setRecommendations(fresh.recommendations);
     setLimitationsText(fresh.limitationsText);
     setDiagnosticConclusion(fresh.diagnosticConclusion ?? "inconclusive");
+    setSeverityLevelA(undefined);
+    setSeverityLevelB(undefined);
+    setSeverityRationale("");
+    setSeverityAudit(null);
+    severityRationaleTouchedRef.current = false;
+    severityLevelsTouchedRef.current = false;
+    setFinalizeReviewRuns([]);
+    setFinalizeReviewing(false);
+    setFinalizeReviewError(null);
+    setFinalPackageReady(false);
+    setSessionSectionsGenerating(false);
+    setPdfBusyMode(null);
+    setSendDrawerOpen(false);
     setEditLimitations(false);
     setGeneratingSectionId(null);
     setSectionGenErrors({});
+    setVoiceCriticBadgeBySection({});
+    setFormulationTruncationWarning(null);
     setLastSavedAt(null);
+    setLastCloudSavedAt(null);
     setSaveFailed(false);
     setSaveToast(false);
     setLastEditAt(0);
+    setPdfPreviewOpen(false);
+    setPdfPreviewError(null);
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  /**
+   * Calendar/search/Hey Tex switched to a different Cliniko patient while a draft
+   * was open (e.g. Jessica Little). Save the old draft, wipe clinical content so
+   * it cannot be uploaded under the new patient, then let patient load continue.
+   */
+  const prepareClinikoPatientSwitch = useCallback(
+    async (_nextPatientId: string) => {
+      try {
+        writeAsdLocalDraft(persistPayloadRef.current, draftWriteEpochRef.current);
+      } catch {
+        /* best-effort */
+      }
+      streamAbortRef.current?.abort();
+      genSessionRef.current += 1;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      suppressAutosaveRef.current = true;
+      // Keep previous patient marked "handled" so draft restore does not refill the
+      // cleared clinical state with the OLD patient's draft while Emma (etc.) loads.
+      setDraftResumePrompt(null);
+      setLocalDraftRestoredNotice(null);
+
+      const fresh = defaultDraft();
+      setRawNotes(fresh.rawNotes);
+      setCollateralDocs(fresh.collateralDocs);
+      setCriteria(fresh.criteria);
+      setPresentingConcernsRaw(fresh.presentingConcernsRaw);
+      setPresentingConcerns(fresh.presentingConcerns);
+      setBackground(fresh.background);
+      setCollateralSummary(fresh.collateralSummary);
+      setFunctionalImpactSummary(fresh.functionalImpactSummary);
+      setClinicalFormulation(fresh.clinicalFormulation);
+      setRecommendations(fresh.recommendations);
+      setLimitationsText(fresh.limitationsText);
+      setDiagnosticConclusion(fresh.diagnosticConclusion ?? "inconclusive");
+      setSeverityLevelA(undefined);
+      setSeverityLevelB(undefined);
+      setSeverityRationale("");
+      setSeverityAudit(null);
+      severityRationaleTouchedRef.current = false;
+      severityLevelsTouchedRef.current = false;
+      setFinalizeReviewRuns([]);
+      setFinalizeReviewError(null);
+      setFinalPackageReady(false);
+      setEditLimitations(false);
+      setGeneratingSectionId(null);
+      setSectionGenErrors({});
+      setVoiceCriticBadgeBySection({});
+      setFormulationTruncationWarning(null);
+      setLastSavedAt(null);
+      setLastCloudSavedAt(null);
+      setSaveFailed(false);
+      setSaveToast(false);
+      setLastEditAt(0);
+      setClinikoSyncNotice(null);
+    },
+    []
+  );
+
+  const startNewReport = useCallback(() => {
+    const patientId = cliniko?.patientId ?? null;
+    clearLocalEngineDraft(engineLocalDraftKey("asd", patientId));
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    clearAsdLegacyLocalDraftKeys(patientId, patientDetails.clientName);
+    resetAllReportState();
     setNewReportToast(true);
     if (newReportToastTimerRef.current) clearTimeout(newReportToastTimerRef.current);
     newReportToastTimerRef.current = globalThis.setTimeout(() => {
       setNewReportToast(false);
       newReportToastTimerRef.current = null;
     }, 2000);
-  }, [cliniko, patientDetails]);
+  }, [cliniko, patientDetails, resetAllReportState]);
 
   const handleNewReportClick = useCallback(() => {
     if (pdfDownloading) return;
@@ -3341,20 +3905,38 @@ export default function TexlexReportPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    const activeKey = getStorageKey(
-      persistPayload.cliniko?.patientId ?? null,
-      persistPayload.patientDetails.clientName
+    const activeKey = engineLocalDraftKey(
+      "asd",
+      persistPayload.cliniko?.patientId ?? null
     );
-    if (!activeKey) return;
     try {
       const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
-      localStorage.setItem(activeKey, JSON.stringify(payload));
-      setLastSavedAt(payload.lastSaved);
+      if (draftMatchesStorageKey("asd", activeKey, payload)) {
+        const written = writeLocalEngineDraft("asd", activeKey, payload);
+        if (written.ok) {
+          setLastSavedAt(written.lastSaved);
+          if (payload.cliniko?.patientId) {
+            clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+          }
+        }
+      }
       const uploaded = await uploadStateToCliniko(payload);
       if (!uploaded) {
-        setSaveFailed(true);
+        // Local safety-net still saved; only fail the confirmed cloud path when linked.
+        if (payload.cliniko?.patientId) {
+          setSaveFailed(true);
+          return;
+        }
+        setSaveFailed(false);
+        setSaveToast(true);
+        if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+        saveToastTimerRef.current = globalThis.setTimeout(() => {
+          setSaveToast(false);
+          saveToastTimerRef.current = null;
+        }, 2000);
         return;
       }
+      setLastCloudSavedAt(payload.lastSaved);
       setSaveFailed(false);
       setSaveToast(true);
       if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
@@ -3367,10 +3949,603 @@ export default function TexlexReportPage() {
     }
   }, [persistPayload]);
 
-  const handleDownloadPdf = useCallback(async () => {
-    setPdfDownloading(true);
+  const buildAsdPdfBlob = useCallback(async (): Promise<{ blob: Blob; filename: string }> => {
+    const [{ pdf }, { TexlexPdfDocument }] = await Promise.all([
+      import("@react-pdf/renderer"),
+      import("./pdf/TexlexPdfDocument"),
+    ]);
+    const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
+      persistPayload;
+    const sanitised = sanitiseForPdf(draft);
+    // Prefer live Cliniko connected name over possibly polluted draft clientName.
+    const connectedName = (persistPayload.cliniko?.connectedName ?? "").trim();
+    const detailsName = (sanitised.patientDetails.clientName ?? "").trim();
+    const reportName = connectedName || detailsName;
+    const cleanDraft = buildPdfRenderDraftFromSanitized({
+      ...sanitised,
+      patientDetails: {
+        ...sanitised.patientDetails,
+        clientName: reportName || sanitised.patientDetails.clientName,
+      },
+    });
+    const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
+    let signatureSrc = await resolveTexlexSignatureSrc();
+    let blob: Blob;
+    try {
+      blob = await pdf(
+        <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+      ).toBlob();
+    } catch (firstError) {
+      console.warn("Texlex PDF export: first attempt failed, retrying without signature image.", firstError);
+      signatureSrc = null;
+      blob = await pdf(
+        <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
+      ).toBlob();
+    }
+    const stem = safeFilenamePart(reportName);
+    const filename = `${stem}-ASDReport-${cleanDraft.patientDetails.reportDate}.pdf`;
+    return { blob, filename };
+  }, [persistPayload]);
+
+  const triggerPdfDownload = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleDownloadOnly = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("only");
     setClinikoSyncNotice(null);
-    if (cliniko?.patientId && cliniko.syncEnabled) {
+    try {
+      const { blob, filename } = await buildAsdPdfBlob();
+      triggerPdfDownload(blob, filename);
+      setClinikoSyncNotice(`Downloaded — not saved to ${practiceLabel(cliniko?.source)}.`);
+    } catch (error) {
+      console.error("Texlex PDF export failed:", error);
+      window.alert("Could not prepare the PDF. Please try again.");
+    } finally {
+      setPdfBusyMode(null);
+    }
+  }, [buildAsdPdfBlob, cliniko?.source, pdfBusyMode, triggerPdfDownload]);
+
+  const finalPdfUnlocked = useMemo(() => {
+    if (!finalizeReviewRuns.length) return false;
+    const latest = finalizeReviewRuns[finalizeReviewRuns.length - 1]!;
+    return latest.summary.openBlockingCount === 0;
+  }, [finalizeReviewRuns]);
+
+  const asdAuditChecklist = useMemo(() => {
+    const latest = finalizeReviewRuns.length
+      ? finalizeReviewRuns[finalizeReviewRuns.length - 1]!
+      : null;
+    const criterionAbText = ["A1", "A2", "A3", "B1", "B2", "B3", "B4"]
+      .map((code) => criteria[code as CriterionCode]?.indicators ?? "")
+      .join("\n");
+    return buildAsdAuditChecklist({
+      assessmentModality: patientDetails.assessmentModality,
+      virtualCareReason: patientDetails.virtualCareReason,
+      diagnosticConclusion: resolveTexlexDiagnosticConclusion(diagnosticConclusion),
+      school: patientDetails.school,
+      collateralSummary,
+      clinicalFormulation,
+      criterionE: criteria.E?.indicators ?? "",
+      functionalImpactSummary,
+      limitationsText,
+      criterionAbText,
+      openFindings: latest?.findings ?? [],
+    });
+  }, [
+    clinicalFormulation,
+    collateralSummary,
+    criteria,
+    diagnosticConclusion,
+    finalizeReviewRuns,
+    functionalImpactSummary,
+    limitationsText,
+    patientDetails.assessmentModality,
+    patientDetails.school,
+    patientDetails.virtualCareReason,
+  ]);
+
+  const scrollToFinalizeReview = useCallback(() => {
+    document.getElementById("finalize-review")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const scrollToSend = useCallback(() => {
+    document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const letterMergeFields = useMemo((): LetterMergeFields => {
+    const conclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+    const levelA = severityAudit?.confirmed_levelA ?? severityLevelA ?? null;
+    const levelB = severityAudit?.confirmed_levelB ?? severityLevelB ?? null;
+    let severityLine = "";
+    if (conclusion === "meets" && levelA != null && levelB != null) {
+      severityLine = `DSM-5-TR severity: Level ${levelA} (social communication) / Level ${levelB} (restricted, repetitive behaviours).`;
+    }
+    const modality =
+      patientDetails.assessmentModality === "in-clinic"
+        ? "in-clinic"
+        : patientDetails.assessmentModality === "virtual"
+          ? "via secure video (telehealth virtual care)"
+          : "";
+    return {
+      clientName: patientDetails.clientName.trim(),
+      clientFirstName: clientFirstName(patientDetails.clientName),
+      pronouns: patientDetails.pronouns.trim(),
+      dob: patientDetails.dob.trim(),
+      chronologicalAge: computeChronologicalAge(patientDetails.dob),
+      parent1: patientDetails.parent1.trim(),
+      parent2: patientDetails.parent2.trim(),
+      school: patientDetails.school.trim(),
+      yearLevel: patientDetails.yearLevel.trim(),
+      referringPractitioner: patientDetails.referringPractitioner.trim(),
+      referringPractitionerType: patientDetails.referringPractitionerType.trim(),
+      assessor: patientDetails.assessor.trim() || DEFAULT_ASSESSOR,
+      reportDate: patientDetails.reportDate.trim(),
+      assessmentModality: modality,
+      diagnosticConclusionLabel: DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL[conclusion],
+      severityLine,
+      practiceName: TEXLEX_SIGNATURE.practice,
+      practicePhone: "",
+    };
+  }, [
+    diagnosticConclusion,
+    patientDetails,
+    severityAudit,
+    severityLevelA,
+    severityLevelB,
+  ]);
+
+  const sendRecipientBuckets = useMemo(() => {
+    return {
+      parentEmails: parseRecipientList(
+        [patientDetails.parentEmail, patientDetails.parent2Email].filter(Boolean).join(", ")
+      ),
+      clinicianEmails: parseRecipientList(patientDetails.referringPractitionerEmail),
+    };
+  }, [
+    patientDetails.parentEmail,
+    patientDetails.parent2Email,
+    patientDetails.referringPractitionerEmail,
+  ]);
+
+  const buildReportPdfBase64ForSend = useCallback(async () => {
+    const { blob, filename } = await buildAsdPdfBlob();
+    const buf = await blob.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    return { filename, contentBase64: btoa(binary) };
+  }, [buildAsdPdfBlob]);
+
+  const buildLetterPdfBase64ForSend = useCallback(
+    async (args: { kind: LetterKind; body: string }) => {
+      const [{ pdf }, { TexlexLetterPdfDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("./pdf/TexlexLetterPdfDocument"),
+      ]);
+      const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
+      let signatureSrc = await resolveTexlexSignatureSrc();
+      let blob: Blob;
+      try {
+        blob = await pdf(
+          <TexlexLetterPdfDocument
+            kind={args.kind}
+            body={args.body}
+            fields={letterMergeFields}
+            logoSrc={logoSrc}
+            signatureSrc={signatureSrc}
+          />
+        ).toBlob();
+      } catch (firstError) {
+        console.warn("Texlex letter PDF: retry without signature image.", firstError);
+        signatureSrc = null;
+        blob = await pdf(
+          <TexlexLetterPdfDocument
+            kind={args.kind}
+            body={args.body}
+            fields={letterMergeFields}
+            logoSrc={logoSrc}
+            signatureSrc={signatureSrc}
+          />
+        ).toBlob();
+      }
+      const buf = await blob.arrayBuffer();
+      let binary = "";
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+      const stem = safeFilenamePart(letterMergeFields.clientName || "client");
+      const kindSlug = args.kind.replace(/_/g, "-");
+      const filename = `${stem}-TexlexLetter-${kindSlug}-${letterMergeFields.reportDate || "draft"}.pdf`;
+      return { filename, contentBase64: btoa(binary) };
+    },
+    [letterMergeFields]
+  );
+
+  const runFinalizeReview = useCallback(async () => {
+    setFinalizeReviewing(true);
+    setFinalizeReviewError(null);
+    touch();
+    try {
+      const effectiveConclusion = resolveTexlexDiagnosticConclusion(diagnosticConclusion);
+      const levelA = severityAudit?.confirmed_levelA ?? severityLevelA ?? null;
+      const levelB = severityAudit?.confirmed_levelB ?? severityLevelB ?? null;
+      let expectedFormulationOpening = "";
+      try {
+        expectedFormulationOpening = buildLockedFormulationOpening({
+          conclusion: effectiveConclusion,
+          clientName: patientDetails.clientName,
+          criteria: criteriaSnapshotForFormulationLock(criteria),
+          levelA,
+          levelB,
+          determinable: levelA != null && levelB != null,
+        });
+      } catch {
+        expectedFormulationOpening = "";
+      }
+
+      const sections = buildAsdReviewSections({
+        presentingConcerns,
+        background: {
+          pregnancyBirth: background.pregnancyBirth,
+          earlyDevelopment: background.earlyDevelopment,
+          educationalHistory: background.educationalHistory,
+          emotionalBehaviouralSensory: background.emotionalBehaviouralSensory,
+        },
+        collateralSummary,
+        criteria,
+        functionalImpactSummary,
+        clinicalFormulation,
+        recommendations,
+        limitationsText,
+      });
+
+      const res = await fetch("/api/generate/finalize-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pathway: "asd",
+          patientDetails,
+          diagnosticConclusion: effectiveConclusion,
+          confirmedLevelA: levelA,
+          confirmedLevelB: levelB,
+          expectedFormulationOpening,
+          ratingsAssigned: buildRatingsAssignedSnapshot(criteria),
+          sections,
+          sourceNotes: [
+            rawNotes.trim() ? `RAW NOTES\n${rawNotes.trim()}` : "",
+            presentingConcernsRaw.trim() ? `PRESENTING CONCERNS NOTES\n${presentingConcernsRaw.trim()}` : "",
+            background.pregnancyBirthRaw.trim()
+              ? `PREGNANCY AND BIRTH NOTES\n${background.pregnancyBirthRaw.trim()}`
+              : "",
+            background.earlyDevelopmentRaw.trim()
+              ? `EARLY DEVELOPMENT NOTES\n${background.earlyDevelopmentRaw.trim()}`
+              : "",
+            background.educationalHistoryRaw.trim()
+              ? `EDUCATIONAL HISTORY NOTES\n${background.educationalHistoryRaw.trim()}`
+              : "",
+            background.emotionalBehaviouralSensoryRaw.trim()
+              ? `EMOTIONAL, BEHAVIOURAL AND SENSORY NOTES\n${background.emotionalBehaviouralSensoryRaw.trim()}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 14000),
+        }),
+      });
+      const data = (await res.json()) as { run?: ReviewRun; error?: string };
+      if (!res.ok || !data.run) {
+        throw new Error(data.error || "Finalize review failed");
+      }
+      setFinalizeReviewRuns((prev) => [...prev, data.run!].slice(-20));
+      scrollToFinalizeReview();
+    } catch (err) {
+      setFinalizeReviewError(err instanceof Error ? err.message : "Finalize review failed");
+    } finally {
+      setFinalizeReviewing(false);
+    }
+  }, [
+    background.earlyDevelopment,
+    background.earlyDevelopmentRaw,
+    background.educationalHistory,
+    background.educationalHistoryRaw,
+    background.emotionalBehaviouralSensory,
+    background.emotionalBehaviouralSensoryRaw,
+    background.pregnancyBirth,
+    background.pregnancyBirthRaw,
+    clinicalFormulation,
+    collateralSummary,
+    criteria,
+    diagnosticConclusion,
+    functionalImpactSummary,
+    limitationsText,
+    patientDetails,
+    presentingConcerns,
+    presentingConcernsRaw,
+    rawNotes,
+    recommendations,
+    scrollToFinalizeReview,
+    severityAudit,
+    severityLevelA,
+    severityLevelB,
+    touch,
+  ]);
+
+  const updateLatestFindingStatus = useCallback(
+    (findingId: string, status: ReviewFinding["status"]) => {
+      touch();
+      setFinalizeReviewRuns((prev) => {
+        if (!prev.length) return prev;
+        const next = [...prev];
+        const last = { ...next[next.length - 1]! };
+        last.findings = last.findings.map((f) =>
+          f.id === findingId ? { ...f, status, decidedAt: new Date().toISOString() } : f
+        );
+        last.summary = computeReviewSummary(last.findings);
+        next[next.length - 1] = last;
+        return next;
+      });
+    },
+    [touch]
+  );
+
+  const applyFinalizeFinding = useCallback(
+    (finding: ReviewFinding) => {
+      let placed = false;
+      const keep = (current: string, commit: (next: string) => void) => {
+        const next = placeReviewAlternative(current, finding);
+        if (next == null) return;
+        if (proposalChangesLockedLevel(current, next, severityLevelA, severityLevelB)) return;
+        if (proposalFlipsConclusion(current, next)) return;
+        commit(next);
+        placed = true;
+      };
+
+      switch (finding.sectionId) {
+        case "clinical-formulation":
+          keep(clinicalFormulation, setClinicalFormulation);
+          break;
+        case "presenting-concerns":
+          keep(presentingConcerns, setPresentingConcerns);
+          keep(presentingConcernsRaw, setPresentingConcernsRaw);
+          break;
+        case "functional-impact":
+          keep(functionalImpactSummary, setFunctionalImpactSummary);
+          break;
+        case "recommendations":
+          keep(recommendations, setRecommendations);
+          break;
+        case "collateral":
+          keep(collateralSummary, setCollateralSummary);
+          break;
+        case "limitations":
+          keep(limitationsText, setLimitationsText);
+          break;
+        case "background-pregnancy-birth":
+          keep(background.pregnancyBirth, (next) =>
+            setBackground((b) => ({ ...b, pregnancyBirth: next }))
+          );
+          keep(background.pregnancyBirthRaw, (next) =>
+            setBackground((b) => ({ ...b, pregnancyBirthRaw: next }))
+          );
+          break;
+        case "background-early-development":
+          keep(background.earlyDevelopment, (next) =>
+            setBackground((b) => ({ ...b, earlyDevelopment: next }))
+          );
+          keep(background.earlyDevelopmentRaw, (next) =>
+            setBackground((b) => ({ ...b, earlyDevelopmentRaw: next }))
+          );
+          break;
+        case "background-educational-history":
+          keep(background.educationalHistory, (next) =>
+            setBackground((b) => ({ ...b, educationalHistory: next }))
+          );
+          keep(background.educationalHistoryRaw, (next) =>
+            setBackground((b) => ({ ...b, educationalHistoryRaw: next }))
+          );
+          break;
+        case "background-emotional-behavioural-sensory":
+          keep(background.emotionalBehaviouralSensory, (next) =>
+            setBackground((b) => ({ ...b, emotionalBehaviouralSensory: next }))
+          );
+          keep(background.emotionalBehaviouralSensoryRaw, (next) =>
+            setBackground((b) => ({ ...b, emotionalBehaviouralSensoryRaw: next }))
+          );
+          break;
+        default: {
+          const match = finding.sectionId.match(/^criterion-(.+)$/);
+          if (match) {
+            const code = match[1] as CriterionCode;
+            keep(criteria[code]?.indicators ?? "", (next) =>
+              setCriteria((c) => ({ ...c, [code]: { ...c[code], indicators: next } }))
+            );
+          }
+          break;
+        }
+      }
+
+      if (!placed) {
+        setFinalizeReviewError("That alternative could not be placed in the section. The report text is unchanged.");
+        return false;
+      }
+      setFinalizeReviewError(null);
+      updateLatestFindingStatus(finding.id, "resolved");
+      document.getElementById(finding.sectionId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return true;
+    },
+    [
+      background,
+      clinicalFormulation,
+      collateralSummary,
+      criteria,
+      functionalImpactSummary,
+      limitationsText,
+      presentingConcerns,
+      presentingConcernsRaw,
+      recommendations,
+      severityLevelA,
+      severityLevelB,
+      updateLatestFindingStatus,
+    ]
+  );
+
+  const closePdfPreview = useCallback(() => {
+    setPdfPreviewOpen(false);
+    setPdfPreviewError(null);
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    };
+  }, [pdfPreviewUrl]);
+
+  const handlePreviewPdf = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("preview");
+    setPdfPreviewOpen(true);
+    setPdfPreviewError(null);
+    try {
+      const { blob } = await buildAsdPdfBlob();
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+    } catch (error) {
+      console.error("Texlex PDF preview failed:", error);
+      setPdfPreviewError("Could not prepare the preview. Please try again.");
+    } finally {
+      setPdfBusyMode(null);
+    }
+  }, [buildAsdPdfBlob, pdfBusyMode]);
+
+  const resumeDraftFromName = useCallback(
+    (hit: NamedDraftHit) => {
+      suppressAutosaveRef.current = true;
+      applyLocalDraftData(hit.state as Partial<TexlexReportDraftV1>);
+      if (hit.patientId) {
+        cloudResumeHandledPatientRef.current = hit.patientId;
+        const key = engineLocalDraftKey("asd", hit.patientId);
+        if (draftMatchesStorageKey("asd", key, hit.state as { cliniko?: { patientId?: string | null } | null; engine?: string })) {
+          writeLocalEngineDraft("asd", key, { ...hit.state, engine: "asd" });
+        }
+      }
+      setClinikoToast(`Resumed saved report for ${hit.clientName || "this client"}.`);
+      if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+      clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+        setClinikoToast(null);
+        clinikoToastTimerRef.current = null;
+      }, 3000);
+    },
+    [applyLocalDraftData]
+  );
+
+  const applyImportedReport = useCallback(
+    (importedRaw: TexlexImportedReport, opts: { overwritePatientDetails: boolean }) => {
+      touch();
+      const imported = finalizeImportedReport(importedRaw);
+      const s = imported.sections;
+      if (s.presentingConcerns?.trim()) setPresentingConcerns(s.presentingConcerns);
+      setBackground((prev) => ({
+        ...prev,
+        ...(s.pregnancyBirth?.trim() ? { pregnancyBirth: s.pregnancyBirth } : {}),
+        ...(s.earlyDevelopment?.trim() ? { earlyDevelopment: s.earlyDevelopment } : {}),
+        ...(s.educationalHistory?.trim() ? { educationalHistory: s.educationalHistory } : {}),
+        ...(s.emotionalBehaviouralSensory?.trim()
+          ? { emotionalBehaviouralSensory: s.emotionalBehaviouralSensory }
+          : {}),
+      }));
+      if (s.collateralSummary?.trim()) setCollateralSummary(s.collateralSummary);
+      if (s.functionalImpactSummary?.trim()) setFunctionalImpactSummary(s.functionalImpactSummary);
+      if (s.formulation?.trim()) setClinicalFormulation(s.formulation);
+      if (s.recommendations?.trim()) setRecommendations(s.recommendations);
+      if (s.limitationsText?.trim()) setLimitationsText(s.limitationsText);
+      if (s.criteria) {
+        setCriteria((prev) => {
+          const next = { ...prev };
+          for (const code of ASD_CRITERION_CODES) {
+            const row = s.criteria?.[code];
+            if (!row) continue;
+            const rating = row.rating ?? null;
+            next[code] = {
+              ...next[code],
+              code,
+              indicators: row.indicators.trim() || next[code].indicators,
+              rating,
+              suggestedRating: rating,
+            };
+          }
+          return next;
+        });
+      }
+      if (
+        imported.diagnosticConclusion === "meets" ||
+        imported.diagnosticConclusion === "does_not_meet" ||
+        imported.diagnosticConclusion === "inconclusive"
+      ) {
+        setDiagnosticConclusion(imported.diagnosticConclusion);
+      }
+      setPatientDetails((prev) => {
+        const next = { ...prev };
+        const fill = (key: keyof PatientDetails, value?: string) => {
+          if (!value?.trim()) return;
+          if (opts.overwritePatientDetails || !String(prev[key] ?? "").trim()) {
+            (next as Record<string, unknown>)[key] = value.trim();
+          }
+        };
+        const d = imported.patientDetails;
+        fill("clientName", d.clientName);
+        fill("dob", d.dob);
+        fill("pronouns", d.pronouns);
+        fill("yearLevel", d.yearLevel);
+        fill("school", d.school);
+        fill("parent1", d.parent1);
+        fill("parent2", d.parent2);
+        fill("phone", d.phone);
+        fill("address", d.address);
+        fill("referringPractitioner", d.referringPractitioner);
+        fill("assessor", d.assessor);
+        fill("reportDate", d.reportDate);
+        if (d.assessmentDate?.trim()) {
+          if (opts.overwritePatientDetails || prev.assessmentDates.length === 0) {
+            next.assessmentDates = [d.assessmentDate.trim()];
+          }
+        }
+        return next;
+      });
+      setClinikoToast(
+        `Imported ${imported.filledSectionLabels.length} section(s) from finished report (${imported.confidence} confidence). Fix typos, then Preview / Download.` +
+          (imported.sections.criteria
+            ? ` Ratings: ${ASD_CRITERION_CODES.filter((c) => imported.sections.criteria?.[c])
+                .map((c) => `${c}=${imported.sections.criteria?.[c]?.rating ?? "—"}`)
+                .join(" · ")}.`
+            : "")
+      );
+      if (clinikoToastTimerRef.current) clearTimeout(clinikoToastTimerRef.current);
+      clinikoToastTimerRef.current = globalThis.setTimeout(() => {
+        setClinikoToast(null);
+        clinikoToastTimerRef.current = null;
+      }, 5000);
+    },
+    [touch]
+  );
+
+  const handleDownloadAndSave = useCallback(async () => {
+    if (pdfBusyMode !== null) return;
+    setPdfBusyMode("save");
+    setClinikoSyncNotice(null);
+    if (cliniko?.patientId && cliniko.syncEnabled && cliniko.source !== "halaxy") {
       setClinikoSyncInProgress(true);
       try {
         const response = await fetch("/api/cliniko/sync", {
@@ -3417,36 +4592,10 @@ export default function TexlexReportPage() {
       }
     }
     try {
-      const [{ pdf }, { TexlexPdfDocument }] = await Promise.all([
-        import("@react-pdf/renderer"),
-        import("./pdf/TexlexPdfDocument"),
-      ]);
-      const { lastSaved: _lastSaved, rawNotes: _rawNotes, collateralDocs: _collateralDocs, ...draft } =
-        persistPayload;
-      const sanitised = sanitiseForPdf(draft);
-      const cleanDraft = buildPdfRenderDraftFromSanitized(sanitised);
-      const logoSrc = resolveTexlexPublicAsset(TEXLEX_LOGO_PATH);
-      let signatureSrc = await resolveTexlexSignatureSrc();
-      let blob: Blob;
-      try {
-        blob = await pdf(
-          <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
-        ).toBlob();
-      } catch (firstError) {
-        console.warn("Texlex PDF export: first attempt failed, retrying without signature image.", firstError);
-        signatureSrc = null;
-        blob = await pdf(
-          <TexlexPdfDocument draft={cleanDraft} logoSrc={logoSrc} signatureSrc={signatureSrc} />
-        ).toBlob();
-      }
-      const stem = safeFilenamePart(draft.patientDetails.clientName);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const { blob, filename } = await buildAsdPdfBlob();
+      triggerPdfDownload(blob, filename);
       const finalisePatientId = cliniko?.patientId;
+      let clinikoFileOk = !finalisePatientId;
       if (finalisePatientId) {
         try {
           const buf = await blob.arrayBuffer();
@@ -3454,31 +4603,64 @@ export default function TexlexReportPage() {
           const bytes = new Uint8Array(buf);
           for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
           const base64 = btoa(binary);
-          const dateStamp = new Date().toISOString().slice(0, 10);
-          await fetch("/api/cliniko/files", {
+          const uploadRes = await fetch(`${practiceApiBase(cliniko?.source)}/files`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               patientId: finalisePatientId,
-              filename: `${stem}-ASDReport-${draft.patientDetails.reportDate}.pdf`,
+              filename,
               content: base64,
               contentType: "application/pdf",
               encoding: "base64",
               description: "Texlex finalised report",
+              createTask: cliniko?.source === "halaxy",
+              taskTitle: "Review final ASD report PDF",
             }),
           });
-          setClinikoSyncNotice("Report saved to Cliniko");
+          const errBody = (await uploadRes.json().catch(() => ({}))) as {
+            success?: boolean;
+            error?: string;
+            taskCreated?: boolean;
+            taskError?: string | null;
+          };
+          if (!uploadRes.ok || errBody.success === false) {
+            throw new Error(errBody.error || `${practiceLabel(cliniko?.source)} upload failed (${uploadRes.status})`);
+          }
+          clinikoFileOk = true;
+          const taskLine =
+            cliniko?.source === "halaxy"
+              ? errBody.taskCreated
+                ? " Task created in Halaxy."
+                : errBody.taskError
+                  ? ` ${errBody.taskError}`
+                  : ""
+              : "";
+          setClinikoSyncNotice(`Report saved to ${practiceLabel(cliniko?.source)}.${taskLine}`);
         } catch (uploadErr) {
-          console.error("Cliniko PDF upload failed (download succeeded):", uploadErr);
+          console.error("Practice PDF upload failed (download succeeded):", uploadErr);
+          setClinikoSyncNotice(
+            `Downloaded — ${practiceLabel(cliniko?.source)} file upload failed (retry Final PDF).`
+          );
         }
       }
+      // Unlock Send after Final PDF download (Cliniko upload best-effort).
+      setFinalPackageReady(true);
+      if (finalisePatientId && !clinikoFileOk) {
+        /* notice already set */
+      } else if (!finalisePatientId) {
+        setClinikoSyncNotice((prev) => prev || "Final PDF ready — send via Texlex below.");
+      }
+      // Low-admin: land on Send after Final PDF
+      globalThis.setTimeout(() => {
+        document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 250);
     } catch (error) {
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");
     } finally {
-      setPdfDownloading(false);
+      setPdfBusyMode(null);
     }
-  }, [cliniko, patientDetails, persistPayload]);
+  }, [buildAsdPdfBlob, cliniko, patientDetails, pdfBusyMode, triggerPdfDownload]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -3491,26 +4673,60 @@ export default function TexlexReportPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [saveDraftNow]);
 
+  const persistPayloadRef = useRef(persistPayload);
+  persistPayloadRef.current = persistPayload;
+
+  const writeAsdLocalDraft = useCallback((payload: TexlexReportDraftV1, writeEpoch?: number) => {
+    if (writeEpoch !== undefined && writeEpoch !== draftWriteEpochRef.current) return false;
+    const activeKey = engineLocalDraftKey("asd", payload.cliniko?.patientId ?? null);
+    if (!draftMatchesStorageKey("asd", activeKey, payload)) return false;
+    if (isTexlexDraftEffectivelyEmpty(omitLastSaved(payload))) return true;
+    const written = writeLocalEngineDraft("asd", activeKey, payload);
+    if (!written.ok) {
+      setSaveFailed(true);
+      return false;
+    }
+    setLastSavedAt(written.lastSaved);
+    setSaveFailed(false);
+    if (payload.cliniko?.patientId) {
+      clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    }
+    return true;
+  }, []);
+
+  const handleChangePatientRequest = useCallback(async () => {
+    if (pdfDownloading || clinikoSyncInProgress) return;
+    try {
+      writeAsdLocalDraft(persistPayload);
+    } catch {
+      /* keep going — local flush is best-effort before wipe */
+    }
+    // Keep prior patient draft under asd:{id}; clear only unassigned + active pointer so remount
+    // cannot reopen the previous patient after Change patient.
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    resetAllReportState();
+    showClinikoLoadedToast("Draft saved. Select the next Cliniko patient.");
+  }, [
+    clinikoSyncInProgress,
+    pdfDownloading,
+    persistPayload,
+    resetAllReportState,
+    showClinikoLoadedToast,
+    writeAsdLocalDraft,
+  ]);
+
   useEffect(() => {
     if (!hydrated) return;
-    const activeKey = getStorageKey(
-      persistPayload.cliniko?.patientId ?? null,
-      persistPayload.patientDetails.clientName
-    );
-    if (!activeKey) {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
+    if (suppressAutosaveRef.current) {
+      suppressAutosaveRef.current = false;
       return;
     }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const epoch = draftWriteEpochRef.current;
     saveTimerRef.current = setTimeout(() => {
       try {
-        const payload = { ...persistPayload, lastSaved: new Date().toISOString() };
-        localStorage.setItem(activeKey, JSON.stringify(payload));
-        setLastSavedAt(payload.lastSaved);
-        setSaveFailed(false);
+        writeAsdLocalDraft(persistPayload, epoch);
       } catch {
         setSaveFailed(true);
       }
@@ -3518,7 +4734,41 @@ export default function TexlexReportPage() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [hydrated, persistPayload]);
+  }, [hydrated, persistPayload, writeAsdLocalDraft]);
+
+  // Flush pending edits on unmount (SPA nav) so the debounce window cannot drop the last keystrokes.
+  useEffect(() => {
+    return () => {
+      try {
+        writeAsdLocalDraft(persistPayloadRef.current, draftWriteEpochRef.current);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [writeAsdLocalDraft]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (lastEditAt <= 0) return;
+      const cloudMs = lastCloudSavedAt ? Date.parse(lastCloudSavedAt) : 0;
+      if (!Number.isFinite(cloudMs) || lastEditAt > cloudMs) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [lastCloudSavedAt, lastEditAt]);
+
+  const discardLocalDraftRestored = useCallback(() => {
+    if (localDraftRestoredNotice) {
+      clearLocalEngineDraft(localDraftRestoredNotice.storageKey);
+    }
+    clearLocalEngineDraft(engineLocalDraftKey("asd", cliniko?.patientId ?? null));
+    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+    clearEngineActiveDraftPointer("asd");
+    startNewReport();
+  }, [cliniko?.patientId, localDraftRestoredNotice, startNewReport]);
 
   const editing = nowTick - lastEditAt < 2000 && lastEditAt > 0;
   const statusLabel = saveFailed
@@ -3528,44 +4778,95 @@ export default function TexlexReportPage() {
       : `Saved ${formatSavedAgo(lastSavedAt, nowTick)}`;
 
   const inputClass =
-    "flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-[15px] leading-[1.55] shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
+    "flex h-auto min-h-11 w-full border-0 border-b border-[#2c455f] bg-transparent px-0 py-2 text-[23px] leading-[1.55] text-[#f4f8fc] shadow-none outline-none placeholder:text-[#7e95ab] focus-visible:border-[#b7d4f5] disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="min-h-screen bg-[var(--bg-page)] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-foreground">
+    <div className="texlex-report texlex-surface min-h-screen bg-[#102033] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[23px] leading-[1.6] text-[#f4f8fc]">
       <TexlexReportHeader
         clientName={patientDetails.clientName}
+        assessmentLabel="ASD assessment"
+        recordLabel={practiceLabel(cliniko?.source)}
         statusLabel={statusLabel}
+        workflowStatus={finalPdfUnlocked ? "ready" : "draft"}
         saveFailed={saveFailed}
         editing={editing}
         pdfDownloading={pdfDownloading}
-        onDownloadPdf={() => void handleDownloadPdf()}
+        pdfBusyMode={pdfBusyMode}
+        onDownloadOnly={() => void handleDownloadOnly()}
+        onDownloadAndSave={() => void handleDownloadAndSave()}
+        onPreviewPdf={() => void handlePreviewPdf()}
         onNewReport={handleNewReportClick}
         onSaveDraft={() => saveDraftNow()}
+        onFinalizeReview={() => {
+          scrollToFinalizeReview();
+          if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
+        }}
+        finalPdfUnlocked={finalPdfUnlocked}
+        onFinalPdfDownload={() => {
+          if (!finalPdfUnlocked) {
+            scrollToFinalizeReview();
+            window.alert(`Clear Review blockers before saving the final PDF to ${practiceLabel(cliniko?.source)}.`);
+            return;
+          }
+          void handleDownloadAndSave();
+        }}
+        sendUnlocked={finalPdfUnlocked}
+        onOpenSend={() => {
+          if (!finalPdfUnlocked) {
+            scrollToFinalizeReview();
+            if (!finalizeReviewRuns.length && !finalizeReviewing) void runFinalizeReview();
+            return;
+          }
+          setSendDrawerOpen(true);
+        }}
+        onToggleToday={() => setTodayOpen((v) => !v)}
+        todayOpen={todayOpen}
+        engineHomeHref="/asd-engine"
         statusExtras={
           <>
             {saveToast ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
                 Saved
               </span>
             ) : null}
             {clinikoToast ? (
-              <span className="text-xs font-medium text-foreground" aria-live="polite">
+              <span className="font-medium text-foreground" aria-live="polite">
                 {clinikoToast}
               </span>
             ) : null}
             {clinikoSyncNotice ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
                 {clinikoSyncNotice}
               </span>
             ) : null}
             {newReportToast ? (
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
                 Started new report
               </span>
             ) : null}
           </>
         }
       />
+
+      {localDraftRestoredNotice ? (
+        <div className="border-b border-border/60 bg-muted/30 px-5 py-2">
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              Draft restored — last saved{" "}
+              {formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={discardLocalDraftRestored}
+            >
+              Discard
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {draftResumePrompt ? (
         <div
@@ -3583,8 +4884,34 @@ export default function TexlexReportPage() {
                 size="sm"
                 variant="default"
                 onClick={() => {
-                  applyLocalDraftData(draftResumePrompt.stored);
-                  processedDraftResumeKeyRef.current = draftResumePrompt.activeKey;
+                  const linked = cliniko;
+                  applyLocalDraftData(draftResumePrompt.stored, { clinicalOnly: true });
+                  if (linked?.connectedName?.trim()) {
+                    setPatientDetails((prev) => ({
+                      ...prev,
+                      clientName: linked.connectedName!.trim(),
+                    }));
+                  }
+                  if (typeof draftResumePrompt.stored.lastSaved === "string") {
+                    setLastCloudSavedAt(draftResumePrompt.stored.lastSaved);
+                  }
+                  if (
+                    draftMatchesStorageKey("asd", draftResumePrompt.activeKey, draftResumePrompt.stored)
+                  ) {
+                    writeLocalEngineDraft("asd", draftResumePrompt.activeKey, {
+                      ...draftResumePrompt.stored,
+                      engine: "asd",
+                      cliniko: linked ?? draftResumePrompt.stored.cliniko,
+                      patientDetails: {
+                        ...(draftResumePrompt.stored.patientDetails as object),
+                        clientName:
+                          linked?.connectedName?.trim() ||
+                          (draftResumePrompt.stored.patientDetails as { clientName?: string })
+                            ?.clientName,
+                      },
+                    });
+                    clearLocalEngineDraft(engineLocalDraftKey("asd", null));
+                  }
                   setDraftResumePrompt(null);
                 }}
               >
@@ -3595,7 +4922,6 @@ export default function TexlexReportPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  processedDraftResumeKeyRef.current = draftResumePrompt.activeKey;
                   setDraftResumePrompt(null);
                 }}
               >
@@ -3606,11 +4932,70 @@ export default function TexlexReportPage() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-[1600px] gap-6 bg-[var(--bg-page)] px-5 py-8">
+      <div className="mx-auto flex max-w-[1600px] gap-6 bg-transparent px-5 py-8">
         <TexlexReportSidebarNav />
 
         <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-[760px] space-y-[14px] text-[15px] leading-[1.55]">
+          <div className="mx-auto max-w-[760px] space-y-8 text-[23px] leading-[1.6]">
+            {todayOpen ? (
+              <section id="cliniko-calendar">
+                <ClinikoIntakeCard
+                  key={clinikoIntakeResetKey}
+                  inputClass={inputClass}
+                  patientDetails={patientDetails}
+                  setPatientDetails={setPatientDetails}
+                  cliniko={cliniko}
+                  setCliniko={setCliniko}
+                  onTouch={touch}
+                  onLoaded={(message) => {
+                    showClinikoLoadedToast(message);
+                    setTodayOpen(false);
+                  }}
+                  onError={showClinikoErrorToast}
+                  onChangePatientRequest={handleChangePatientRequest}
+                  collateralDocs={collateralDocs}
+                  setCollateralDocs={setCollateralDocs}
+                  collateralSummaryFilled={collateralSummary.trim().length > 0}
+                  onPreparePatientSwitch={prepareClinikoPatientSwitch}
+                  onPatientLoadStart={() => {
+                    clinikoPatientLoadLockRef.current += 1;
+                  }}
+                  onPatientLoadEnd={() => {
+                    clinikoPatientLoadLockRef.current = Math.max(
+                      0,
+                      clinikoPatientLoadLockRef.current - 1
+                    );
+                    setClinikoPatientLoadGate((n) => n + 1);
+                  }}
+                  engine="asd"
+                />
+              </section>
+            ) : (
+              <section id="cliniko-calendar" className="sr-only" aria-hidden />
+            )}
+
+            <section id="scribe">
+              <TexlexSectionHeading className="mb-3">Scribe</TexlexSectionHeading>
+              <TexlexScribe
+                key={reportEpoch}
+                sessionGenerating={sessionSectionsGenerating}
+                onAppendToNotes={(text) => {
+                  touch();
+                  setRawNotes((prev) => {
+                    const existing = prev.trim();
+                    if (!existing) return text.trim();
+                    return `${existing}\n\n--- Whisper transcript ---\n\n${text.trim()}`;
+                  });
+                }}
+                onGenerateSessionSections={runSessionNarrativeFromTranscript}
+              />
+              {sectionGenErrors["session-sections"] ? (
+                <p className="mt-2 text-sm text-destructive" role="alert">
+                  {sectionGenErrors["session-sections"]}
+                </p>
+              ) : null}
+            </section>
+
             <section id="report-header">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3 text-center md:text-left")}>
@@ -3645,17 +5030,24 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
-            <ClinikoIntakeCard
-              key={clinikoIntakeResetKey}
-              inputClass={inputClass}
-              patientDetails={patientDetails}
-              setPatientDetails={setPatientDetails}
-              cliniko={cliniko}
-              setCliniko={setCliniko}
-              onTouch={touch}
-              onLoaded={showClinikoLoadedToast}
-              onError={showClinikoErrorToast}
+            <TexlexReportImport
+              engine="asd"
+              hasExistingContent={
+                presentingConcerns.trim().length > 0 ||
+                clinicalFormulation.trim().length > 0 ||
+                recommendations.trim().length > 0 ||
+                collateralSummary.trim().length > 0 ||
+                Object.values(background).some((v) => String(v ?? "").trim().length > 0) ||
+                CRITERION_CODES.some(
+                  (code) =>
+                    criteria[code].indicators.trim().length > 0 || criteria[code].rating !== null
+                )
+              }
+              onApply={applyImportedReport}
+              className="mb-2"
             />
+
+            <TexlexAuditorCaseListPanel className="mb-2" />
 
             <section id="patient-details">
               <TexlexSectionHeading className="mb-3">Client details</TexlexSectionHeading>
@@ -3690,6 +5082,12 @@ export default function TexlexReportPage() {
                                   setPatientDetails((p) => ({ ...p, clientName: e.target.value }));
                                 }}
                               />
+                              <SavedDraftsByName
+                                engine="asd"
+                                clientName={patientDetails.clientName}
+                                currentPatientId={cliniko?.patientId ?? null}
+                                onResume={resumeDraftFromName}
+                              />
                             </label>
                           </td>
                           <td className="w-1/2 p-3 align-top">
@@ -3704,6 +5102,17 @@ export default function TexlexReportPage() {
                                 onChange={(e) => {
                                   touch();
                                   setPatientDetails((p) => ({ ...p, parent1: e.target.value }));
+                                }}
+                              />
+                              <input
+                                type="email"
+                                maxLength={METADATA_INPUT_MAX_LENGTH}
+                                className={cn(inputClass, "w-full")}
+                                placeholder="Parent/carer 1 email"
+                                value={patientDetails.parentEmail}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, parentEmail: e.target.value }));
                                 }}
                               />
                               <select
@@ -3739,6 +5148,17 @@ export default function TexlexReportPage() {
                                 onChange={(e) => {
                                   touch();
                                   setPatientDetails((p) => ({ ...p, parent2: e.target.value }));
+                                }}
+                              />
+                              <input
+                                type="email"
+                                maxLength={METADATA_INPUT_MAX_LENGTH}
+                                className={cn(inputClass, "w-full")}
+                                placeholder="Parent/carer 2 email (optional)"
+                                value={patientDetails.parent2Email}
+                                onChange={(e) => {
+                                  touch();
+                                  setPatientDetails((p) => ({ ...p, parent2Email: e.target.value }));
                                 }}
                               />
                               <select
@@ -3910,6 +5330,69 @@ export default function TexlexReportPage() {
                                 }}
                               />
                             </label>
+                          </td>
+                        </tr>
+                        <tr className="border-b border-border/80">
+                          <td className="border-r border-border/80 p-3 align-top" colSpan={2}>
+                            <div className="space-y-2 font-medium text-foreground">
+                              <span className="block text-xs font-normal uppercase tracking-wide text-muted-foreground">
+                                Assessment modality
+                              </span>
+                              <div className="flex flex-wrap gap-4">
+                                {(
+                                  [
+                                    { value: "in-clinic" as const, label: "In-clinic" },
+                                    { value: "virtual" as const, label: "Virtual (video)" },
+                                  ]
+                                ).map((option) => (
+                                  <label key={option.value} className="flex items-center gap-2 text-sm font-normal">
+                                    <input
+                                      type="radio"
+                                      name="asd-assessment-modality"
+                                      checked={patientDetails.assessmentModality === option.value}
+                                      onChange={() => {
+                                        touch();
+                                        setPatientDetails((p) => ({
+                                          ...p,
+                                          assessmentModality: option.value,
+                                          virtualCareReason:
+                                            option.value === "virtual" ? p.virtualCareReason : "",
+                                        }));
+                                      }}
+                                    />
+                                    {option.label}
+                                  </label>
+                                ))}
+                              </div>
+                              {patientDetails.assessmentModality === "virtual" ? (
+                                <label className="mt-2 block space-y-1 text-sm font-normal">
+                                  <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                    Virtual care reason (required)
+                                  </span>
+                                  <input
+                                    maxLength={METADATA_INPUT_MAX_LENGTH}
+                                    className={cn(inputClass, "w-full")}
+                                    placeholder="e.g. absconding risk, geographic access, inability to remain in-room"
+                                    value={patientDetails.virtualCareReason}
+                                    onChange={(e) => {
+                                      touch();
+                                      setPatientDetails((p) => ({
+                                        ...p,
+                                        virtualCareReason: e.target.value,
+                                      }));
+                                    }}
+                                  />
+                                </label>
+                              ) : null}
+                              {patientDetails.assessmentModality ? (
+                                <p className="text-xs font-normal text-muted-foreground">
+                                  {buildAssessmentContextModality({
+                                    modality: patientDetails.assessmentModality,
+                                    virtualCareReason: patientDetails.virtualCareReason,
+                                  })}
+                                </p>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                         <tr className="border-b border-border/80">
@@ -4103,7 +5586,6 @@ export default function TexlexReportPage() {
                       size="lg"
                       className="px-5 text-sm font-semibold"
                       onClick={handleGenerateReport}
-                      disabled={Boolean(generatingSectionId)}
                     >
                       {generatingSectionId ? "Stop generation" : "Generate Report"}
                     </Button>
@@ -4143,7 +5625,8 @@ export default function TexlexReportPage() {
                     modelName={TEXLEX_SECTION_MODELS.presentingConcerns}
                     onGenerate={handleGeneratePresentingConcerns}
                     onRegenerate={handleRegeneratePresentingConcerns}
-                    regenerateDisabled={generatingSectionId === "presenting-concerns"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "presenting-concerns"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "presenting-concerns" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "presenting-concerns" ? (
@@ -4228,7 +5711,8 @@ export default function TexlexReportPage() {
                       modelName={modelName}
                       onGenerate={() => handleGenerateBackground(key)}
                       onRegenerate={() => handleRegenerateBackground(key)}
-                      regenerateDisabled={generatingSectionId === sectionId}
+                      generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== sectionId}
+                      regenerateDisabled={Boolean(generatingSectionId)}
                       generateLabel={generatingSectionId === sectionId ? "Stop" : "Generate"}
                       topSlot={
                         generatingSectionId === sectionId ? (
@@ -4277,12 +5761,25 @@ export default function TexlexReportPage() {
               <TexlexSectionHeading className="mb-1">Collateral documents</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
-                  <CollateralDocumentsUpload
-                    collateralDocs={collateralDocs}
-                    setCollateralDocs={setCollateralDocs}
-                    touch={touch}
-                    inputClass={inputClass}
-                  />
+                  <div className="space-y-4">
+                    <ClinikoCollateralImport
+                      patientId={cliniko?.patientId ?? null}
+                      collateralDocs={collateralDocs}
+                      setCollateralDocs={setCollateralDocs}
+                      touch={touch}
+                      engine="asd"
+                      source={cliniko?.source ?? "cliniko"}
+                      clientName={patientDetails.clientName}
+                      dateOfBirth={patientDetails.dob}
+                      onLinkPatient={linkClinikoFromCollateral}
+                    />
+                    <CollateralDocumentsUpload
+                      collateralDocs={collateralDocs}
+                      setCollateralDocs={setCollateralDocs}
+                      touch={touch}
+                      inputClass={inputClass}
+                    />
+                  </div>
                 </CardContent>
               </Card>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
@@ -4303,7 +5800,8 @@ export default function TexlexReportPage() {
                     modelName={TEXLEX_SECTION_MODELS.collateralSummary}
                     onGenerate={handleGenerateCollateralSummary}
                     onRegenerate={handleRegenerateCollateralSummary}
-                    regenerateDisabled={generatingSectionId === "collateral-summary"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "collateral-summary"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "collateral-summary" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "collateral-summary" ? (
@@ -4431,7 +5929,8 @@ export default function TexlexReportPage() {
                     refinementModel={TEXLEX_SECTION_MODELS.functionalImpactSummary.refinement}
                     onGenerate={handleGenerateFunctionalImpact}
                     onRegenerate={handleRegenerateFunctionalImpact}
-                    regenerateDisabled={generatingSectionId === "functional-impact-summary"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "functional-impact-summary"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "functional-impact-summary" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "functional-impact-summary" ? (
@@ -4463,6 +5962,7 @@ export default function TexlexReportPage() {
             </section>
 
             <section id="formulation">
+              <span id="clinical-formulation" className="block scroll-mt-28" />
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
                 <TexlexSectionHeading>Clinical formulation and consensus opinion</TexlexSectionHeading>
                 <span className="text-xs text-muted-foreground sm:text-right">
@@ -4478,6 +5978,108 @@ export default function TexlexReportPage() {
                   ⚠ Diagnostic conclusion (&quot;Does Not Meet&quot;) may not align with narrative content. Multiple
                   criteria show emerging features. Review before generating.
                 </div>
+              ) : null}
+              {resolveTexlexDiagnosticConclusion(diagnosticConclusion) === "meets" ? (
+                <Card className={cn(TEXLEX_SECTION_CONTAINER_CLASS, "mb-3")}>
+                  <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">
+                        DSM severity (support needs)
+                      </p>
+                      {severityAudit ? (
+                        <Badge variant="secondary" className="text-xs font-normal">
+                          Severity: {severitySourceLabel(severityAudit.source)}
+                        </Badge>
+                      ) : severitySuggestion.determinable ? (
+                        <Badge variant="outline" className="text-xs font-normal">
+                          Engine-suggested — editable
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs font-normal">
+                          Set manually
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Engine pre-fills Level A/B from markers and adjuncts. Change either level if the
+                      clinical call differs — criterion ratings stay evidence-strength only.{" "}
+                      <span className="text-foreground/80">
+                        After the report exists, use Regenerate — it trusts your current levels without
+                        re-justifying an override.
+                      </span>
+                    </p>
+                    {severitySuggestion.determinable && severitySuggestion.basis ? (
+                      <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        {severitySuggestion.basis}
+                      </p>
+                    ) : null}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block space-y-1 text-sm">
+                        <span className="text-muted-foreground">Level A (social communication)</span>
+                        <select
+                          className={cn(inputClass, "w-full")}
+                          value={severityLevelA ?? ""}
+                          onChange={(e) => {
+                            touch();
+                            const v = e.target.value;
+                            severityLevelsTouchedRef.current = true;
+                            setSeverityLevelA(v === "1" || v === "2" || v === "3" ? (Number(v) as DsmLevel) : undefined);
+                            setSeverityAudit(null);
+                          }}
+                        >
+                          <option value="">Select…</option>
+                          <option value="1">Level 1 — requiring support</option>
+                          <option value="2">Level 2 — requiring substantial support</option>
+                          <option value="3">Level 3 — requiring very substantial support</option>
+                        </select>
+                      </label>
+                      <label className="block space-y-1 text-sm">
+                        <span className="text-muted-foreground">Level B (RRB)</span>
+                        <select
+                          className={cn(inputClass, "w-full")}
+                          value={severityLevelB ?? ""}
+                          onChange={(e) => {
+                            touch();
+                            const v = e.target.value;
+                            severityLevelsTouchedRef.current = true;
+                            setSeverityLevelB(v === "1" || v === "2" || v === "3" ? (Number(v) as DsmLevel) : undefined);
+                            setSeverityAudit(null);
+                          }}
+                        >
+                          <option value="">Select…</option>
+                          <option value="1">Level 1 — requiring support</option>
+                          <option value="2">Level 2 — requiring substantial support</option>
+                          <option value="3">Level 3 — requiring very substantial support</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="block space-y-1 text-sm">
+                      <span className="text-muted-foreground">
+                        Rationale (auto-filled from engine — edit if you change levels)
+                      </span>
+                      <Textarea
+                        rows={3}
+                        className="rounded-lg text-sm"
+                        placeholder="Filled from the engine suggestion when available."
+                        value={severityRationale}
+                        onChange={(e) => {
+                          touch();
+                          severityRationaleTouchedRef.current = true;
+                          setSeverityRationale(e.target.value);
+                          setSeverityAudit(null);
+                        }}
+                      />
+                    </label>
+                    {severitySuggestion.determinable &&
+                    (severityLevelA !== severitySuggestion.levelA ||
+                      severityLevelB !== severitySuggestion.levelB) ? (
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        Levels differ from the engine suggestion — keep or edit the rationale so the
+                        override is documented.
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
               ) : null}
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
@@ -4498,7 +6100,8 @@ export default function TexlexReportPage() {
                     refinementModel={TEXLEX_SECTION_MODELS.clinicalFormulation.refinement}
                     onGenerate={handleGenerateFormulation}
                     onRegenerate={handleRegenerateFormulation}
-                    regenerateDisabled={generatingSectionId === "clinical-formulation"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "clinical-formulation"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "clinical-formulation" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "clinical-formulation" ? (
@@ -4552,7 +6155,8 @@ export default function TexlexReportPage() {
                     refinementModel={TEXLEX_SECTION_MODELS.recommendations.refinement}
                     onGenerate={handleGenerateRecommendations}
                     onRegenerate={handleRegenerateRecommendations}
-                    regenerateDisabled={generatingSectionId === "recommendations"}
+                    generateDisabled={Boolean(generatingSectionId) && generatingSectionId !== "recommendations"}
+                    regenerateDisabled={Boolean(generatingSectionId)}
                     generateLabel={generatingSectionId === "recommendations" ? "Stop" : "Generate"}
                     topSlot={
                       generatingSectionId === "recommendations" ? (
@@ -4620,6 +6224,20 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
+            <TexlexFinalizeReviewPanel
+              runs={finalizeReviewRuns}
+              reviewing={finalizeReviewing}
+              error={finalizeReviewError}
+              onRunReview={() => void runFinalizeReview()}
+              onAccept={(id) => updateLatestFindingStatus(id, "accepted")}
+              onReject={(id) => updateLatestFindingStatus(id, "rejected")}
+              onApply={applyFinalizeFinding}
+              finalPdfUnlocked={finalPdfUnlocked}
+              auditChecklist={asdAuditChecklist}
+            />
+
+            <div id="texlex-send" className="sr-only" aria-hidden />
+
             <section id="signature">
               <TexlexSectionHeading className="mb-3">Signature block</TexlexSectionHeading>
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
@@ -4645,8 +6263,8 @@ export default function TexlexReportPage() {
 
         <aside className="hidden shrink-0 lg:block">
           <div className="sticky top-24 w-[380px] overflow-y-auto pb-10" style={{ maxHeight: "calc(100vh - 6rem)" }}>
-            <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Engine assistant</p>
+            <div className="border-t border-[#2c455f] py-4">
+              <p className="mb-3 text-[18px] font-semibold uppercase tracking-[0.08em] text-[#849aaf]">Assist</p>
               <EngineAssistant rawNotes={rawNotes} compact />
             </div>
           </div>
@@ -4660,6 +6278,30 @@ export default function TexlexReportPage() {
         skipConfirmThisSession={skipNewReportConfirmSession}
         onSkipConfirmThisSessionChange={setSkipNewReportConfirmSession}
       />
+      <TexlexPdfPreviewPane
+        open={pdfPreviewOpen}
+        busy={pdfBusyMode === "preview"}
+        blobUrl={pdfPreviewUrl}
+        error={pdfPreviewError}
+        title={`${patientDetails.clientName.trim() || "Client"} · ASD report`}
+        onClose={closePdfPreview}
+      />
+      <TexlexSendDrawer
+        key={reportEpoch}
+        open={sendDrawerOpen}
+        onClose={() => setSendDrawerOpen(false)}
+        unlocked={finalPdfUnlocked}
+        mergeFields={letterMergeFields}
+        recipientBuckets={sendRecipientBuckets}
+        buildReportPdfBase64={async () => {
+          const pdf = await buildReportPdfBase64ForSend();
+          setFinalPackageReady(true);
+          return pdf;
+        }}
+        buildLetterPdfBase64={buildLetterPdfBase64ForSend}
+        onScrollToFinalize={scrollToFinalizeReview}
+        clientLabel={patientDetails.clientName}
+      />
     </div>
   );
 }
@@ -4669,17 +6311,11 @@ async function uploadStateToCliniko(payload: TexlexReportDraftV1): Promise<boole
   const patientId = payload.cliniko?.patientId;
   if (!patientId) return false;
   try {
-    const res = await fetch("/api/report-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patientId, state: payload }),
-    });
-    if (!res.ok) return false;
-    return true;
+    return await saveReportStateForEngine("asd", patientId, { ...payload, engine: "asd" });
   } catch (err) {
     console.error("[texlex] Supabase state save failed (local save unaffected):", err);
   }
-    return false;
+  return false;
 }
 
 // ─── Resume-from-Supabase fallback ────────────────────────────────
@@ -4687,11 +6323,12 @@ async function fetchReportStateFromSupabase(
   patientId: string
 ): Promise<Partial<TexlexReportDraftV1> | null> {
   try {
-    const res = await fetch(`/api/report-state?patientId=${encodeURIComponent(patientId)}`);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { success: boolean; state?: unknown };
-    if (!data.success || !data.state) return null;
-    return data.state as Partial<TexlexReportDraftV1>;
+    const remote = await fetchReportStateForEngine<Partial<TexlexReportDraftV1> & { engine?: string }>(
+      "asd",
+      patientId
+    );
+    if (!remote) return null;
+    return remote.state;
   } catch {
     return null;
   }

@@ -10,11 +10,33 @@ import {
   buildClinikoBaseline,
   type ClinikoDraftState,
 } from "@/lib/texlex-cliniko-sync";
+import {
+  appointmentStartsAtToDateSeen,
+  mergeRegistrationIntoPatientDetails,
+  type RegistrationDemographics,
+} from "@/lib/cliniko-registration-forms";
 import type { PatientDetails } from "../page";
 import {
   TEXLEX_SECTION_CONTAINER_CLASS,
   TEXLEX_SECTION_CONTENT_CLASS,
 } from "../constants/texlexSectionSurface";
+import { ClinikoPatientAppointments } from "./ClinikoPatientAppointments";
+import { ClinikoMyCalendar } from "./ClinikoMyCalendar";
+import type { CollateralDoc } from "@/lib/collateral/collateral-docs-client";
+import {
+  formatClinikoImportNotice,
+  importClinikoAttachmentsIntoCollateral,
+  mergeImportedCollateralDocs,
+} from "@/lib/collateral/import-cliniko-attachments";
+import {
+  practiceApiBase,
+  practiceLabel,
+  readStoredPracticeSource,
+  storePracticeSource,
+  type PracticeSource,
+} from "@/lib/practice-source";
+
+const IMPORT_FILES_PREF_KEY = "texlex.cliniko.importFilesOnAppt";
 
 type ClinikoIntakeCardProps = {
   inputClass: string;
@@ -25,6 +47,31 @@ type ClinikoIntakeCardProps = {
   onTouch: () => void;
   onLoaded: (message: string) => void;
   onError: (message: string) => void;
+  /**
+   * Optional: when Change patient is clicked, run this first (e.g. save + full report reset).
+   * If provided, the caller is responsible for clearing Cliniko linkage / remounting as needed.
+   */
+  onChangePatientRequest?: () => void | Promise<void>;
+  /** When true, Change patient is visually disabled (e.g. generation in flight). */
+  changePatientDisabled?: boolean;
+  /** When provided, calendar can auto-import Cliniko attachments into collateral. */
+  collateralDocs?: CollateralDoc[];
+  setCollateralDocs?: Dispatch<SetStateAction<CollateralDoc[]>>;
+  /** Whether written collateral summary has content (for Hey Tex list). */
+  collateralSummaryFilled?: boolean;
+  /**
+   * Called when loading a different Cliniko patient while one is already linked
+   * (calendar / search / Hey Tex). Save the current draft and clear clinical
+   * content so the previous patient's report is not uploaded under the new id.
+   */
+  onPreparePatientSwitch?: (nextPatientId: string) => void | Promise<void>;
+  /** Prefer Autism vs ADHD registration form when both exist. */
+  engine?: "asd" | "adhd";
+  /** Set date seen / assessment date from the clicked calendar appointment. */
+  onDateSeenFromAppointment?: (dateYmd: string) => void;
+  /** Hold draft restore while calendar/search patient load (+ optional file import) runs. */
+  onPatientLoadStart?: () => void;
+  onPatientLoadEnd?: () => void;
 };
 
 function formatDobLabel(dob: string | null): string {
@@ -54,7 +101,18 @@ export function ClinikoIntakeCard({
   onTouch,
   onLoaded,
   onError,
+  onChangePatientRequest,
+  changePatientDisabled = false,
+  collateralDocs,
+  setCollateralDocs,
+  collateralSummaryFilled = false,
+  onPreparePatientSwitch,
+  engine,
+  onDateSeenFromAppointment,
+  onPatientLoadStart,
+  onPatientLoadEnd,
 }: ClinikoIntakeCardProps) {
+  const [source, setSource] = useState<PracticeSource>("cliniko");
   const [configured, setConfigured] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [showSearchCard, setShowSearchCard] = useState(() => !cliniko);
@@ -63,8 +121,39 @@ export function ClinikoIntakeCard({
   const [slowSearch, setSlowSearch] = useState(false);
   const [results, setResults] = useState<ClinikoPatient[]>([]);
   const [loadingPatientId, setLoadingPatientId] = useState<string | null>(null);
+  const [importFilesEnabled, setImportFilesEnabled] = useState(true);
+  const [importingFiles, setImportingFiles] = useState(false);
   const onErrorRef = useRef(onError);
   const onLoadedRef = useRef(onLoaded);
+  const collateralDocsRef = useRef(collateralDocs);
+  const canImportFiles = Boolean(setCollateralDocs);
+
+  useEffect(() => {
+    collateralDocsRef.current = collateralDocs;
+  }, [collateralDocs]);
+
+  useEffect(() => {
+    setSource(cliniko?.source ?? readStoredPracticeSource());
+  }, [cliniko?.source]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(IMPORT_FILES_PREF_KEY);
+      if (raw === "0") setImportFilesEnabled(false);
+      if (raw === "1") setImportFilesEnabled(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const updateImportFilesEnabled = (enabled: boolean) => {
+    setImportFilesEnabled(enabled);
+    try {
+      window.localStorage.setItem(IMPORT_FILES_PREF_KEY, enabled ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -75,7 +164,7 @@ export function ClinikoIntakeCard({
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch("/api/cliniko/status");
+        const response = await fetch(`${practiceApiBase(source)}/status`);
         const data = (await response.json()) as {
           configured?: boolean;
           connected?: boolean;
@@ -89,19 +178,19 @@ export function ClinikoIntakeCard({
         }
         setConfigured(true);
         if (!data.connected) {
-          setConnectionError("Cliniko connection failed. Check API key in environment configuration.");
+          setConnectionError(`${practiceLabel(source)} connection failed. Check the API credentials.`);
         }
       } catch {
         if (!cancelled) {
           setConfigured(true);
-          setConnectionError("Cliniko connection failed. Check API key in environment configuration.");
+          setConnectionError(`${practiceLabel(source)} connection failed. Check the API credentials.`);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [source]);
 
   useEffect(() => {
     if (!configured || connectionError || !showSearchCard) {
@@ -126,17 +215,19 @@ export function ClinikoIntakeCard({
       setSearching(true);
       void (async () => {
         try {
-          const response = await fetch(`/api/cliniko/patients/search?q=${encodeURIComponent(trimmed)}`);
+          const response = await fetch(
+            `${practiceApiBase(source)}/patients/search?q=${encodeURIComponent(trimmed)}`
+          );
           const data = (await response.json()) as { patients?: ClinikoPatient[]; error?: string };
           if (cancelled) return;
           if (!response.ok) {
-            onErrorRef.current(data.error ?? "Cliniko search failed.");
+            onErrorRef.current(data.error ?? `${practiceLabel(source)} search failed.`);
             setResults([]);
             return;
           }
           setResults((data.patients ?? []).slice(0, 10));
         } catch {
-          if (!cancelled) onErrorRef.current("Cliniko search failed.");
+          if (!cancelled) onErrorRef.current(`${practiceLabel(source)} search failed.`);
         } finally {
           if (!cancelled) {
             setSearching(false);
@@ -151,45 +242,118 @@ export function ClinikoIntakeCard({
       clearTimeout(slowTimer);
       clearTimeout(debounceTimer);
     };
-  }, [configured, connectionError, searchQuery, showSearchCard]);
+  }, [configured, connectionError, searchQuery, showSearchCard, source]);
 
   const connectedLabel = useMemo(() => {
     if (cliniko?.connectedName) return cliniko.connectedName;
     return patientDetails.clientName.trim();
   }, [cliniko?.connectedName, patientDetails.clientName]);
 
-  const handleSelectPatient = async (patient: ClinikoPatient) => {
+  const handleSelectPatient = async (
+    patient: ClinikoPatient | { id: string },
+    options: { importFiles?: boolean; appointmentStartsAt?: string | null } = {}
+  ) => {
     setLoadingPatientId(patient.id);
+    onPatientLoadStart?.();
     try {
-      const response = await fetch(`/api/cliniko/patients/${patient.id}`);
+      const previousId = cliniko?.patientId?.trim() || null;
+      if (previousId && previousId !== patient.id && onPreparePatientSwitch) {
+        await onPreparePatientSwitch(patient.id);
+      }
+
+      const engineQuery = engine ? `?engine=${engine}` : "";
+      const response = await fetch(`${practiceApiBase(source)}/patients/${patient.id}${engineQuery}`);
       const data = (await response.json()) as {
         patient?: Parameters<typeof applyClinikoPatientToForm>[0];
         customFields?: Parameters<typeof applyClinikoPatientToForm>[1];
+        registration?: RegistrationDemographics | null;
+        mergedDetails?: ReturnType<typeof applyClinikoPatientToForm> | null;
         error?: string;
       };
       if (!response.ok || !data.patient) {
-        onError(data.error ?? "Could not load Cliniko patient.");
+        onError(data.error ?? `Could not load the ${practiceLabel(source)} patient.`);
         return;
       }
 
-      const mapped = applyClinikoPatientToForm(data.patient, data.customFields ?? {});
+      const fromPatient = applyClinikoPatientToForm(data.patient, data.customFields ?? {});
+      const mappedRaw =
+        data.mergedDetails ??
+        mergeRegistrationIntoPatientDetails(fromPatient, data.registration);
+      // Cliniko patient record wins for identity (registration often has parent/claimant name).
+      const mapped = {
+        ...mappedRaw,
+        clientName: fromPatient.clientName.trim() || mappedRaw.clientName,
+        dob: fromPatient.dob.trim() || mappedRaw.dob,
+      } as typeof mappedRaw;
+      const dateSeen = appointmentStartsAtToDateSeen(options.appointmentStartsAt);
+
       onTouch();
-      setPatientDetails((current) => ({
-        ...current,
-        ...mapped,
-      }));
+      setPatientDetails((current) => {
+        const next = {
+          ...current,
+          ...mapped,
+        } as PatientDetails;
+        if (dateSeen && "assessmentDates" in next) {
+          const existing = Array.isArray(next.assessmentDates) ? next.assessmentDates : [];
+          const hasDate = existing.some((d) => String(d).trim() === dateSeen);
+          if (!hasDate) {
+            const cleaned = existing.map((d) => String(d).trim()).filter(Boolean);
+            next.assessmentDates = cleaned.length ? [...cleaned, dateSeen] : [dateSeen];
+          }
+        }
+        return next;
+      });
+      if (dateSeen && onDateSeenFromAppointment) {
+        onDateSeenFromAppointment(dateSeen);
+      }
       setCliniko({
         patientId: patient.id,
-        connectedName: mapped.clientName || `${patient.last_name}, ${patient.first_name}`,
-        syncEnabled: true,
+        connectedName: mapped.clientName || `${data.patient.last_name}, ${data.patient.first_name}`,
+        syncEnabled: source !== "halaxy",
+        source,
         baseline: buildClinikoBaseline(data.patient, data.customFields ?? {}, mapped),
       });
       setShowSearchCard(false);
-      onLoaded(`Loaded ${mapped.clientName || `${patient.first_name} ${patient.last_name}`.trim()} from Cliniko`);
+
+      const nameLabel =
+        mapped.clientName || `${data.patient.first_name} ${data.patient.last_name}`.trim();
+      let loadedMessage = `Loaded ${nameLabel} from ${practiceLabel(source)}`;
+      if (data.registration?.formName) {
+        loadedMessage += ` (+ ${data.registration.formName})`;
+      }
+      if (dateSeen) {
+        loadedMessage += `. Date seen ${dateSeen}`;
+      }
+
+      if (options.importFiles && setCollateralDocs) {
+        setImportingFiles(true);
+        try {
+          const result = await importClinikoAttachmentsIntoCollateral({
+            patientId: patient.id,
+            apiBase: practiceApiBase(source),
+            existingDocs: collateralDocsRef.current ?? [],
+            // ADHD: curated instruments only. ASD: all importable patient files.
+            asrsOnly: engine === "adhd",
+          });
+          if (result.additions.length > 0) {
+            setCollateralDocs((prev) => mergeImportedCollateralDocs(prev, result.additions));
+          }
+          const importNotice = formatClinikoImportNotice(result, practiceLabel(source));
+          if (importNotice) loadedMessage = `${loadedMessage}. ${importNotice}`;
+          if (result.error) onError(result.error);
+        } catch {
+          onError(`Patient loaded, but ${practiceLabel(source)} file import failed.`);
+        } finally {
+          setImportingFiles(false);
+        }
+      }
+
+      onLoaded(loadedMessage);
     } catch {
-      onError("Could not load Cliniko patient.");
+      onError(`Could not load the ${practiceLabel(source)} patient.`);
     } finally {
       setLoadingPatientId(null);
+      onPatientLoadEnd?.();
     }
   };
 
@@ -203,24 +367,98 @@ export function ClinikoIntakeCard({
         </p>
       ) : null}
 
+      {configured && !connectionError ? (
+        <div className="flex gap-1.5">
+          {(["cliniko", "halaxy"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-xs",
+                source === option
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border/70 text-muted-foreground hover:bg-muted/50"
+              )}
+              onClick={() => {
+                setSource(option);
+                storePracticeSource(option);
+                setConnectionError(null);
+                setResults([]);
+              }}
+            >
+              {practiceLabel(option)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {configured && !connectionError ? (
+        <ClinikoMyCalendar
+          source={source}
+          selectedPatientId={cliniko?.patientId ?? null}
+          disabled={changePatientDisabled || Boolean(loadingPatientId) || importingFiles}
+          importingFiles={importingFiles}
+          importFilesEnabled={canImportFiles ? importFilesEnabled : false}
+          onImportFilesEnabledChange={canImportFiles ? updateImportFilesEnabled : undefined}
+          collateralDocs={collateralDocs}
+          collateralSummaryFilled={collateralSummaryFilled}
+          onSelectPatientId={async (patientId, _name, options) => {
+            await handleSelectPatient(
+              { id: patientId },
+              {
+                importFiles: Boolean(canImportFiles && options.importFiles),
+                appointmentStartsAt: options.appointmentStartsAt,
+              }
+            );
+          }}
+        />
+      ) : null}
+
       {cliniko && !showSearchCard ? (
         <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
           <p className="text-sm">
-            Connected to Cliniko · {connectedLabel} ·{" "}
-            <button type="button" className="underline-offset-4 hover:underline" onClick={() => setShowSearchCard(true)}>
+            Connected to {practiceLabel(cliniko.source)} · {connectedLabel} ·{" "}
+            <button
+              type="button"
+              className={cn(
+                "underline-offset-4",
+                changePatientDisabled
+                  ? "cursor-not-allowed opacity-50"
+                  : "hover:underline"
+              )}
+              disabled={changePatientDisabled}
+              title={
+                changePatientDisabled
+                  ? "Available once generation completes."
+                  : undefined
+              }
+              onClick={() => {
+                if (changePatientDisabled) return;
+                void (async () => {
+                  if (onChangePatientRequest) {
+                    await onChangePatientRequest();
+                    return;
+                  }
+                  setShowSearchCard(true);
+                })();
+              }}
+            >
               Change patient
             </button>
           </p>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={cliniko.syncEnabled}
-              onChange={(e) =>
-                setCliniko((current) => (current ? { ...current, syncEnabled: e.target.checked } : current))
-              }
-            />
-            Sync changes back to Cliniko
-          </label>
+          {cliniko.source === "halaxy" ? null : (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={cliniko.syncEnabled}
+                onChange={(e) =>
+                  setCliniko((current) => (current ? { ...current, syncEnabled: e.target.checked } : current))
+                }
+              />
+              Sync changes back to Cliniko
+            </label>
+          )}
+          <ClinikoPatientAppointments patientId={cliniko.patientId} source={cliniko.source} />
         </div>
       ) : null}
 
@@ -228,11 +466,13 @@ export function ClinikoIntakeCard({
         <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
           <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
             <div>
-              <h3 className="text-base font-semibold">Load from Cliniko</h3>
-              <p className="text-sm text-muted-foreground">Search Cliniko to auto-fill client details</p>
+              <h3 className="text-base font-semibold">Or search by name</h3>
+              <p className="text-sm text-muted-foreground">
+                Prefer the calendar above when the booking is on your schedule
+              </p>
             </div>
             <label className="block space-y-1.5">
-              <span className="sr-only">Search Cliniko patients</span>
+              <span className="sr-only">Search {practiceLabel(source)} patients</span>
               <input
                 className={cn(inputClass, "w-full")}
                 placeholder="Type patient name..."
@@ -243,10 +483,12 @@ export function ClinikoIntakeCard({
             {searching ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
-                Searching Cliniko…
+                Searching {practiceLabel(source)}…
               </div>
             ) : null}
-            {slowSearch ? <p className="text-sm text-muted-foreground">Cliniko is taking longer than usual…</p> : null}
+            {slowSearch ? (
+              <p className="text-sm text-muted-foreground">{practiceLabel(source)} is taking longer than usual…</p>
+            ) : null}
             <div className="space-y-1">
               {!searching && searchQuery.trim().length >= 2 && results.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No results found</p>

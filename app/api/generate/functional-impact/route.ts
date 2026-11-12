@@ -10,7 +10,7 @@ import { createTexlexStreamResponseWithVoiceCritic } from "@/lib/voice/texlex-st
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS = 4096;
+const FUNCTIONAL_IMPACT_MAX_OUTPUT_TOKENS = 1600;
 
 type FunctionalImpactRequestBody = FunctionalImpactVariables & {
   patientDetails?: Record<string, unknown>;
