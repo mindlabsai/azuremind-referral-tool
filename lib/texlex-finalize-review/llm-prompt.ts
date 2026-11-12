@@ -78,7 +78,7 @@ Find only material errors already demonstrated by the supplied text: wrong ident
 Do not flag missing words, short paragraphs, or the absence of headings such as "Clinical observation" or "Parent report".
 Do not require a direct observation in every criterion.
 Do not require a reason for telehealth. Do not invent a reason, an observation, a score, a test, or a differential.
-Do not require DIVA-5, WIAT, or any named battery unless the draft says it was administered.
+Do not require Young DIVA-5, WIAT, or any named battery unless the draft says it was administered.
 Do not rewrite the report. suggestedEdit is null unless you can point at a source-backed sentence already in the material.
 If nothing material is wrong, return {"findings":[]}.
 

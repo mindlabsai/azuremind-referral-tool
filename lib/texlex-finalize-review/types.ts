@@ -107,7 +107,7 @@ export type ReviewRun = {
   };
   /** Present when Universal Evidence-First Review V2 produced this pass. */
   universalReviewV2?: boolean;
-  markerPack?: "ASD" | "ADHD" | null;
+  markerPack?: "ASD" | "ADHD" | "SLD" | null;
   sourceCoverage?: string;
   display?: string;
 };

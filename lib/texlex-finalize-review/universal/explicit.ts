@@ -3,7 +3,11 @@ import { newReviewId } from "../types";
 
 function finding(
   runId: string,
-  partial: Omit<ReviewFinding, "id" | "runId" | "source" | "status" | "decidedAt">
+  partial: Omit<
+    ReviewFinding,
+    "id" | "runId" | "source" | "status" | "decidedAt" | "suggestedEdit" | "applyHint"
+  > &
+    Partial<Pick<ReviewFinding, "suggestedEdit" | "applyHint">>
 ): ReviewFinding {
   return {
     id: newReviewId("find"),
@@ -11,8 +15,9 @@ function finding(
     source: "deterministic",
     status: "open",
     decidedAt: null,
-    suggestedEdit: null,
     ...partial,
+    suggestedEdit: partial.suggestedEdit ?? null,
+    applyHint: partial.applyHint ?? null,
   };
 }
 
@@ -50,7 +55,6 @@ export function explicitSourceFindings(args: {
         title: "Supplied score does not match the report",
         detail: `The draft states Full Scale IQ ${reportIq}. The notes supplied to this pass state Full Scale IQ ${sourceIq}.`,
         evidenceExcerpt: notes.match(/full[- ]scale IQ(?:\s+of)?\s+\d{2,3}/i)?.[0] ?? null,
-        suggestedEdit: null,
         supportStatus: "source_contradiction",
       })
     );
@@ -71,7 +75,6 @@ export function explicitSourceFindings(args: {
         detail:
           "The draft says this was observed in clinic. The notes supplied to this pass say it was not observed in clinic.",
         evidenceExcerpt: notes.slice(0, 220),
-        suggestedEdit: null,
         supportStatus: "source_contradiction",
       })
     );
@@ -90,7 +93,6 @@ export function explicitSourceFindings(args: {
         title: "Formulation conflicts with the locked does-not-meet conclusion",
         detail: "The locked conclusion is does not meet. The formulation says the criteria for ADHD are met.",
         evidenceExcerpt: joined.match(/meets criteria for ADHD.{0,80}/i)?.[0] ?? null,
-        suggestedEdit: null,
         supportStatus: "locked_conclusion",
       })
     );
