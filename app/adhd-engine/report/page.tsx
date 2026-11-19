@@ -72,7 +72,12 @@ import {
   resolveTexlexSignatureSrc,
   TEXLEX_LOGO_PATH,
 } from "@/app/asd-engine/report/pdf/assets";
-import { safeFilenamePart, clientFirstName, computeChronologicalAge } from "@/app/asd-engine/report/pdf/utils";
+import {
+  safeFilenamePart,
+  clientFirstName,
+  computeChronologicalAge,
+  downloadBlob,
+} from "@/app/asd-engine/report/pdf/utils";
 import { TEXLEX_SIGNATURE } from "@/app/asd-engine/report/constants/texlexBoilerplate";
 import { TexlexFinalizeReviewPanel } from "@/app/asd-engine/report/components/TexlexFinalizeReviewPanel";
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
@@ -1851,12 +1856,7 @@ export default function AdhdReportPage() {
   }, [buildAdhdPdfDraft, cliniko?.connectedName]);
 
   const triggerPdfDownload = useCallback((blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
   }, []);
 
   const closePdfPreview = useCallback(() => {

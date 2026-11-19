@@ -264,6 +264,29 @@ export function safeFilenamePart(value: string): string {
   return cleaned || "Texlex-Report";
 }
 
+/**
+ * Trigger a browser file download from an in-memory Blob.
+ * Must keep the object URL alive — revoking immediately after click cancels
+ * the download in Chromium/Safari even when the UI reports success.
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const safeName = filename.trim() || "Texlex-Report.pdf";
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = safeName;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.dispatchEvent(
+    new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
+  );
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+    anchor.remove();
+  }, 60_000);
+}
+
 export function isInsufficientEvidenceNarrative(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return true;
