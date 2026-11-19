@@ -136,6 +136,7 @@ import {
   FUNCTIONAL_IMPACT_RENDER_FALLBACK,
   isInsufficientEvidenceNarrative,
   isTexlexSubsectionEmpty,
+  downloadBlob,
   resolveFunctionalImpactDisplay,
   safeFilenamePart,
 } from "./pdf/utils";
@@ -3988,12 +3989,7 @@ export default function TexlexReportPage() {
   }, [persistPayload]);
 
   const triggerPdfDownload = useCallback((blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, filename);
   }, []);
 
   const handleDownloadOnly = useCallback(async () => {
