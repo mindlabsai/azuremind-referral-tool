@@ -26,6 +26,7 @@ import {
   type SendAudience,
 } from "@/lib/texlex-comms/letters";
 import { TEXLEX_SECTION_CONTENT_CLASS } from "../constants/texlexSectionSurface";
+import { downloadBlob } from "../pdf/utils";
 
 type PdfAttachment = { filename: string; contentBase64: string };
 
@@ -188,12 +189,7 @@ export function TexlexSendPanel({
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const blob = new Blob([bytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = letter.filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, letter.filename);
       setStatus(`Downloaded Texlex letter PDF: ${letter.filename}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not build letter PDF");
