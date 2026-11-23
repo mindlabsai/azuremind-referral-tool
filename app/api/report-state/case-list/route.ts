@@ -1,17 +1,12 @@
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import {
   auditorCaseRowFromDraftState,
   type AuditorCaseRow,
 } from "@/lib/texlex-auditor-case-list";
 import type { TexlexEngineId } from "@/lib/texlex-report-state";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 function isEngineId(value: string | null): value is TexlexEngineId {
   return value === "adhd" || value === "asd";
@@ -30,6 +25,14 @@ function patientIdFromRowKey(engine: TexlexEngineId, patientId: string): string 
 /** List cloud drafts as auditor case-list rows (no name filter). */
 export async function GET(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return Response.json({ success: false, error: "Unauthorised" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const engine = url.searchParams.get("engine");
     if (!isEngineId(engine)) {

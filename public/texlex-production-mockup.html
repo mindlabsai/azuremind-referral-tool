@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Texlex · production mockup</title>
+  <style>
+    :root {
+      --teal: #0E9F98;
+      --deep: #075E63;
+      --ink: #122022;
+      --muted: #4E6263;
+      --line: #D5E0E0;
+      --soft: #E8F6F5;
+      --page: #EEF3F3;
+      --paper: #fff;
+      --ok: #0F766E;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--page);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .app { height: 100%; display: flex; flex-direction: column; }
+
+    .nav {
+      height: 64px; flex: 0 0 64px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 28px;
+      background: rgba(255,255,255,.94);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+    .brand {
+      font-weight: 800; letter-spacing: .14em; font-size: 15px;
+      margin-right: 28px;
+    }
+    .nav button {
+      border: 0; background: transparent;
+      padding: 20px 16px; margin-bottom: -1px;
+      font-size: 18px; font-weight: 650; color: var(--muted);
+      border-bottom: 2px solid transparent;
+    }
+    .nav button.on { color: var(--deep); border-bottom-color: var(--teal); }
+    .nav .end { margin-left: auto; }
+
+    .screen { display: none; flex: 1; min-height: 0; }
+    .screen.on { display: flex; flex-direction: column; }
+
+    .workspace {
+      flex: 1; min-height: 0;
+      display: grid; gap: 16px;
+      padding: 16px 20px 20px;
+    }
+    .referral { grid-template-columns: 1.05fr 1.1fr 1fr; }
+    .report { grid-template-columns: 240px minmax(0, 1fr) 300px; }
+
+    .col {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      min-height: 0;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .col head, .col-h {
+      padding: 18px 20px 0;
+    }
+    .col h2 {
+      margin: 0; font-size: 22px; font-weight: 800; color: var(--deep); letter-spacing: -.02em;
+    }
+    .col .sub { margin: 6px 0 0; font-size: 15px; color: var(--muted); }
+    .col-b { padding: 16px 20px 20px; overflow: auto; flex: 1; }
+
+    .drop {
+      border: 1.5px dashed #B7E1DE; background: var(--soft);
+      border-radius: 10px; padding: 28px 16px; text-align: center; margin-bottom: 14px;
+    }
+    .drop strong { display: block; font-size: 18px; color: var(--deep); }
+    .drop span { font-size: 15px; color: var(--muted); }
+    label.f {
+      display: block; font-size: 14px; font-weight: 700; color: var(--muted); margin: 12px 0 6px;
+    }
+    input, textarea, select {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px;
+      padding: 12px 14px; background: #fff; color: var(--ink);
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .seg button { border: 0; border-right: 1px solid var(--line); background: #fff; padding: 12px; font-weight: 700; color: var(--muted); }
+    .seg button:last-child { border-right: 0; }
+    .seg button.on { background: var(--soft); color: var(--deep); }
+
+    .btn {
+      border: 0; border-radius: 8px; padding: 13px 16px; font-weight: 700; font-size: 16px;
+    }
+    .btn.primary { background: var(--teal); color: #fff; }
+    .btn.primary:hover { background: var(--deep); }
+    .btn.ghost { background: #fff; color: var(--deep); border: 1px solid #B7E1DE; }
+    .btn.block { width: 100%; }
+    .row { display: flex; gap: 8px; }
+    .mt { margin-top: 14px; }
+
+    details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
+    summary { font-size: 16px; font-weight: 700; color: var(--deep); cursor: pointer; }
+
+    .mail { border: 1px solid #B7E1DE; border-radius: 12px; overflow: hidden; }
+    .mail-h {
+      background: linear-gradient(135deg, var(--deep), var(--teal));
+      color: #fff; padding: 18px;
+    }
+    .mail-h img { height: 28px; background: #fff; border-radius: 6px; padding: 4px 8px; }
+    .mail-h h3 { margin: 12px 0 4px; font-size: 22px; }
+    .mail-h p { margin: 0; font-size: 15px; opacity: .92; }
+    .mail-b { padding: 16px 18px; font-size: 16px; }
+    .fee {
+      display: flex; justify-content: space-between; align-items: center;
+      border: 1px solid #B7E1DE; border-radius: 8px; padding: 12px 14px; margin-top: 10px;
+    }
+    .fee b { color: var(--deep); }
+    .fee .p { font-size: 22px; font-weight: 800; color: var(--teal); }
+    .help { margin-top: 12px; background: var(--soft); border: 1px solid #B7E1DE; border-radius: 8px; padding: 12px 14px; color: var(--deep); font-size: 15px; }
+    .sms { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 15px; color: var(--muted); background: #FAFCFC; }
+
+    .bar {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 20px 0;
+    }
+    .bar h1 { margin: 0; font-size: 26px; font-weight: 800; color: var(--deep); letter-spacing: -.03em; }
+    .bar h1 span { font-weight: 500; color: var(--muted); font-size: 20px; }
+    .status { font-size: 16px; font-weight: 700; color: var(--ok); border-bottom: 2px solid #B7E1DE; padding-bottom: 2px; }
+    .spacer { flex: 1; }
+
+    .sects button {
+      display: flex; width: 100%; justify-content: space-between; align-items: center;
+      text-align: left; border: 0; background: transparent;
+      padding: 11px 12px; border-radius: 8px; font-size: 16px; font-weight: 650; color: var(--muted);
+    }
+    .sects button.on { background: var(--soft); color: var(--deep); }
+    .sects button i { font-style: normal; color: var(--teal); }
+
+    .score { font-size: 20px; font-weight: 800; color: var(--deep); margin: 0 0 8px; }
+    .score span { font-weight: 500; font-size: 16px; color: var(--muted); }
+    .meter { height: 8px; background: #E5EEEE; border-radius: 4px; margin: 0 0 16px; }
+    .meter i { display: block; height: 100%; width: 66%; background: var(--teal); }
+    ul.ev { margin: 0; padding-left: 22px; font-size: 18px; }
+    ul.ev li { margin: 0 0 10px; }
+
+    .review {
+      margin-top: 18px; padding: 14px 16px;
+      border: 1px solid #B7E1DE; border-radius: 10px;
+      background: linear-gradient(180deg, var(--soft), #fff);
+      display: flex; align-items: center; gap: 16px;
+    }
+    .review strong { color: var(--deep); font-size: 18px; }
+    .review p { margin: 2px 0 0; font-size: 15px; color: var(--muted); }
+    .review .grow { flex: 1; }
+
+    .backdrop { position: fixed; inset: 0; background: rgba(10,30,32,.38); opacity: 0; pointer-events: none; transition: .2s; z-index: 20; }
+    .backdrop.on { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed; top: 0; right: 0; height: 100%; width: min(480px, 100%);
+      background: #fff; border-left: 1px solid var(--line);
+      transform: translateX(104%); transition: .22s ease; z-index: 30;
+      display: flex; flex-direction: column;
+      box-shadow: -18px 0 50px rgba(7,94,99,.12);
+    }
+    .drawer.on { transform: none; }
+    .drawer-h { padding: 20px 20px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; }
+    .drawer-h h2 { margin: 0; font-size: 26px; color: var(--deep); }
+    .drawer-h p { margin: 6px 0 0; font-size: 15px; color: var(--muted); }
+    .drawer-b { padding: 16px 20px; overflow: auto; flex: 1; }
+    .drawer-f { padding: 16px 20px; border-top: 1px solid var(--line); }
+    .x { margin-left: auto; width: 40px; height: 40px; border: 0; border-radius: 8px; background: #F3F5F5; font-size: 22px; color: var(--muted); }
+    .check {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      text-align: left; border: 1px solid var(--line); background: #fff;
+      border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; font-weight: 650;
+    }
+    .check.on { border-color: var(--teal); background: var(--soft); color: var(--deep); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="nav">
+      <div class="brand">TEXLEX</div>
+      <button type="button" class="on" data-screen="referral">Referral</button>
+      <button type="button" data-screen="adhd">ADHD</button>
+      <button type="button" data-screen="asd">ASD</button>
+      <button class="end btn ghost" type="button">Sign out</button>
+    </nav>
+
+    <section class="screen on" id="referral">
+      <div class="workspace referral">
+        <div class="col">
+          <div class="col-h">
+            <h2>Read referral</h2>
+            <p class="sub">PDF or paste. One action fills the booking.</p>
+          </div>
+          <div class="col-b">
+            <div class="drop"><strong>Drop referral PDF</strong><span>or paste the letter</span></div>
+            <label class="f">Paste</label>
+            <textarea>Thank you for seeing Maya Chen, DOB 12/03/2016, for an ADHD assessment…</textarea>
+            <button class="btn primary block mt" type="button">Read → parent email</button>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h">
+            <h2>Confirm</h2>
+            <p class="sub">Only what the parent booking needs.</p>
+          </div>
+          <div class="col-b">
+            <div class="pair">
+              <div><label class="f">First</label><input value="Maya" /></div>
+              <div><label class="f">Last</label><input value="Chen" /></div>
+            </div>
+            <div class="pair">
+              <div><label class="f">DOB</label><input value="12/03/2016" /></div>
+              <div><label class="f">Mobile</label><input value="0412 345 678" /></div>
+            </div>
+            <label class="f">Parent email</label>
+            <input value="parent@example.com" />
+            <label class="f">Assessment</label>
+            <div class="seg">
+              <button class="on" type="button">ADHD</button>
+              <button type="button">ASD</button>
+              <button type="button">SLD</button>
+            </div>
+            <button class="btn primary block mt" type="button">Send to parent</button>
+            <div class="row mt">
+              <button class="btn ghost block" type="button">Email</button>
+              <button class="btn ghost block" type="button">SMS</button>
+            </div>
+            <details>
+              <summary>Referrer and notes</summary>
+              <label class="f">Referrer</label>
+              <input value="Dr Patel, Perth Paediatrics" />
+              <label class="f">Internal notes</label>
+              <textarea style="min-height:72px">School concern letter attached. Not for the parent email.</textarea>
+            </details>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h">
+            <h2>Parent sees</h2>
+            <p class="sub">Azure Mind. This is what leaves the clinic.</p>
+          </div>
+          <div class="col-b">
+            <div class="mail">
+              <div class="mail-h">
+                <img src="/logo-azure-mind.png" alt="Azure Mind" />
+                <h3>ADHD assessment</h3>
+                <p>Shared Psychologist–Paediatrician pathway</p>
+              </div>
+              <div class="mail-b">
+                <p>Perth Paediatrics shared Maya’s referral with Azure Mind. Book with Vishal Maharaj.</p>
+                <div class="fee"><b>Clinic · 60 min</b><span class="p">$1,150</span></div>
+                <div class="fee"><b>Telehealth · 60 min</b><span class="p">$650</span></div>
+                <div class="help">Reply <strong>BOOK</strong> and Kalee will arrange it.</div>
+              </div>
+            </div>
+            <div class="sms"><strong style="color:var(--deep)">SMS</strong> · Azure Mind: ADHD booking for Maya — reply BOOK</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="adhd">
+      <div class="bar">
+        <button class="btn ghost" type="button" id="today">Today</button>
+        <h1>Maya Chen <span>· ADHD</span></h1>
+        <div class="status">Ready to send</div>
+        <div class="spacer"></div>
+        <button class="btn ghost" type="button">Save</button>
+        <button class="btn primary" type="button" data-open-send>Send report</button>
+      </div>
+      <div class="workspace report">
+        <div class="col sects">
+          <div class="col-h"><h2>Report</h2><p class="sub">One section</p></div>
+          <div class="col-b">
+            <button type="button">Background <i>✓</i></button>
+            <button type="button">Interview <i>✓</i></button>
+            <button class="on" type="button">Inattention</button>
+            <button type="button">Hyperactivity</button>
+            <button type="button">Formulation</button>
+            <button type="button">Limitations</button>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h">
+            <h2>Inattention</h2>
+            <p class="sub">The rest of the report stays in the list. This column is the only editor.</p>
+          </div>
+          <div class="col-b">
+            <p class="score">6 / 9 <span>· threshold met</span></p>
+            <div class="meter"><i></i></div>
+            <ul class="ev">
+              <li>Careless mistakes on schoolwork, noted by teacher and parent.</li>
+              <li>Homework attention holds for about eight minutes.</li>
+              <li>Does not seem to listen when spoken to directly.</li>
+              <li>Starts chores and school tasks and does not finish them.</li>
+              <li>Avoids sustained effort and is easily distracted.</li>
+            </ul>
+            <div class="row mt">
+              <button class="btn primary" type="button">Generate</button>
+              <button class="btn ghost" type="button">From scribe</button>
+            </div>
+            <div class="review">
+              <div class="grow">
+                <strong>Review clear</strong>
+                <p>No blockers. The PDF is built when you send.</p>
+              </div>
+              <button class="btn ghost" type="button">Run review</button>
+              <button class="btn primary" type="button" data-open-send>Send report</button>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h"><h2>Assist</h2><p class="sub">Scores stay beside the writing.</p></div>
+          <div class="col-b">
+            <p class="score">Inattention <span>6/9</span></p>
+            <div class="meter"><i></i></div>
+            <p class="score">Hyperactivity <span>4/9</span></p>
+            <div class="meter"><i style="width:44%"></i></div>
+            <p class="score">Presentation <span>Combined</span></p>
+            <p class="sub">Blockers: none</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="asd">
+      <div class="bar">
+        <button class="btn ghost" type="button">Today</button>
+        <h1>Maya Chen <span>· ASD</span></h1>
+        <div class="status">Ready to send</div>
+        <div class="spacer"></div>
+        <button class="btn ghost" type="button">Save</button>
+        <button class="btn primary" type="button" data-open-send>Send report</button>
+      </div>
+      <div class="workspace report">
+        <div class="col sects">
+          <div class="col-h"><h2>Report</h2><p class="sub">Same shell as ADHD</p></div>
+          <div class="col-b">
+            <button type="button">Background <i>✓</i></button>
+            <button class="on" type="button">Social communication</button>
+            <button type="button">Restricted patterns</button>
+            <button type="button">Formulation</button>
+            <button type="button">Limitations</button>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h">
+            <h2>Social communication</h2>
+            <p class="sub">One criterion on screen. The page does not grow downward.</p>
+          </div>
+          <div class="col-b">
+            <p class="score">A1 <span>· present, examples in two settings</span></p>
+            <ul class="ev">
+              <li>Limited back-and-forth in the clinic and reported at school.</li>
+              <li>Shares enjoyment with one parent, rarely with peers.</li>
+              <li>Conversation stays on a preferred topic unless redirected.</li>
+            </ul>
+            <div class="row mt">
+              <button class="btn primary" type="button">Generate</button>
+              <button class="btn ghost" type="button">From scribe</button>
+            </div>
+            <div class="review">
+              <div class="grow">
+                <strong>Review clear</strong>
+                <p>Same gate. Send report opens over this screen.</p>
+              </div>
+              <button class="btn primary" type="button" data-open-send>Send report</button>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="col-h"><h2>Assist</h2><p class="sub">DSM snapshot</p></div>
+          <div class="col-b">
+            <p class="score">A <span>3 criteria</span></p>
+            <div class="meter"><i style="width:100%"></i></div>
+            <p class="score">B <span>2 criteria</span></p>
+            <div class="meter"><i style="width:50%"></i></div>
+            <p class="sub">Blockers: none</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="backdrop" id="backdrop"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-h">
+      <div>
+        <h2>Send report</h2>
+        <p>Maya Chen · PDF builds with this send</p>
+      </div>
+      <button class="x" type="button" id="close">×</button>
+    </div>
+    <div class="drawer-b">
+      <label class="f">Who receives this</label>
+      <button class="check on" type="button">Parent</button>
+      <button class="check on" type="button">GP / referrer</button>
+      <button class="check" type="button">School</button>
+      <label class="f">To</label>
+      <input value="parent@example.com, gp@clinic.com.au" />
+      <label class="f">From</label>
+      <input value="admin@azuremind.com.au" readonly />
+      <div class="mail mt">
+        <div class="mail-h">
+          <img src="/logo-azure-mind.png" alt="Azure Mind" />
+          <h3>Assessment summary</h3>
+          <p>Attached · Maya_Chen.pdf</p>
+        </div>
+        <div class="mail-b"><p>Maya’s assessment summary is attached. Reply here for questions.</p></div>
+      </div>
+    </div>
+    <div class="drawer-f">
+      <button class="btn primary block" type="button" id="sent">Send report</button>
+    </div>
+  </aside>
+
+  <script>
+    const screens = ["referral", "adhd", "asd"];
+    document.querySelectorAll(".nav button[data-screen]").forEach((b) => {
+      b.addEventListener("click", () => {
+        screens.forEach((id) => document.getElementById(id).classList.toggle("on", id === b.dataset.screen));
+        document.querySelectorAll(".nav button[data-screen]").forEach((n) => n.classList.toggle("on", n === b));
+      });
+    });
+    document.querySelectorAll(".seg button").forEach((b) => {
+      b.addEventListener("click", () => {
+        b.parentElement.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+      });
+    });
+    const drawer = document.getElementById("drawer");
+    const backdrop = document.getElementById("backdrop");
+    function openSend() { drawer.classList.add("on"); backdrop.classList.add("on"); }
+    function closeSend() { drawer.classList.remove("on"); backdrop.classList.remove("on"); }
+    document.querySelectorAll("[data-open-send]").forEach((b) => b.addEventListener("click", openSend));
+    document.getElementById("close").addEventListener("click", closeSend);
+    backdrop.addEventListener("click", closeSend);
+    document.getElementById("sent").addEventListener("click", () => {
+      closeSend();
+      document.querySelectorAll(".status").forEach((s) => { s.textContent = "Sent"; });
+    });
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ export type ReferralDashboardStatus =
   | "new"
   | "awaiting_review"
   | "ready_for_contact"
+  | "contact_attempted"
   | "contacted"
   | "booked"
   | "closed"
@@ -117,6 +118,12 @@ export type ReferralInboxRow = {
   needs_human_review: boolean | null;
   status: string | null;
   notes: string | null;
+  sent_email?: boolean | null;
+  sent_sms?: boolean | null;
+  send_status?: string | null;
+  cliniko_patient_id?: string | null;
+  booking_link?: string | null;
+  clinic_phone?: string | null;
   original_document_id: string | null;
   original_document_filename?: string | null;
   intake_event_id?: string | null;

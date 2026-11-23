@@ -203,7 +203,15 @@ export async function GET(req: Request) {
       }
     }
 
-    const unsubscribeLink = `${origin}/api/follow-ups/unsubscribe?id=${encodeURIComponent(String(row.id))}`;
+    let unsubscribeLink: string;
+    try {
+      const { buildUnsubscribeUrl } = await import("@/lib/follow-ups/unsubscribe-token");
+      unsubscribeLink = buildUnsubscribeUrl(origin, String(row.id));
+    } catch (tokenError) {
+      console.error("[cron/follow-ups] unsubscribe token unavailable", tokenError);
+      summary.errors += 1;
+      continue;
+    }
     const plan = stagePlan(stage, row, unsubscribeLink);
     if (!plan) {
       summary.skipped += 1;

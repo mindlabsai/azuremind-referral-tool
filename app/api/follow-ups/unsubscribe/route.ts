@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { verifyUnsubscribeToken } from "@/lib/follow-ups/unsubscribe-token";
 
 function htmlMessage(title: string, body: string): string {
   return `<!doctype html>
@@ -19,40 +20,65 @@ export async function GET(req: Request) {
 
   if (!supabaseUrl || !serviceRoleKey) {
     return new Response(
-      htmlMessage("Unable to process request", "Server configuration is incomplete. Please contact Azure Mind."),
+      htmlMessage(
+        "Unable to process request",
+        "Server configuration is incomplete. Please contact Azure Mind."
+      ),
       { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
   }
 
   const url = new URL(req.url);
   const id = (url.searchParams.get("id") ?? "").trim();
+  const token = (url.searchParams.get("token") ?? "").trim();
 
-  if (!id) {
+  if (!id || !token || !verifyUnsubscribeToken(id, token)) {
     return new Response(
-      htmlMessage("Invalid unsubscribe link", "This unsubscribe link is missing a referral identifier."),
+      htmlMessage(
+        "Invalid unsubscribe link",
+        "This unsubscribe link is invalid or has expired. Please contact Azure Mind if you need help."
+      ),
       { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("referrals")
     .update({
       opted_out: true,
       status: "opted_out",
       next_follow_up_at: null,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return new Response(
-      htmlMessage("Unable to unsubscribe", "We could not process your request right now. Please contact Azure Mind."),
+      htmlMessage(
+        "Unable to unsubscribe",
+        "We could not process your request right now. Please contact Azure Mind."
+      ),
       { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
   }
 
+  if (!data?.id) {
+    return new Response(
+      htmlMessage(
+        "Invalid unsubscribe link",
+        "This unsubscribe link is invalid or has expired. Please contact Azure Mind if you need help."
+      ),
+      { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
+  }
+
   return new Response(
-    htmlMessage("You are unsubscribed", "You will no longer receive automated follow-up messages from Azure Mind."),
+    htmlMessage(
+      "You are unsubscribed",
+      "You will no longer receive automated follow-up messages from Azure Mind."
+    ),
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
   );
 }

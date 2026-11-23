@@ -1,0 +1,61 @@
+{
+  "product": "Texlex",
+  "screen": "Referral Engine",
+  "route": "/",
+  "job": "Read a referral, confirm the booking details, send the parent email.",
+  "brand": {
+    "chrome": "Texlex",
+    "parentPreview": "Azure Mind",
+    "teal": "#0E9F98",
+    "tealDeep": "#075E63",
+    "page": "#EEF3F3",
+    "type": {
+      "title": 28,
+      "section": 22,
+      "body": 18,
+      "label": 15
+    }
+  },
+  "layout": {
+    "width": "full viewport, no 1160px cap",
+    "columns": 3,
+    "columnsNote": "Use the width of the screen. Do not stack reader, details, referrer, and actions in one left column.",
+    "regions": [
+      {
+        "id": "read",
+        "title": "Read referral",
+        "width": "32%",
+        "contents": ["pdf drop", "paste letter", "primary action: Read → parent email"]
+      },
+      {
+        "id": "confirm",
+        "title": "Confirm",
+        "width": "34%",
+        "contents": [
+          "child first, last, DOB",
+          "parent email, mobile",
+          "assessment: ADHD | ASD | SLD as a segmented control, one only",
+          "primary action: Send to parent",
+          "secondary: Email, SMS"
+        ],
+        "collapsed": ["referrer name, type, email", "internal notes"]
+      },
+      {
+        "id": "preview",
+        "title": "Parent sees",
+        "width": "34%",
+        "sticky": true,
+        "contents": ["Azure Mind email preview", "fee cards", "SMS preview"]
+      }
+    ],
+    "hiddenByDefault": ["Referral Intelligence stats"]
+  },
+  "rules": [
+    "One primary button in each column.",
+    "No capsules or pill badges.",
+    "Referrer details never appear in the parent preview.",
+    "Send stays disabled until assessment type and a parent email or mobile are set.",
+    "Assessment types are ADHD, ASD, and SLD only."
+  ],
+  "currentProblem": "The live page is still a 1160px stack: intelligence, reader, details, referrer, then actions, with the preview beside that stack. It does not use the screen, and it does not match this layout."
+}

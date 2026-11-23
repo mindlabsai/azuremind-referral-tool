@@ -7,6 +7,7 @@
 export type LetterKind =
   | "parent-cover"
   | "dr-muru-referral"
+  | "enclosed-report"
   | "referrer-update"
   | "custom";
 
@@ -101,6 +102,11 @@ export const LETTER_KIND_OPTIONS: Array<{ value: LetterKind; label: string; desc
     description: "Consensus / medical review referral. Choose the doctor below.",
   },
   {
+    value: "enclosed-report",
+    label: "Report to paediatrician",
+    description: "A short warm note. The report for this person is attached.",
+  },
+  {
     value: "referrer-update",
     label: "Update to referring practitioner",
     description: "Letter back to the referring GP / paediatrician.",
@@ -119,6 +125,8 @@ export function letterDocumentTitle(kind: LetterKind): string {
       return "COVER LETTER";
     case "dr-muru-referral":
       return "REFERRAL LETTER";
+    case "enclosed-report":
+      return "LETTER";
     case "referrer-update":
       return "CLINICAL UPDATE LETTER";
     case "custom":
@@ -137,6 +145,8 @@ export function letterDocumentSubtitle(kind: LetterKind, pathway: LetterPathway 
       return isAdhd
         ? "Consensus-based medical review — ADHD pathway"
         : "Consensus-based medical review — Autism Spectrum Disorder pathway";
+    case "enclosed-report":
+      return "Enclosing the assessment report";
     case "referrer-update":
       return isAdhd
         ? "ADHD assessment outcome"
@@ -178,6 +188,8 @@ export function buildLetterSubject(kind: LetterKind, fields: LetterMergeFields):
         : `Azure Mind — Assessment report for ${name}`;
     case "dr-muru-referral":
       return `Referral for consensus medical review — ${name}`;
+    case "enclosed-report":
+      return `Report for ${name}`;
     case "referrer-update":
       return isAdhd
         ? `ADHD assessment update — ${name}`
@@ -255,6 +267,28 @@ export function buildLetterBody(
     return lines.join("\n");
   }
 
+  if (kind === "enclosed-report") {
+    const chosen = doctor ?? referralDoctorById("chaandini-subramaniam");
+    const greeting =
+      chosen.id === "murugesh-nidyananda" ? "Dr Muru" : referralSalutation(chosen.name);
+    const heading = [chosen.name.trim(), chosen.role.trim(), chosen.clinic.trim()].filter(Boolean);
+    const who = name === "—" ? "this young person" : name;
+    const firstName = first === "—" ? who : first;
+    return [
+      ...heading,
+      "",
+      `Dear ${greeting},`,
+      "",
+      "I hope you are well.",
+      "",
+      `Please find attached the report for ${who}. I have completed the assessment and wanted you to have it.`,
+      "",
+      `If there is anything you would like to talk through, please get in touch. I am very happy to help.`,
+      "",
+      `Thank you for your care of ${firstName}.`,
+    ].join("\n");
+  }
+
   if (kind === "referrer-update") {
     return [
       referrer !== "—" ? referrerLine : "Referring practitioner",
@@ -304,19 +338,19 @@ export function buildLetterEmailHtml(
   return `<!DOCTYPE html>
 <html>
 <body style="margin:0;padding:0;background:#f3f4f6;">
-  <div style="max-width:640px;margin:24px auto;padding:32px 40px;background:#ffffff;border:1px solid #e5e7eb;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;font-size:14px;line-height:1.55;">
+  <div style="max-width:640px;margin:24px auto;padding:32px 40px;background:#ffffff;border:1px solid #e5e7eb;font-family:Helvetica,Arial,sans-serif;color:#111111;font-size:16px;line-height:1.55;">
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
       <tr>
-        <td style="font-size:13px;font-weight:700;color:#0e7c8a;letter-spacing:0.5px;">AZURE MIND</td>
-        <td align="right" style="font-size:10px;font-weight:700;color:#6b7280;letter-spacing:2px;text-transform:uppercase;">CONFIDENTIAL</td>
+        <td style="font-size:16px;font-weight:700;color:#0e7c8a;letter-spacing:0.5px;">AZURE MIND</td>
+        <td align="right" style="font-size:14px;font-weight:700;color:#3d4a4a;letter-spacing:1px;text-transform:uppercase;">CONFIDENTIAL</td>
       </tr>
     </table>
-    <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#1a1a1a;margin-bottom:2px;">${escapeHtml(title)}</div>
-    <div style="font-size:12px;font-style:italic;color:#6b7280;margin-bottom:14px;">${escapeHtml(subtitle)}</div>
+    <div style="font-size:20px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:#111111;margin-bottom:4px;">${escapeHtml(title)}</div>
+    <div style="font-size:16px;font-style:italic;color:#3d4a4a;margin-bottom:14px;">${escapeHtml(subtitle)}</div>
     <div style="border-bottom:1px solid #e5e7eb;margin-bottom:14px;"></div>
-    <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Date: ${escapeHtml(date)}</div>
-    <div style="font-size:12px;font-weight:700;color:#1a1a1a;margin-bottom:16px;">${escapeHtml(regarding)}</div>
-    <div style="font-size:14px;color:#1a1a1a;">${bodyHtml}</div>
+    <div style="font-size:16px;color:#3d4a4a;margin-bottom:4px;">Date: ${escapeHtml(date)}</div>
+    <div style="font-size:17px;font-weight:700;color:#111111;margin-bottom:16px;">${escapeHtml(regarding)}</div>
+    <div style="font-size:16px;color:#111111;">${bodyHtml}</div>
     <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:16px;">
       <div style="margin-bottom:8px;">Kind Regards,</div>
       <div style="font-weight:700;">${escapeHtml(fields.assessor || "Vishal Maharaj")}</div>
@@ -324,7 +358,7 @@ export function buildLetterEmailHtml(
       <div style="color:#0e7c8a;font-size:13px;margin-top:2px;">${escapeHtml(fields.practiceName.trim() || "Azure Mind")}</div>
     </div>
     <div style="margin-top:28px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#9ca3af;">
-      Sent via Texlex · Azure Mind · Confidential — ${client}
+      Sent via Texlex · Azure Mind · Confidential · ${client}
     </div>
   </div>
 </body>

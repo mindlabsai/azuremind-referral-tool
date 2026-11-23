@@ -52,9 +52,9 @@ export function deriveDashboardStatus(args: {
 }): ReferralDashboardStatus {
   if (args.failed) return "processing_error";
   if (args.bookingStatus === "booked") return "booked";
-  if (args.contactStatus === "contacted" || args.contactStatus === "contact_attempted") {
-    return "contacted";
-  }
+  // Email/SMS send → contact_attempted. Phone conversation → contacted.
+  if (args.contactStatus === "contacted") return "contacted";
+  if (args.contactStatus === "contact_attempted") return "contact_attempted";
   if (args.forceReview || args.extractionStatus === "needs_review" || args.extractionStatus === "failed") {
     return "awaiting_review";
   }
@@ -70,6 +70,8 @@ export function dashboardLabel(status: string | null | undefined): string {
       return "Awaiting review";
     case "ready_for_contact":
       return "Ready for contact";
+    case "contact_attempted":
+      return "Contact attempted";
     case "contacted":
       return "Contacted";
     case "booked":

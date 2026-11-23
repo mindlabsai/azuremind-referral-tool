@@ -45,6 +45,7 @@
     "playwright": "^1.60.0",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.2.4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

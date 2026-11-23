@@ -33,7 +33,7 @@ const base = {
   parent1: "Morgan Example",
   parent2: "",
   school: "Example Primary",
-  assessmentModality: "in-clinic" as const,
+  assessmentModality: "in-clinic" as "" | "in-clinic" | "virtual",
   diagnosticConclusion: "inconclusive",
   confirmedLevelA: null,
   confirmedLevelB: null,
@@ -373,6 +373,7 @@ const triple: ReviewFinding[] = ["criterion-A1", "criterion-A2", "criterion-B1"]
   detail: "One issue.",
   evidenceExcerpt: null,
   suggestedEdit: null,
+  applyHint: null,
   status: "open" as const,
   decidedAt: null,
 }));

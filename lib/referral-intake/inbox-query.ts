@@ -6,6 +6,7 @@ const DASHBOARD_STATUSES: ReferralDashboardStatus[] = [
   "new",
   "awaiting_review",
   "ready_for_contact",
+  "contact_attempted",
   "contacted",
   "booked",
   "closed",
@@ -70,6 +71,12 @@ export async function listInboxReferrals(args?: {
     "patient_identity_conflict",
     "status",
     "notes",
+    "sent_email",
+    "sent_sms",
+    "send_status",
+    "cliniko_patient_id",
+    "booking_link",
+    "clinic_phone",
     "original_document_id",
   ];
   const selectWithQa = [...baseCols, "auto_ready_at", "auto_ready_qa_status"].join(", ");

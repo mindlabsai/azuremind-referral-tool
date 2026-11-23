@@ -10,6 +10,7 @@ import {
 } from "@/lib/prompts/formulation-template";
 import { resolveTexlexDiagnosticConclusion } from "@/lib/texlex-diagnostic-conclusion";
 import { assessFormulationCompleteness } from "@/lib/texlex-formulation-completeness";
+import { polishReportProse } from "@/lib/texlex-pdf-sanitize";
 
 const FORMULATION_PASS1_MODEL = MODELS.SONNET;
 const FORMULATION_CRITIC_MODEL = "claude-opus-4-7";
@@ -212,6 +213,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          finalContent = polishReportProse(finalContent);
           const { truncation_warning: truncationWarning } = assessFormulationCompleteness(
             finalContent,
             stopReason

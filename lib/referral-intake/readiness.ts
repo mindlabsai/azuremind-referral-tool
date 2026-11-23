@@ -5,6 +5,7 @@ import {
   referralDocumentsBucket,
   referralIntakeEnabled,
   referralIntakeLiveMailbox,
+  referralAutoFirstContactEnabled,
   referralLiveCommsEnabled,
 } from "./config";
 import { referralDocumentsBucketReady } from "./document-store";
@@ -14,6 +15,7 @@ export type IntakeReadiness = {
   intakeEnabled: boolean;
   liveMailbox: boolean;
   liveComms: boolean;
+  autoFirstContact: boolean;
   defaultClinicSlug: string;
   productionReady: boolean;
   blockers: string[];
@@ -212,7 +214,12 @@ export async function getIntakeReadiness(): Promise<IntakeReadiness> {
   }
   if (!secrets.cronSecret) warnings.push("CRON_SECRET missing — watch renew/recover routes are open");
   if (referralLiveCommsEnabled()) {
-    warnings.push("TEXLEX_REFERRAL_LIVE_COMMS=1 — keep off; intake still will not message parents");
+    warnings.push("TEXLEX_REFERRAL_LIVE_COMMS=1 — authorised staff may send real parent email/SMS");
+  }
+  if (referralAutoFirstContactEnabled()) {
+    warnings.push(
+      "TEXLEX_REFERRAL_AUTO_FIRST_CONTACT=1 — newly verified referrals may auto-send (also requires LIVE_COMMS=1)"
+    );
   }
   if (
     !process.env.APP_URL?.trim() &&
@@ -230,6 +237,7 @@ export async function getIntakeReadiness(): Promise<IntakeReadiness> {
     intakeEnabled: referralIntakeEnabled(),
     liveMailbox: referralIntakeLiveMailbox(),
     liveComms: referralLiveCommsEnabled(),
+    autoFirstContact: referralAutoFirstContactEnabled(),
     defaultClinicSlug: defaultClinicSlug(),
     productionReady,
     blockers,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { referralDocumentSignedUrlTtlSeconds } from "@/lib/referral-intake/config";
 import { createReferralDocumentSignedUrl } from "@/lib/referral-intake/document-store";
+import { ensureStaffClinicAccess } from "@/lib/referral-intake/staff-access";
 import { referralIntakeSupabase } from "@/lib/referral-intake/supabase-admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 
 /**
  * Authorised staff → short-lived signed URL for the original referral document.
- * Clinic membership is checked before the service role mints the URL.
+ * Requires an existing clinic_memberships row (service-role read; no auto-enrol).
  */
 export async function GET(
   req: Request,
@@ -59,16 +60,12 @@ export async function GET(
     );
   }
 
-  if (doc.clinic_id) {
-    const { data: membership } = await userClient
-      .from("clinic_memberships")
-      .select("clinic_id")
-      .eq("user_id", user.id)
-      .eq("clinic_id", doc.clinic_id)
-      .maybeSingle();
-    if (!membership?.clinic_id) {
-      return NextResponse.json({ success: false, error: "Forbidden for this clinic" }, { status: 403 });
-    }
+  const access = await ensureStaffClinicAccess({
+    userId: user.id,
+    clinicId: doc.clinic_id ? String(doc.clinic_id) : null,
+  });
+  if (!access.ok) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
   }
 
   try {

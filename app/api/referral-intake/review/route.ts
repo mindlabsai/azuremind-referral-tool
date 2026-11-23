@@ -4,13 +4,24 @@ import {
   recordAutoReadyQa,
   updateReferralDashboardStatus,
 } from "@/lib/referral-intake/review";
+import { assertStaffClinicAccess } from "@/lib/referral-intake/staff-access";
+import { referralIntakeSupabase } from "@/lib/referral-intake/supabase-admin";
 import type { ReferralDashboardStatus } from "@/lib/referral-intake/types";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   if (!referralIntakeEnabled()) {
     return NextResponse.json({ success: false, error: "intake_disabled" }, { status: 403 });
+  }
+
+  const userClient = await createClient();
+  const {
+    data: { user },
+  } = await userClient.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ success: false, error: "Unauthorised" }, { status: 401 });
   }
 
   const body = (await req.json()) as {
@@ -44,12 +55,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "referralId is required." }, { status: 400 });
   }
 
+  const admin = referralIntakeSupabase();
+  const { data: referral } = await admin
+    .from("referrals")
+    .select("id, clinic_id")
+    .eq("id", body.referralId)
+    .maybeSingle();
+  if (!referral) {
+    return NextResponse.json({ success: false, error: "Referral not found." }, { status: 404 });
+  }
+  const access = await assertStaffClinicAccess({
+    userId: user.id,
+    clinicId: referral.clinic_id ? String(referral.clinic_id) : null,
+  });
+  if (!access.ok) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
+  }
+
+  const actor = user.email || body.actor || "clinician";
+
   if (body.autoReadyQa === "confirmed" || body.autoReadyQa === "incorrect") {
     const qa = await recordAutoReadyQa({
       referralId: body.referralId,
       status: body.autoReadyQa,
       notes: body.notes,
-      actor: body.actor ?? "clinician",
+      actor,
     });
     if (!qa.ok) {
       return NextResponse.json({ success: false, error: qa.error }, { status: 400 });
@@ -76,7 +106,7 @@ export async function POST(req: Request) {
     dashboardStatus: body.dashboardStatus,
     notes: body.notes,
     markFirstContact: body.markFirstContact,
-    actor: body.actor ?? "clinician",
+    actor,
     fields: body.fields,
     documentResolutions: body.documentResolutions,
   });
@@ -88,6 +118,9 @@ export async function POST(req: Request) {
   return NextResponse.json({
     success: true,
     liveCommsBlocked: true,
-    message: "Status updated. No parent email or SMS was sent.",
+    message:
+      body.dashboardStatus === "contacted"
+        ? "Marked contacted (phone). Message send uses Contact attempted separately."
+        : "Status updated. No parent email or SMS was sent.",
   });
 }

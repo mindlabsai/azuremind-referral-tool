@@ -1,9 +1,11 @@
-import type {
-  ClinikoCustomFieldKey,
-  ClinikoPatient,
-  ClinikoPatientAppointment,
-  ClinikoPatientFull,
-  ClinikoPractitioner,
+import {
+  clinikoAttachmentLooksLikeAsrs,
+  type ClinikoCustomFieldKey,
+  type ClinikoPatient,
+  type ClinikoPatientAppointment,
+  type ClinikoPatientAttachment,
+  type ClinikoPatientFull,
+  type ClinikoPractitioner,
 } from "@/lib/cliniko";
 
 const HALAXY_BASE = "https://au-api.halaxy.com/main";
@@ -435,6 +437,112 @@ async function readHalaxyJson(response: Response): Promise<(FhirBundle & { id?: 
   } catch {
     return null;
   }
+}
+
+type HalaxyAttachment = {
+  contentType?: string;
+  data?: string;
+  title?: string;
+};
+
+type HalaxyDocument = {
+  resourceType?: string;
+  id?: string;
+  description?: string;
+  date?: string;
+  content?: Array<{ attachment?: HalaxyAttachment }>;
+};
+
+const halaxyFileCache = new Map<string, { filename: string; contentType: string; data: string; expiresAt: number }>();
+
+function rememberHalaxyFile(id: string, filename: string, contentType: string, data: string) {
+  halaxyFileCache.set(id, {
+    filename,
+    contentType,
+    data,
+    expiresAt: Date.now() + 15 * 60 * 1000,
+  });
+}
+
+function filesFromDocument(document: HalaxyDocument): ClinikoPatientAttachment[] {
+  const docId = document.id?.trim();
+  if (!docId) return [];
+  const description = document.description?.trim() || "";
+  const files: ClinikoPatientAttachment[] = [];
+  for (const [index, item] of (document.content ?? []).entries()) {
+    const attachment = item.attachment;
+    const contentType = attachment?.contentType?.split(";")[0]?.trim() || "";
+    if (!contentType || contentType === "text/html") continue;
+    const filename = attachment?.title?.trim() || description || `halaxy-file-${index + 1}`;
+    const id = `${docId}:${index}`;
+    if (attachment?.data) rememberHalaxyFile(id, filename, contentType, attachment.data);
+    const size = attachment?.data ? Math.floor((attachment.data.length * 3) / 4) : null;
+    files.push({
+      id,
+      filename,
+      description,
+      contentType,
+      size,
+      createdAt: document.date ?? null,
+      processingCompleted: true,
+      contentUrl: null,
+      likelyAsrs: clinikoAttachmentLooksLikeAsrs(filename, description),
+      importable: true,
+    });
+  }
+  return files;
+}
+
+export async function halaxyListPatientFiles(patientId: string): Promise<ClinikoPatientAttachment[]> {
+  const queries = [
+    `/DocumentReference?subject=${encodeURIComponent(`Patient/${patientId}`)}&_count=100`,
+    `/DocumentReference?patient=${encodeURIComponent(patientId)}&_count=100`,
+  ];
+  for (const path of queries) {
+    const response = await halaxyFetch(path);
+    if (response.status === 404 || response.status === 405) continue;
+    const body = await readHalaxyJson(response);
+    if (!response.ok || body?.resourceType !== "Bundle") continue;
+    const files: ClinikoPatientAttachment[] = [];
+    for (const entry of body.entry ?? []) {
+      const resource = entry.resource as HalaxyDocument | undefined;
+      if (resource?.resourceType !== "DocumentReference") continue;
+      files.push(...filesFromDocument(resource));
+    }
+    return files;
+  }
+  return [];
+}
+
+export async function halaxyDownloadPatientFile(id: string): Promise<{
+  filename: string;
+  contentType: string;
+  buffer: Buffer;
+}> {
+  const cached = halaxyFileCache.get(id);
+  if (cached && cached.expiresAt > Date.now()) {
+    return {
+      filename: cached.filename,
+      contentType: cached.contentType,
+      buffer: Buffer.from(cached.data, "base64"),
+    };
+  }
+  const documentId = id.split(":")[0]?.trim();
+  if (!documentId) throw new Error("Halaxy file not found.");
+  const response = await halaxyFetch(`/DocumentReference/${encodeURIComponent(documentId)}`);
+  if (response.status === 404 || response.status === 405) {
+    throw new Error("Halaxy does not return saved files through this connection.");
+  }
+  const body = (await readHalaxyJson(response)) as HalaxyDocument | null;
+  if (!response.ok || !body) throw new Error(issueMessage(body as FhirBundle, response.status));
+  const match = filesFromDocument({ ...body, id: documentId }).find((file) => file.id === id);
+  const fresh = halaxyFileCache.get(id);
+  if (!match || !fresh) throw new Error("Halaxy file not found.");
+  return {
+    filename: fresh.filename,
+    contentType: fresh.contentType,
+    buffer: Buffer.from(fresh.data, "base64"),
+  };
 }
 
 export async function halaxyCreatePatientTask(options: {

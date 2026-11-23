@@ -11,6 +11,7 @@ const ALLOWED: ReferralDashboardStatus[] = [
   "new",
   "awaiting_review",
   "ready_for_contact",
+  "contact_attempted",
   "contacted",
   "booked",
   "closed",
@@ -209,8 +210,13 @@ export async function updateReferralDashboardStatus(args: {
     patch.patient_identity_conflict = false;
   }
 
+  // Manual phone conversation only — message send uses contact_attempted via contact-send.
   if (args.dashboardStatus === "contacted" || args.markFirstContact) {
     patch.contact_status = "contacted";
+    patch.first_contact_at = new Date().toISOString();
+  }
+  if (args.dashboardStatus === "contact_attempted") {
+    patch.contact_status = "contact_attempted";
     patch.first_contact_at = new Date().toISOString();
   }
   if (args.dashboardStatus === "booked") {

@@ -355,4 +355,8 @@ The confidence of the language must never exceed the confidence of the evidence.
 
 # DASHES — NEVER
 
-Do not use em dashes or en dashes anywhere. Where you would use one, write a comma, a colon, a semicolon, or two sentences. Never delete a dash and run the two clauses together. Use only full stops, commas, colons, semicolons, and brackets.`;
+Do not use em dashes, en dashes, or a spaced hyphen as a pause. Where you would use one, write a comma, a colon, a semicolon, or two sentences. Never delete a dash and run the two clauses together. Hyphens inside a single word may stay (pre-primary, DSM-5-TR). Use only full stops, commas, colons, semicolons, brackets, and hyphens that belong inside a word.
+
+# PROFESSIONAL TITLES — CAPITALS
+
+Capitalise the professional role every time it is written: Psychologist, Paediatrician, Psychiatrist, Speech Pathologist, Occupational Therapist, Physiotherapist, General Practitioner, Teacher, Counsellor, Social Worker, Developmental Paediatrician, Registered Psychologist, School Psychologist. Write Dr before a doctor's name, with a capital D. Do not leave a professional title in lowercase.`;

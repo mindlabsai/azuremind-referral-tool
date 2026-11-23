@@ -6,14 +6,21 @@ import type { ReferralDashboardStatus, ReferralInboxRow } from "@/lib/referral-i
 
 const STATUS_TABS: Array<ReferralDashboardStatus | "all"> = [
   "all",
-  "new",
   "awaiting_review",
   "ready_for_contact",
+  "contact_attempted",
   "contacted",
   "booked",
-  "closed",
   "processing_error",
 ];
+
+type ContactChannel = "email" | "sms" | "email+sms";
+
+type ContactPreview = {
+  subject: string;
+  emailHtml: string;
+  sms: string;
+};
 
 type InboxSource = "intake" | "legacy";
 
@@ -21,14 +28,9 @@ type Readiness = {
   intakeEnabled?: boolean;
   liveMailbox?: boolean;
   liveComms?: boolean;
+  autoFirstContact?: boolean;
   productionReady?: boolean;
   blockers?: string[];
-  warnings?: string[];
-  google?: {
-    oauthConfigured?: boolean;
-    redirectUri?: string;
-    pubsubTopicPresent?: boolean;
-  };
   mailboxes?: Array<{
     email: string;
     clinicSlug: string | null;
@@ -36,26 +38,19 @@ type Readiness = {
     watchExpiration: string | null;
     hasRefreshToken: boolean;
   }>;
-  storage?: {
-    bucket?: string;
-    ready?: boolean;
-  };
+  storage?: { bucket?: string; ready?: boolean };
 };
 
 type OpsState = {
   autoReady?: {
     enabled: boolean;
     source: string;
-    updatedAt?: string | null;
-    updatedBy?: string | null;
-    note?: string | null;
   };
   qa?: {
     target: number;
     pending: number;
     confirmed: number;
     incorrect: number;
-    totalAutoReady: number;
   };
 };
 
@@ -92,6 +87,14 @@ function formatWhen(value: string | null | undefined): string {
 function childName(row: ReferralInboxRow): string {
   const name = [row.child_first_name, row.child_last_name].filter(Boolean).join(" ").trim();
   return name || "Unknown child";
+}
+
+function parentName(row: ReferralInboxRow): string {
+  return [row.parent_first_name, row.parent_last_name].filter(Boolean).join(" ").trim() || "—";
+}
+
+function parentContact(row: ReferralInboxRow): string {
+  return [row.parent_mobile, row.parent_email].filter(Boolean).join(" · ") || "—";
 }
 
 function docLabel(doc: NonNullable<ReferralInboxRow["documents"]>[number]): string {
@@ -142,6 +145,15 @@ function unresolvedConflicts(row: ReferralInboxRow, draft: ReviewDraft): boolean
   });
 }
 
+function needsExceptionReview(row: ReferralInboxRow): boolean {
+  return Boolean(
+    row.needs_human_review ||
+      row.patient_identity_conflict ||
+      row.dashboard_status === "awaiting_review" ||
+      row.dashboard_status === "processing_error"
+  );
+}
+
 export default function ReferralInboxPage() {
   const [clinic, setClinic] = useState("perth-paediatrics");
   const [source, setSource] = useState<InboxSource>("intake");
@@ -155,16 +167,18 @@ export default function ReferralInboxPage() {
   const [ops, setOps] = useState<OpsState | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [oauthNote, setOauthNote] = useState<string | null>(null);
-  const [reviewId, setReviewId] = useState<string | null>(null);
+  const [caseId, setCaseId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ReviewDraft | null>(null);
+  const [contactChannel, setContactChannel] = useState<ContactChannel>("email+sms");
+  const [contactPreview, setContactPreview] = useState<ContactPreview | null>(null);
+  const [contactNote, setContactNote] = useState<string | null>(null);
+  const [liveComms, setLiveComms] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const oauth = params.get("oauth");
     if (oauth === "connected") {
-      setOauthNote(
-        `Mailbox connected: ${params.get("mailbox") || "ok"}. TEXLEX_REFERRAL_LIVE_COMMS stays off.`
-      );
+      setOauthNote(`Mailbox connected: ${params.get("mailbox") || "ok"}. Parent email/SMS stay off.`);
     } else if (oauth === "error") {
       setOauthNote(`OAuth failed: ${params.get("reason") || "unknown"}`);
     }
@@ -188,11 +202,17 @@ export default function ReferralInboxPage() {
         counts?: Record<string, number>;
         legacyCount?: number;
         hint?: string;
+        liveCommsEnabled?: boolean;
       };
       const statusJson = (await statusRes.json()) as Readiness & { success?: boolean };
       const opsJson = (await opsRes.json()) as OpsState & { success?: boolean };
       setReadiness(statusJson);
       setOps(opsJson.success ? opsJson : null);
+      if (typeof inboxJson.liveCommsEnabled === "boolean") {
+        setLiveComms(inboxJson.liveCommsEnabled);
+      } else if (typeof statusJson.liveComms === "boolean") {
+        setLiveComms(statusJson.liveComms);
+      }
       if (!inboxJson.success) {
         setError([inboxJson.error, inboxJson.hint].filter(Boolean).join(" — "));
         setRows([]);
@@ -219,17 +239,113 @@ export default function ReferralInboxPage() {
     [clinic]
   );
 
-  const reviewing = rows.find((r) => r.id === reviewId) ?? null;
+  const activeCase = rows.find((r) => r.id === caseId) ?? null;
+  const exceptionMode = activeCase ? needsExceptionReview(activeCase) : false;
 
-  function openReview(row: ReferralInboxRow) {
-    setReviewId(row.id);
+  function openCase(row: ReferralInboxRow) {
+    setCaseId(row.id);
     setDraft(draftFromRow(row));
+    setContactPreview(null);
+    setContactNote(null);
     setError(null);
+    const hasEmail = Boolean(row.parent_email?.trim());
+    const hasMobile = Boolean(row.parent_mobile?.trim());
+    setContactChannel(hasEmail && hasMobile ? "email+sms" : hasEmail ? "email" : hasMobile ? "sms" : "email+sms");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function closeCase() {
+    setCaseId(null);
+    setDraft(null);
+    setContactPreview(null);
+    setContactNote(null);
+  }
+
+  async function runContact(mode: "preview" | "simulate" | "live") {
+    if (!activeCase || !draft) return;
+    if (unresolvedConflicts(activeCase, draft)) {
+      setError("Resolve document patient conflicts before messaging.");
+      return;
+    }
+    setBusyId(activeCase.id);
+    setContactNote(null);
+    try {
+      const res = await fetch("/api/referral-intake/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referralId: activeCase.id,
+          channel: contactChannel,
+          mode,
+          fields: {
+            childFirst: draft.childFirst,
+            childLast: draft.childLast,
+            childDob: draft.childDob,
+            parentFirst: draft.parentFirst,
+            parentLast: draft.parentLast,
+            parentEmail: draft.parentEmail,
+            parentMobile: draft.parentMobile,
+            assessmentType: draft.assessmentType,
+            referrerName: draft.referrerName,
+          },
+        }),
+      });
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        dryRun?: boolean;
+        simulated?: boolean;
+        emailSent?: boolean;
+        smsSent?: boolean;
+        message?: string;
+        liveCommsEnabled?: boolean;
+        preview?: ContactPreview | null;
+        dashboardStatus?: string;
+      };
+      if (typeof json.liveCommsEnabled === "boolean") setLiveComms(json.liveCommsEnabled);
+      if (!json.success) {
+        setError(json.error || "Contact action failed");
+        if (json.preview) setContactPreview(json.preview);
+        return;
+      }
+      if (json.preview) setContactPreview(json.preview);
+      setContactNote(
+        json.message ||
+          (json.simulated
+            ? "Simulation only — status unchanged."
+            : json.dryRun
+              ? "Preview ready — status unchanged."
+              : "Sent.")
+      );
+      // Only reload after a real (or synthetic-delivery) send that changes status.
+      if (!json.dryRun && !json.simulated && (json.emailSent || json.smsSent)) {
+        await load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function openDocument(docId: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/referral-intake/documents/${docId}`);
+      const json = (await res.json()) as { success?: boolean; url?: string; error?: string };
+      if (!json.success || !json.url) {
+        setError(json.error || "Could not open document");
+        return;
+      }
+      window.open(json.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function submitReview(approve: boolean) {
-    if (!reviewing || !draft) return;
-    if (approve && unresolvedConflicts(reviewing, draft)) {
+    if (!activeCase || !draft) return;
+    if (approve && unresolvedConflicts(activeCase, draft)) {
       setError("Resolve every conflicting attachment before approving.");
       return;
     }
@@ -238,7 +354,7 @@ export default function ReferralInboxPage() {
       return;
     }
 
-    setBusyId(reviewing.id);
+    setBusyId(activeCase.id);
     try {
       const documentResolutions = Object.entries(draft.resolutions)
         .filter(([, resolution]) => resolution === "excluded" || resolution === "accepted_same_patient")
@@ -251,7 +367,7 @@ export default function ReferralInboxPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          referralId: reviewing.id,
+          referralId: activeCase.id,
           dashboardStatus: approve ? "ready_for_contact" : "awaiting_review",
           fields: {
             childFirst: draft.childFirst,
@@ -274,8 +390,29 @@ export default function ReferralInboxPage() {
       if (!json.success) {
         setError(json.error || "Review update failed");
       } else {
-        setReviewId(null);
-        setDraft(null);
+        closeCase();
+        await load();
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateStatus(referralId: string, dashboardStatus: ReferralDashboardStatus) {
+    setBusyId(referralId);
+    try {
+      const res = await fetch("/api/referral-intake/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralId, dashboardStatus, actor: "clinician" }),
+      });
+      const json = (await res.json()) as { success: boolean; error?: string };
+      if (!json.success) {
+        setError(json.error || "Update failed");
+      } else {
+        if (caseId === referralId && dashboardStatus !== "awaiting_review") {
+          closeCase();
+        }
         await load();
       }
     } finally {
@@ -303,48 +440,6 @@ export default function ReferralInboxPage() {
       } else {
         setOps(json);
         setOauthNote(json.message || (enabled ? "Auto-ready ON" : "Auto-ready OFF"));
-      }
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function markAutoReadyQa(referralId: string, autoReadyQa: "confirmed" | "incorrect") {
-    setBusyId(referralId);
-    try {
-      const res = await fetch("/api/referral-intake/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referralId, autoReadyQa, actor: "clinician" }),
-      });
-      const json = (await res.json()) as { success: boolean; error?: string };
-      if (!json.success) {
-        setError(json.error || "QA update failed");
-      } else {
-        await load();
-      }
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function updateStatus(referralId: string, dashboardStatus: ReferralDashboardStatus) {
-    setBusyId(referralId);
-    try {
-      const res = await fetch("/api/referral-intake/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          referralId,
-          dashboardStatus,
-          markFirstContact: dashboardStatus === "contacted",
-        }),
-      });
-      const json = (await res.json()) as { success: boolean; error?: string };
-      if (!json.success) {
-        setError(json.error || "Update failed");
-      } else {
-        await load();
       }
     } finally {
       setBusyId(null);
@@ -379,8 +474,8 @@ export default function ReferralInboxPage() {
             Automated intake
           </h1>
           <p style={{ margin: "10px 0 0", color: "#b7c9db", maxWidth: 720, lineHeight: 1.45 }}>
-            Clean referrals go straight to Ready for contact. Staff only handle exceptions — identity
-            mismatches, missing parent contact, unclear scans, or duplicates. Parent email/SMS stay off.
+            One referral case: intake extraction, original letter, and booking email/SMS in the same
+            place. Sending records Contact attempted. Mark contacted is for phone conversations only.
           </p>
         </header>
 
@@ -395,43 +490,44 @@ export default function ReferralInboxPage() {
           {(
             [
               {
-                label: "Auto-ready",
+                label: "Ready for contact",
                 value: counts.ready_for_contact ?? 0,
-                hint: "No staff handling needed",
-                onClick: () => setStatus("ready_for_contact"),
+                hint: "Preview / send booking message",
+                tab: "ready_for_contact" as const,
               },
               {
                 label: "Need review",
                 value: counts.awaiting_review ?? 0,
                 hint: "Exceptions only",
-                onClick: () => setStatus("awaiting_review"),
+                tab: "awaiting_review" as const,
               },
               {
-                label: "Processing errors",
-                value: counts.processing_error ?? 0,
-                hint: "Failed extraction",
-                onClick: () => setStatus("processing_error"),
+                label: "Contact attempted",
+                value: counts.contact_attempted ?? 0,
+                hint: "Email/SMS sent — awaiting reply",
+                tab: "contact_attempted" as const,
+              },
+              {
+                label: "Contacted",
+                value: counts.contacted ?? 0,
+                hint: "Phone / reply confirmed",
+                tab: "contacted" as const,
               },
             ] as const
           ).map((card) => (
             <button
               key={card.label}
               type="button"
-              onClick={card.onClick}
+              onClick={() => {
+                closeCase();
+                setStatus(card.tab);
+              }}
               style={{
                 textAlign: "left",
                 border: "1px solid #2c4560",
                 borderRadius: 12,
                 padding: "14px 16px",
-                background: status === (
-                  card.label === "Auto-ready"
-                    ? "ready_for_contact"
-                    : card.label === "Need review"
-                      ? "awaiting_review"
-                      : "processing_error"
-                )
-                  ? "#1a3348"
-                  : "#122233",
+                background: status === card.tab ? "#1a3348" : "#122233",
                 color: "#e8f0f8",
                 cursor: "pointer",
               }}
@@ -461,19 +557,34 @@ export default function ReferralInboxPage() {
             <div style={{ fontSize: 14, fontWeight: 600 }}>
               Auto-ready{" "}
               <span style={{ color: ops?.autoReady?.enabled === false ? "#e8b86d" : "#9dcea8" }}>
-                {ops?.autoReady?.enabled === false ? "OFF (force review)" : "ON"}
+                {ops?.autoReady?.enabled === false ? "OFF" : "ON"}
               </span>
               <span style={{ color: "#8eabc4", fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
-                {ops?.autoReady?.source === "db" ? "DB switch · live ≤3s" : ops?.autoReady?.source || "…"}
+                Mailbox {readiness?.liveMailbox ? "LIVE" : "off"} · Manual send{" "}
+                {liveComms || readiness?.liveComms ? "LIVE" : "off"} · Auto-first{" "}
+                {readiness?.autoFirstContact ? "ON" : "off"} · Storage{" "}
+                {readiness?.storage?.ready ? "ready" : "missing"}
               </span>
             </div>
             <div style={{ color: "#8eabc4", fontSize: 12, marginTop: 4 }}>
-              QA sample: {ops?.qa?.confirmed ?? 0} confirmed · {ops?.qa?.incorrect ?? 0} incorrect ·{" "}
-              {ops?.qa?.pending ?? 0} pending of first {ops?.qa?.target ?? 50} auto-ready
-              {(ops?.qa?.incorrect ?? 0) > 0 ? " — wrong-patient target is 0" : ""}
+              {(readiness?.mailboxes ?? [])
+                .map((m) => `${m.email}${m.watchExpiration ? ` · watch until ${formatWhen(m.watchExpiration)}` : ""}`)
+                .join(" · ") || "No mailbox connected"}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              value={clinic}
+              onChange={(e) => setClinic(e.target.value)}
+              style={selectStyle}
+              aria-label="Clinic"
+            >
+              <option value="perth-paediatrics">Perth Paediatrics</option>
+              <option value="azure-mind">Azure Mind</option>
+            </select>
+            <button type="button" onClick={() => void load()} style={actionBtnStyle}>
+              Refresh
+            </button>
             <button
               type="button"
               disabled={busyId === "ops" || ops?.autoReady?.enabled === false}
@@ -488,152 +599,15 @@ export default function ReferralInboxPage() {
             >
               Emergency stop
             </button>
-            <button
-              type="button"
-              disabled={busyId === "ops" || ops?.autoReady?.enabled === true}
-              onClick={() => void toggleAutoReady(true)}
-              style={{
-                ...actionBtnStyle,
-                opacity: ops?.autoReady?.enabled === true ? 0.5 : 1,
-              }}
-            >
-              Resume auto-ready
-            </button>
-          </div>
-        </section>
-
-        <section
-          style={{
-            border: "1px solid #2c4560",
-            borderRadius: 12,
-            padding: 16,
-            marginBottom: 18,
-            background: "#122233",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 10,
-              alignItems: "center",
-              marginBottom: 12,
-            }}
-          >
-            <strong style={{ fontSize: 15 }}>
-              {readiness?.productionReady ? "Production ready" : "Go-live checklist"}
-            </strong>
-            <span style={pillStyle}>
-              Intake {readiness?.intakeEnabled ? "on" : "off"} · Mailbox{" "}
-              {readiness?.liveMailbox ? "LIVE" : "safe"} · Comms{" "}
-              {readiness?.liveComms ? "flag on" : "off"} · Storage{" "}
-              {readiness?.storage?.ready ? readiness.storage.bucket || "ready" : "missing"}
-            </span>
-            <select
-              value={clinic}
-              onChange={(e) => setClinic(e.target.value)}
-              style={selectStyle}
-              aria-label="Clinic"
-            >
-              <option value="perth-paediatrics">Perth Paediatrics</option>
-              <option value="azure-mind">Azure Mind</option>
-            </select>
             <a href={connectHref} style={{ ...actionBtnStyle, textDecoration: "none" }}>
-              Connect Gmail mailbox
+              Connect Gmail
             </a>
-            <button type="button" onClick={() => void load()} style={actionBtnStyle}>
-              Refresh
-            </button>
           </div>
-
-          {oauthNote ? (
-            <p style={{ margin: "0 0 10px", color: "#d7e6f5", fontSize: 13 }}>{oauthNote}</p>
-          ) : null}
-
-          {(readiness?.mailboxes?.length ?? 0) > 0 ? (
-            <ul style={{ margin: "0 0 10px", paddingLeft: 18, color: "#b7c9db", fontSize: 13 }}>
-              {readiness!.mailboxes!.map((m) => (
-                <li key={m.email}>
-                  {m.email}
-                  {m.hasRefreshToken ? " · token saved" : " · missing token"}
-                  {m.watchExpiration ? ` · watch until ${formatWhen(m.watchExpiration)}` : ""}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p style={{ margin: "0 0 10px", color: "#8eabc4", fontSize: 13 }}>
-              No mailbox connected yet.
-            </p>
-          )}
-
-          {(readiness?.blockers?.length ?? 0) > 0 ? (
-            <ol style={{ margin: 0, paddingLeft: 18, color: "#f0d9a8", fontSize: 13 }}>
-              {readiness!.blockers!.map((b) => (
-                <li key={b}>{b}</li>
-              ))}
-            </ol>
-          ) : (
-            <p style={{ margin: 0, color: "#9dcea8", fontSize: 13 }}>
-              All blockers clear. Live mailbox processing is on.
-            </p>
-          )}
         </section>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-          <button
-            type="button"
-            onClick={() => setSource("intake")}
-            style={{
-              ...actionBtnStyle,
-              background: source === "intake" ? "#2a4d70" : "transparent",
-            }}
-          >
-            Inbound referrals
-          </button>
-          <button
-            type="button"
-            onClick={() => setSource("legacy")}
-            style={{
-              ...actionBtnStyle,
-              background: source === "legacy" ? "#2a4d70" : "transparent",
-            }}
-          >
-            Legacy records ({legacyCount})
-          </button>
-        </div>
-
-        <div
-          role="tablist"
-          aria-label="Referral status"
-          style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}
-        >
-          {STATUS_TABS.map((tab) => {
-            const active = status === tab;
-            const count =
-              tab === "all" ? Object.values(counts).reduce((a, b) => a + b, 0) : counts[tab] ?? 0;
-            return (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setStatus(tab)}
-                style={{
-                  background: active ? "#2a4d70" : "transparent",
-                  color: active ? "#f2f7fc" : "#9eb4c8",
-                  border: `1px solid ${active ? "#4d78a3" : "#2c4560"}`,
-                  borderRadius: 8,
-                  padding: "8px 12px",
-                  cursor: "pointer",
-                  fontSize: 13,
-                }}
-              >
-                {tab === "all" ? "All" : dashboardLabel(tab)}
-                <span style={{ marginLeft: 8, opacity: 0.75 }}>{count}</span>
-              </button>
-            );
-          })}
-        </div>
+        {oauthNote ? (
+          <p style={{ margin: "0 0 14px", color: "#d7e6f5", fontSize: 13 }}>{oauthNote}</p>
+        ) : null}
 
         {error ? (
           <p
@@ -651,58 +625,66 @@ export default function ReferralInboxPage() {
           </p>
         ) : null}
 
-        {reviewing && draft ? (
+        {activeCase && draft ? (
           <section
             style={{
               border: "1px solid #4d78a3",
-              borderRadius: 12,
-              padding: 18,
-              marginBottom: 18,
+              borderRadius: 14,
+              padding: 22,
               background: "#152636",
+              marginBottom: 18,
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div>
-                <p style={{ margin: 0, color: "#e8b86d", fontSize: 13, fontWeight: 600 }}>
-                  Needs review
+                <p style={{ margin: 0, color: exceptionMode ? "#e8b86d" : "#9dcea8", fontSize: 13, fontWeight: 600 }}>
+                  {exceptionMode ? "Exception review" : "Referral case"}
                 </p>
-                <h2 style={{ margin: "6px 0 0", fontSize: 22, fontWeight: 560 }}>
-                  {childName(reviewing)}
-                </h2>
+                <h2 style={{ margin: "6px 0 0", fontSize: 28, fontWeight: 560 }}>{childName(activeCase)}</h2>
+                <p style={{ margin: "8px 0 0", color: "#b7c9db", fontSize: 14 }}>
+                  {dashboardLabel(activeCase.dashboard_status)}
+                  {activeCase.child_dob ? ` · DOB ${activeCase.child_dob}` : ""}
+                  {activeCase.assessment_type ? ` · ${activeCase.assessment_type}` : ""}
+                </p>
               </div>
-              <button type="button" style={actionBtnStyle} onClick={() => { setReviewId(null); setDraft(null); }}>
-                Close review
+              <button type="button" style={actionBtnStyle} onClick={closeCase}>
+                Back to list
               </button>
             </div>
 
-            {(reviewing.patient_identity_conflict ||
-              (reviewing.documents ?? []).some(
-                (d) => d.extraction_role === "conflict" || d.identity_conflict
-              )) && (
-              <p
-                style={{
-                  margin: "14px 0 0",
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  background: "#3a2a18",
-                  border: "1px solid #8a6a3a",
-                  color: "#f0d9a8",
-                  fontSize: 13,
-                  lineHeight: 1.4,
-                }}
-              >
-                Patient identity requires confirmation. Primary and supporting documents contain
-                different patient names. Resolve each conflict before approving — conflicting fields
-                were not merged.
-              </p>
-            )}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                gap: 12,
+                marginTop: 18,
+                padding: 14,
+                borderRadius: 10,
+                background: "#122233",
+                border: "1px solid #2c4560",
+              }}
+            >
+              <div>
+                <div style={metaLabel}>Parent / guardian</div>
+                <div style={metaValue}>{parentName(activeCase)}</div>
+              </div>
+              <div>
+                <div style={metaLabel}>Contact</div>
+                <div style={metaValue}>{parentContact(activeCase)}</div>
+              </div>
+              <div>
+                <div style={metaLabel}>Referring GP</div>
+                <div style={metaValue}>{activeCase.referring_practitioner || "—"}</div>
+              </div>
+              <div>
+                <div style={metaLabel}>Received</div>
+                <div style={metaValue}>{formatWhen(activeCase.received_at || activeCase.created_at)}</div>
+              </div>
+            </div>
 
-            {(Array.isArray(reviewing.extraction_warnings)
-              ? reviewing.extraction_warnings
-              : []
-            ).length > 0 ? (
-              <ul style={{ margin: "12px 0 0", paddingLeft: 18, color: "#c9d7e6", fontSize: 12 }}>
-                {(reviewing.extraction_warnings as string[]).slice(0, 8).map((w) => (
+            {(Array.isArray(activeCase.extraction_warnings) ? activeCase.extraction_warnings : []).length > 0 ? (
+              <ul style={{ margin: "14px 0 0", paddingLeft: 18, color: "#f0d9a8", fontSize: 13 }}>
+                {(activeCase.extraction_warnings as string[]).slice(0, 8).map((w) => (
                   <li key={w}>{w}</li>
                 ))}
               </ul>
@@ -710,52 +692,55 @@ export default function ReferralInboxPage() {
 
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 10,
                 marginTop: 16,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+                fontSize: 12,
+                color: "#9eb4c8",
               }}
             >
+              <span style={{ fontWeight: 600, color: "#d7e6f5" }}>Case history</span>
               {(
                 [
-                  ["childFirst", "Child first name"],
-                  ["childLast", "Child last name"],
-                  ["childDob", "Date of birth"],
-                  ["parentFirst", "Parent first name"],
-                  ["parentLast", "Parent last name"],
-                  ["parentEmail", "Parent email"],
-                  ["parentMobile", "Parent mobile"],
-                  ["assessmentType", "Assessment"],
-                  ["referrerName", "Referring GP"],
-                  ["referrerType", "Referrer type"],
-                  ["referrerEmail", "Referrer email"],
+                  ["Received", true],
+                  [
+                    "Verified",
+                    activeCase.dashboard_status !== "awaiting_review" &&
+                      activeCase.dashboard_status !== "processing_error" &&
+                      activeCase.dashboard_status !== "new",
+                  ],
+                  ["Cliniko linked", Boolean(activeCase.cliniko_patient_id)],
+                  [
+                    "Contact attempted",
+                    activeCase.contact_status === "contact_attempted" ||
+                      activeCase.contact_status === "contacted" ||
+                      Boolean(activeCase.sent_email || activeCase.sent_sms) ||
+                      activeCase.dashboard_status === "contact_attempted" ||
+                      activeCase.dashboard_status === "contacted" ||
+                      activeCase.dashboard_status === "booked",
+                  ],
+                  [
+                    "Contacted",
+                    activeCase.contact_status === "contacted" ||
+                      activeCase.dashboard_status === "contacted" ||
+                      activeCase.dashboard_status === "booked",
+                  ],
+                  ["Booked", activeCase.dashboard_status === "booked"],
                 ] as const
-              ).map(([key, label]) => (
-                <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
-                  <span style={{ color: "#9eb4c8" }}>{label}</span>
-                  <input
-                    value={draft[key]}
-                    onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                    style={inputStyle}
-                  />
-                </label>
+              ).map(([label, done], index) => (
+                <span key={label} style={{ color: done ? "#9dcea8" : "#5f7a92" }}>
+                  {index > 0 ? " → " : ""}
+                  {label}
+                </span>
               ))}
             </div>
 
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, marginTop: 10 }}>
-              <span style={{ color: "#9eb4c8" }}>Internal notes</span>
-              <textarea
-                value={draft.notes}
-                onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-                rows={3}
-                style={{ ...inputStyle, resize: "vertical" }}
-              />
-            </label>
-
-            <div style={{ marginTop: 16 }}>
-              <p style={{ margin: "0 0 8px", fontWeight: 600, fontSize: 14 }}>Attached documents</p>
+            <div style={{ marginTop: 18 }}>
+              <p style={{ margin: "0 0 8px", fontWeight: 600, fontSize: 15 }}>Original documents</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {(reviewing.documents ?? []).map((doc) => {
+                {(activeCase.documents ?? []).map((doc) => {
                   const conflict = doc.extraction_role === "conflict" || doc.identity_conflict;
                   const extractedName = [doc.extracted_child_first, doc.extracted_child_last]
                     .filter(Boolean)
@@ -765,20 +750,22 @@ export default function ReferralInboxPage() {
                       key={doc.id}
                       style={{
                         border: `1px solid ${conflict ? "#8a6a3a" : "#2c4560"}`,
-                        borderRadius: 8,
-                        padding: 12,
+                        borderRadius: 10,
+                        padding: 14,
                         background: conflict ? "#241c12" : "#122233",
                       }}
                     >
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                        <a
-                          href={`/api/referral-intake/documents/${doc.id}?download=1`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: "#9ec5e8", fontSize: 13 }}
+                        <button
+                          type="button"
+                          onClick={() => void openDocument(doc.id)}
+                          style={{
+                            ...actionBtnStyle,
+                            background: "#1f4d72",
+                          }}
                         >
-                          {doc.filename}
-                        </a>
+                          Open {doc.filename}
+                        </button>
                         <span style={{ color: "#8eabc4", fontSize: 12 }}>({docLabel(doc)})</span>
                         {extractedName ? (
                           <span style={{ color: "#c9d7e6", fontSize: 12 }}>
@@ -787,7 +774,7 @@ export default function ReferralInboxPage() {
                           </span>
                         ) : null}
                       </div>
-                      {conflict ? (
+                      {exceptionMode && conflict ? (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
                           <button
                             type="button"
@@ -834,237 +821,415 @@ export default function ReferralInboxPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
-              <button
-                type="button"
-                disabled={busyId === reviewing.id}
-                onClick={() => void submitReview(false)}
-                style={actionBtnStyle}
-              >
-                Save corrections
-              </button>
-              <button
-                type="button"
-                disabled={
-                  busyId === reviewing.id || unresolvedConflicts(reviewing, draft)
-                }
-                onClick={() => void submitReview(true)}
-                style={{
-                  ...actionBtnStyle,
-                  background: unresolvedConflicts(reviewing, draft) ? "#2a3540" : "#2a5a40",
-                  opacity: unresolvedConflicts(reviewing, draft) ? 0.55 : 1,
-                }}
-                title={
-                  unresolvedConflicts(reviewing, draft)
-                    ? "Resolve conflicts before approving"
-                    : "Approve referral"
-                }
-              >
-                Approve referral
-              </button>
-            </div>
-          </section>
-        ) : null}
+            {exceptionMode ? (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 10,
+                    marginTop: 18,
+                  }}
+                >
+                  {(
+                    [
+                      ["childFirst", "Child first name"],
+                      ["childLast", "Child last name"],
+                      ["childDob", "Date of birth"],
+                      ["parentFirst", "Parent first name"],
+                      ["parentLast", "Parent last name"],
+                      ["parentEmail", "Parent email"],
+                      ["parentMobile", "Parent mobile"],
+                      ["assessmentType", "Assessment"],
+                      ["referrerName", "Referring GP"],
+                      ["referrerType", "Referrer type"],
+                      ["referrerEmail", "Referrer email"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                      <span style={{ color: "#9eb4c8" }}>{label}</span>
+                      <input
+                        value={draft[key]}
+                        onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                        style={inputStyle}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, marginTop: 10 }}>
+                  <span style={{ color: "#9eb4c8" }}>Internal notes</span>
+                  <textarea
+                    value={draft.notes}
+                    onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+                    rows={3}
+                    style={{ ...inputStyle, resize: "vertical" }}
+                  />
+                </label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
+                  <button
+                    type="button"
+                    disabled={busyId === activeCase.id}
+                    onClick={() => void submitReview(false)}
+                    style={actionBtnStyle}
+                  >
+                    Save corrections
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId === activeCase.id || unresolvedConflicts(activeCase, draft)}
+                    onClick={() => void submitReview(true)}
+                    style={{
+                      ...actionBtnStyle,
+                      background: unresolvedConflicts(activeCase, draft) ? "#2a3540" : "#2a5a40",
+                      opacity: unresolvedConflicts(activeCase, draft) ? 0.55 : 1,
+                    }}
+                  >
+                    Approve → Ready for contact
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {(activeCase.dashboard_status === "ready_for_contact" ||
+                  activeCase.dashboard_status === "contact_attempted") &&
+                !activeCase.patient_identity_conflict ? (
+                  <div
+                    style={{
+                      marginTop: 18,
+                      border: "1px solid #2c4560",
+                      borderRadius: 12,
+                      padding: 16,
+                      background: "#122233",
+                    }}
+                  >
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 15 }}>Booking correspondence</p>
+                    <p style={{ margin: "6px 0 0", color: "#8eabc4", fontSize: 13, lineHeight: 1.4 }}>
+                      Uses the existing Azure Mind booking templates, filled from this intake case.
+                      No second upload or re-extraction.
+                    </p>
 
-        {loading ? (
-          <p style={{ color: "#9eb4c8" }}>Loading referrals…</p>
-        ) : rows.length === 0 ? (
-          <p style={{ color: "#9eb4c8" }}>
-            {source === "legacy"
-              ? "No legacy records in this clinic view."
-              : "No inbound referrals yet. Send a test attachment to the clinic mailbox."}
-          </p>
-        ) : (
-          <div style={{ overflowX: "auto", border: "1px solid #2c4560", borderRadius: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-              <thead>
-                <tr style={{ background: "#152636", textAlign: "left" }}>
-                  {[
-                    "Child",
-                    "Assessment",
-                    "Referring GP",
-                    "Document",
-                    "Received",
-                    "Status",
-                    "Review",
-                    "Actions",
-                  ].map((h) => (
-                    <th
-                      key={h}
+                    <div
                       style={{
-                        padding: "12px 14px",
-                        color: "#9eb4c8",
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                        gap: 10,
+                        marginTop: 14,
                       }}
                     >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} style={{ borderTop: "1px solid #24384d" }}>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      <div style={{ fontWeight: 600 }}>{childName(row)}</div>
-                      <div style={{ color: "#8eabc4", fontSize: 12, marginTop: 2 }}>
-                        {[row.parent_first_name, row.parent_last_name].filter(Boolean).join(" ") ||
-                          "Parent unknown"}
-                      </div>
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      {row.assessment_type || "—"}
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      {row.referring_practitioner || "—"}
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      {(row.documents?.length ?? 0) > 0 ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {row.documents!.map((doc) => (
-                            <a
-                              key={doc.id}
-                              href={`/api/referral-intake/documents/${doc.id}?download=1`}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{
-                                color:
-                                  doc.extraction_role === "conflict" || doc.identity_conflict
-                                    ? "#e8b86d"
-                                    : "#9ec5e8",
-                                textDecoration: "underline",
-                                fontSize: 12,
-                              }}
-                            >
-                              {doc.filename}
-                              <span style={{ color: "#8eabc4", marginLeft: 6 }}>
-                                ({docLabel(doc)})
-                              </span>
-                            </a>
-                          ))}
-                        </div>
+                      {(
+                        [
+                          ["parentFirst", "Parent first name"],
+                          ["parentLast", "Parent last name"],
+                          ["parentEmail", "Parent email"],
+                          ["parentMobile", "Parent mobile"],
+                          ["assessmentType", "Assessment"],
+                          ["referrerName", "Referring GP"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                          <span style={{ color: "#9eb4c8" }}>{label}</span>
+                          <input
+                            value={draft[key]}
+                            onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                            style={inputStyle}
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14, alignItems: "center" }}>
+                      <label style={{ fontSize: 12, color: "#9eb4c8" }}>
+                        Channel{" "}
+                        <select
+                          value={contactChannel}
+                          onChange={(e) => setContactChannel(e.target.value as ContactChannel)}
+                          style={{ ...selectStyle, marginLeft: 6 }}
+                        >
+                          <option value="email+sms">Email + SMS</option>
+                          <option value="email">Email only</option>
+                          <option value="sms">SMS only</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={busyId === activeCase.id}
+                        onClick={() => void runContact("preview")}
+                        style={actionBtnStyle}
+                      >
+                        Preview messages
+                      </button>
+                      {!(liveComms || readiness?.liveComms) ? (
+                        <button
+                          type="button"
+                          disabled={
+                            busyId === activeCase.id ||
+                            Boolean(activeCase.sent_email && activeCase.sent_sms)
+                          }
+                          title="Audit-only rehearsal — does not change status, Cliniko, or block a later real send"
+                          onClick={() => void runContact("simulate")}
+                          style={{ ...actionBtnStyle, background: "#3a4d2a" }}
+                        >
+                          Simulate send
+                        </button>
                       ) : (
-                        <span style={{ color: "#8eabc4" }}>—</span>
+                        <button
+                          type="button"
+                          disabled={
+                            busyId === activeCase.id ||
+                            Boolean(activeCase.sent_email && activeCase.sent_sms)
+                          }
+                          title="Send via existing messaging integration"
+                          onClick={() => void runContact("live")}
+                          style={{ ...actionBtnStyle, background: "#2a5a40" }}
+                        >
+                          Send messages
+                        </button>
                       )}
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top", whiteSpace: "nowrap" }}>
-                      {formatWhen(row.received_at || row.created_at)}
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      {dashboardLabel(row.dashboard_status)}
-                      {row.patient_identity_conflict ? (
-                        <div style={{ color: "#e8b86d", fontSize: 11, marginTop: 4 }}>
-                          Identity conflict
-                        </div>
+                      {activeCase.sent_email || activeCase.sent_sms ? (
+                        <span style={{ color: "#9dcea8", fontSize: 12 }}>
+                          Already sent:{" "}
+                          {[activeCase.sent_email ? "email" : null, activeCase.sent_sms ? "SMS" : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
                       ) : null}
-                      {row.auto_ready_at && !row.needs_human_review ? (
-                        <div style={{ color: "#9dcea8", fontSize: 11, marginTop: 4 }}>
-                          Auto-verified
-                          {row.auto_ready_qa_status === "pending"
-                            ? " · QA pending"
-                            : row.auto_ready_qa_status === "confirmed"
-                              ? " · QA confirmed"
-                              : row.auto_ready_qa_status === "incorrect"
-                                ? " · QA incorrect"
-                                : ""}
-                        </div>
-                      ) : null}
-                      {Array.isArray(row.extraction_warnings)
-                        ? (row.extraction_warnings as string[])
-                            .filter((w) => /^Auto-verify held/i.test(w))
-                            .slice(0, 2)
-                            .map((w) => (
-                              <div key={w} style={{ color: "#e8b86d", fontSize: 11, marginTop: 4 }}>
-                                {w.replace(/^Auto-verify held for review:\s*/i, "")}
-                              </div>
-                            ))
-                        : null}
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      {row.needs_human_review || row.patient_identity_conflict ? (
-                        <span style={{ color: "#e8b86d" }}>Needs review</span>
-                      ) : (
-                        <span style={{ color: "#8eabc4" }}>Clear</span>
-                      )}
-                    </td>
-                    <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {row.dashboard_status === "awaiting_review" ||
-                        row.dashboard_status === "processing_error" ||
-                        row.patient_identity_conflict ||
-                        row.needs_human_review ? (
-                          <button
-                            type="button"
-                            disabled={busyId === row.id}
-                            onClick={() => openReview(row)}
-                            style={actionBtnStyle}
-                          >
-                            Review
-                          </button>
-                        ) : null}
-                        {row.auto_ready_at && row.auto_ready_qa_status === "pending" ? (
-                          <>
-                            <button
-                              type="button"
-                              disabled={busyId === row.id}
-                              onClick={() => void markAutoReadyQa(row.id, "confirmed")}
-                              style={actionBtnStyle}
-                            >
-                              QA OK
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busyId === row.id}
-                              onClick={() => void markAutoReadyQa(row.id, "incorrect")}
-                              style={{
-                                ...actionBtnStyle,
-                                background: "#3a2a1a",
-                                borderColor: "#8a6a3a",
-                                color: "#f0d9a8",
-                              }}
-                            >
-                              QA wrong
-                            </button>
-                          </>
-                        ) : null}
-                        {row.dashboard_status === "ready_for_contact" ? (
-                          <button
-                            type="button"
-                            disabled={busyId === row.id}
-                            onClick={() => void updateStatus(row.id, "contacted")}
-                            style={actionBtnStyle}
-                          >
-                            Mark contacted
-                          </button>
-                        ) : null}
-                        {row.dashboard_status === "contacted" ? (
-                          <button
-                            type="button"
-                            disabled={busyId === row.id}
-                            onClick={() => void updateStatus(row.id, "booked")}
-                            style={actionBtnStyle}
-                          >
-                            Mark booked
-                          </button>
-                        ) : null}
-                        {row.dashboard_status !== "closed" ? (
-                          <button
-                            type="button"
-                            disabled={busyId === row.id}
-                            onClick={() => void updateStatus(row.id, "closed")}
-                            style={{ ...actionBtnStyle, opacity: 0.85 }}
-                          >
-                            Close
-                          </button>
-                        ) : null}
+                    </div>
+
+                    {contactNote ? (
+                      <p style={{ margin: "12px 0 0", color: "#d7e6f5", fontSize: 13 }}>{contactNote}</p>
+                    ) : null}
+
+                    {contactPreview ? (
+                      <div style={{ marginTop: 14 }}>
+                        <p style={{ margin: "0 0 6px", fontSize: 13, color: "#9eb4c8" }}>
+                          Subject: {contactPreview.subject}
+                        </p>
+                        <p
+                          style={{
+                            margin: "0 0 10px",
+                            padding: 10,
+                            borderRadius: 8,
+                            background: "#0f1f30",
+                            border: "1px solid #2c4560",
+                            fontSize: 13,
+                            whiteSpace: "pre-wrap",
+                          }}
+                        >
+                          {contactPreview.sms}
+                        </p>
+                        <iframe
+                          title="Booking email preview"
+                          srcDoc={contactPreview.emailHtml}
+                          style={{
+                            width: "100%",
+                            minHeight: 320,
+                            border: "1px solid #2c4560",
+                            borderRadius: 8,
+                            background: "#fff",
+                          }}
+                        />
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 18 }}>
+                  {activeCase.dashboard_status === "ready_for_contact" ||
+                  activeCase.dashboard_status === "contact_attempted" ? (
+                    <button
+                      type="button"
+                      disabled={busyId === activeCase.id}
+                      onClick={() => void updateStatus(activeCase.id, "contacted")}
+                      style={actionBtnStyle}
+                    >
+                      Mark contacted (phone)
+                    </button>
+                  ) : null}
+                  {activeCase.dashboard_status === "contacted" ||
+                  activeCase.dashboard_status === "contact_attempted" ? (
+                    <button
+                      type="button"
+                      disabled={busyId === activeCase.id}
+                      onClick={() => void updateStatus(activeCase.id, "booked")}
+                      style={{ ...actionBtnStyle, background: "#2a5a40" }}
+                    >
+                      Mark booked
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </section>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setSource("intake")}
+                style={{
+                  ...actionBtnStyle,
+                  background: source === "intake" ? "#2a4d70" : "transparent",
+                }}
+              >
+                Inbound referrals
+              </button>
+              <button
+                type="button"
+                onClick={() => setSource("legacy")}
+                style={{
+                  ...actionBtnStyle,
+                  background: source === "legacy" ? "#2a4d70" : "transparent",
+                }}
+              >
+                Legacy ({legacyCount})
+              </button>
+            </div>
+
+            <div
+              role="tablist"
+              aria-label="Referral status"
+              style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}
+            >
+              {STATUS_TABS.map((tab) => {
+                const active = status === tab;
+                const count =
+                  tab === "all" ? Object.values(counts).reduce((a, b) => a + b, 0) : counts[tab] ?? 0;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setStatus(tab)}
+                    style={{
+                      background: active ? "#2a4d70" : "transparent",
+                      color: active ? "#f2f7fc" : "#9eb4c8",
+                      border: `1px solid ${active ? "#4d78a3" : "#2c4560"}`,
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontSize: 13,
+                    }}
+                  >
+                    {tab === "all" ? "All" : dashboardLabel(tab)}
+                    <span style={{ marginLeft: 8, opacity: 0.75 }}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {loading ? (
+              <p style={{ color: "#9eb4c8" }}>Loading referrals…</p>
+            ) : rows.length === 0 ? (
+              <p style={{ color: "#9eb4c8" }}>No referrals in this view.</p>
+            ) : (
+              <div style={{ overflowX: "auto", border: "1px solid #2c4560", borderRadius: 12 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                  <thead>
+                    <tr style={{ background: "#152636", textAlign: "left" }}>
+                      {["Child / DOB", "Parent / contact", "GP", "Assessment", "Status", "Action"].map(
+                        (h) => (
+                          <th
+                            key={h}
+                            style={{
+                              padding: "12px 14px",
+                              color: "#9eb4c8",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {h}
+                          </th>
+                        )
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const exception = needsExceptionReview(row);
+                      return (
+                        <tr
+                          key={row.id}
+                          style={{ borderTop: "1px solid #24384d", cursor: "pointer" }}
+                          onClick={() => openCase(row)}
+                        >
+                          <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                            <div style={{ fontWeight: 600 }}>{childName(row)}</div>
+                            <div style={{ color: "#8eabc4", fontSize: 12, marginTop: 2 }}>
+                              {row.child_dob ? `DOB ${row.child_dob}` : "DOB unknown"}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                            <div>{parentName(row)}</div>
+                            <div style={{ color: "#8eabc4", fontSize: 12, marginTop: 2 }}>
+                              {parentContact(row)}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                            {row.referring_practitioner || "—"}
+                          </td>
+                          <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                            {row.assessment_type || "—"}
+                          </td>
+                          <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
+                            {dashboardLabel(row.dashboard_status)}
+                            {exception ? (
+                              <div style={{ color: "#e8b86d", fontSize: 11, marginTop: 4 }}>Needs review</div>
+                            ) : row.auto_ready_at ? (
+                              <div style={{ color: "#9dcea8", fontSize: 11, marginTop: 4 }}>Auto-verified</div>
+                            ) : null}
+                          </td>
+                          <td
+                            style={{ padding: "12px 14px", verticalAlign: "top" }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {exception ? (
+                              <button
+                                type="button"
+                                style={actionBtnStyle}
+                                onClick={() => openCase(row)}
+                              >
+                                Review case
+                              </button>
+                            ) : row.dashboard_status === "ready_for_contact" ? (
+                              <button
+                                type="button"
+                                style={{ ...actionBtnStyle, background: "#2a5a40" }}
+                                onClick={() => openCase(row)}
+                              >
+                                Open & send
+                              </button>
+                            ) : row.dashboard_status === "contact_attempted" ? (
+                              <button
+                                type="button"
+                                style={actionBtnStyle}
+                                onClick={() => openCase(row)}
+                              >
+                                Open case
+                              </button>
+                            ) : row.dashboard_status === "contacted" ? (
+                              <button
+                                type="button"
+                                disabled={busyId === row.id}
+                                style={{ ...actionBtnStyle, background: "#2a5a40" }}
+                                onClick={() => void updateStatus(row.id, "booked")}
+                              >
+                                Mark booked
+                              </button>
+                            ) : (
+                              <button type="button" style={actionBtnStyle} onClick={() => openCase(row)}>
+                                Open
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
@@ -1098,10 +1263,13 @@ const inputStyle: CSSProperties = {
   fontSize: 13,
 };
 
-const pillStyle: CSSProperties = {
-  fontSize: 12,
+const metaLabel: CSSProperties = {
+  fontSize: 11,
   color: "#8eabc4",
-  border: "1px solid #2c4560",
-  borderRadius: 999,
-  padding: "6px 12px",
+  marginBottom: 4,
+};
+
+const metaValue: CSSProperties = {
+  fontSize: 14,
+  color: "#e8f0f8",
 };

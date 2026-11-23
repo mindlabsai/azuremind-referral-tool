@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Texlex · UX mockup</title>
+  <style>
+    :root {
+      --teal: #0E9F98;
+      --teal-deep: #075E63;
+      --teal-dark: #0A474A;
+      --teal-soft: #E8F6F5;
+      --teal-border: #B7E1DE;
+      --ink: #122022;
+      --muted: #4A5C5D;
+      --line: #D5E0E0;
+      --bg: #EEF3F3;
+      --paper: #FFFFFF;
+      --ok: #0F766E;
+      --radius: 10px;
+      --font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --shadow: 0 22px 56px rgba(7, 94, 99, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background: var(--bg);
+      min-height: 100vh;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    button { font-family: inherit; cursor: pointer; }
+    .app { min-height: 100vh; display: flex; flex-direction: column; }
+
+    .topnav {
+      display: flex; align-items: center; gap: 28px;
+      padding: 0 22px; height: 58px;
+      background: rgba(255,255,255,0.94);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; z-index: 40;
+    }
+    .brand {
+      font-weight: 800; letter-spacing: 0.1em; font-size: 15px; color: var(--ink);
+    }
+    .tabs { display: flex; gap: 4px; flex: 1; }
+    .tab {
+      border: 0; background: transparent; padding: 17px 14px;
+      font-size: 16px; font-weight: 650; color: var(--muted);
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .tab.active { color: var(--teal-deep); border-bottom-color: var(--teal); }
+    .signout {
+      border: 1px solid var(--line); background: #fff;
+      border-radius: 8px; padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--muted);
+    }
+
+    .hint {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 10px 22px; font-size: 14px; color: var(--teal-deep);
+      background: var(--teal-soft); border-bottom: 1px solid var(--teal-border);
+    }
+
+    .screen { display: none; flex: 1; }
+    .screen.active { display: flex; flex-direction: column; }
+
+    .btn {
+      border: 0; border-radius: 8px; padding: 12px 18px;
+      font-size: 16px; font-weight: 700; transition: transform .12s ease, background .12s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn.primary { background: var(--teal); color: #fff; }
+    .btn.primary:hover { background: var(--teal-deep); }
+    .btn.ghost {
+      background: #fff; color: var(--teal-deep);
+      border: 1px solid var(--teal-border);
+    }
+    .btn.soft { background: var(--teal-soft); color: var(--teal-deep); border: 1px solid var(--teal-border); }
+    .btn.block { width: 100%; }
+    .btn.lg { padding: 14px 20px; font-size: 17px; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* No capsules — status is plain text + underline accent */
+    .status {
+      font-size: 15px; font-weight: 700; color: var(--ok);
+      padding-bottom: 2px; border-bottom: 2px solid var(--teal-border);
+    }
+    .status.draft { color: var(--muted); border-bottom-color: var(--line); }
+    .status.sent { color: var(--teal-deep); }
+
+    .card {
+      background: var(--paper); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .card h2 {
+      margin: 0 0 6px; font-size: 22px; color: var(--teal-deep); letter-spacing: -0.3px; font-weight: 800;
+    }
+    .sub { margin: 0 0 16px; font-size: 15px; color: var(--muted); line-height: 1.45; }
+
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block; font-size: 13px; font-weight: 700; color: var(--muted);
+      margin-bottom: 6px; letter-spacing: 0.02em;
+    }
+    .field input, .field select, .field textarea {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px;
+      padding: 12px 14px; font-size: 16px; background: #fff; color: var(--ink);
+    }
+    .field textarea { min-height: 96px; resize: vertical; line-height: 1.45; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Type toggle — segmented, not pills */
+    .seg {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    }
+    .seg button {
+      border: 0; border-right: 1px solid var(--line); background: #fff;
+      padding: 12px 8px; font-size: 15px; font-weight: 700; color: var(--muted);
+    }
+    .seg button:last-child { border-right: 0; }
+    .seg button.on { background: var(--teal-soft); color: var(--teal-deep); }
+
+    .checks { display: flex; flex-direction: column; gap: 8px; }
+    .check {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+      background: #fff; font-size: 16px; font-weight: 600; color: var(--ink); text-align: left;
+    }
+    .check.on { border-color: var(--teal); background: var(--teal-soft); color: var(--teal-deep); }
+    .check i {
+      width: 18px; height: 18px; border: 2px solid var(--teal-border); border-radius: 4px;
+      flex: 0 0 auto; display: grid; place-items: center; font-style: normal; font-size: 12px;
+    }
+    .check.on i { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+    .drop {
+      border: 1.5px dashed var(--teal-border); background: var(--teal-soft);
+      border-radius: 10px; padding: 22px; text-align: center; margin-bottom: 14px;
+    }
+    .drop strong { display: block; color: var(--teal-deep); font-size: 17px; }
+    .drop span { font-size: 15px; color: var(--muted); }
+
+    .preview {
+      border: 1px solid var(--teal-border); border-radius: 10px; overflow: hidden; background: #fff;
+    }
+    .preview-head {
+      background: linear-gradient(135deg, var(--teal-deep), var(--teal));
+      color: #fff; padding: 20px 18px 16px;
+    }
+    .preview-head img { height: 30px; background: #fff; border-radius: 6px; padding: 5px 9px; }
+    .preview-head h3 { margin: 14px 0 6px; font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
+    .preview-head p { margin: 0; font-size: 15px; opacity: 0.92; }
+    .preview-body { padding: 18px; font-size: 16px; line-height: 1.5; }
+    .fee {
+      border: 1px solid var(--teal-border); border-radius: 8px; padding: 14px;
+      display: flex; justify-content: space-between; align-items: center; margin: 10px 0;
+    }
+    .fee b { color: var(--teal-deep); font-size: 16px; }
+    .fee .price { color: var(--teal); font-weight: 800; font-size: 22px; }
+    .help {
+      margin-top: 12px; background: var(--teal-soft); border: 1px solid var(--teal-border);
+      border-radius: 8px; padding: 14px; font-size: 15px; color: var(--teal-deep);
+    }
+    .sms {
+      margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+      font-size: 15px; color: var(--muted); background: #FAFCFC;
+    }
+
+    .ref-body {
+      padding: 20px 22px 32px;
+      display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px;
+    }
+    @media (max-width: 980px) { .ref-body { grid-template-columns: 1fr; } }
+
+    .workspace-bar {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 16px 22px 12px;
+    }
+    .workspace-bar .title { font-size: 22px; font-weight: 800; color: var(--teal-deep); letter-spacing: -0.3px; }
+    .workspace-bar .title span { font-weight: 500; color: var(--muted); font-size: 18px; }
+    .spacer { flex: 1; }
+
+    .write-grid {
+      padding: 0 22px 28px;
+      display: grid; grid-template-columns: 200px minmax(0, 1fr) 250px; gap: 14px;
+    }
+    @media (max-width: 980px) { .write-grid { grid-template-columns: 1fr; } }
+
+    .sectnav button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 12px 12px; border-radius: 8px; font-size: 15px; font-weight: 650; color: var(--muted);
+      margin-bottom: 2px;
+    }
+    .sectnav button.on { background: var(--teal-soft); color: var(--teal-deep); }
+    .sectnav button .tick { float: right; color: var(--teal); }
+
+    .score { font-size: 17px; margin: 0 0 8px; }
+    .score b { color: var(--teal-deep); font-size: 20px; }
+    .meter {
+      height: 8px; background: #E5EEEE; border-radius: 4px; overflow: hidden; margin: 6px 0 16px;
+    }
+    .meter > i { display: block; height: 100%; background: var(--teal); width: 66%; }
+    .list { margin: 0; padding-left: 22px; font-size: 17px; }
+    .list li { margin-bottom: 10px; }
+
+    /* Review = gate panel, not a capsule / not a page */
+    .review {
+      margin-top: 20px; padding: 16px 18px;
+      border: 1px solid var(--teal-border); border-radius: 10px;
+      background: linear-gradient(180deg, var(--teal-soft), #fff);
+    }
+    .review h3 {
+      margin: 0 0 8px; font-size: 18px; color: var(--teal-deep); font-weight: 800;
+    }
+    .review ul {
+      margin: 0 0 14px; padding-left: 20px; font-size: 15px; color: var(--teal-deep);
+    }
+    .review ul li { margin-bottom: 4px; }
+    .review .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+    .today-rail { display: none; padding: 0 22px 16px; }
+    .today-rail.open { display: block; }
+    .appt {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 16px 16px; border: 1px solid var(--line); border-radius: 8px;
+      background: #fff; margin-bottom: 10px; cursor: pointer;
+    }
+    .appt:hover { border-color: var(--teal); background: var(--teal-soft); }
+    .appt b { display: block; font-size: 17px; color: var(--ink); }
+    .appt small { color: var(--muted); font-size: 14px; }
+    .appt .open-label { font-size: 14px; font-weight: 700; color: var(--teal-deep); }
+
+    .backdrop {
+      position: fixed; inset: 0; background: rgba(10, 30, 32, 0.38);
+      opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 50;
+    }
+    .backdrop.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed; top: 0; right: 0; height: 100%; width: min(460px, 100%);
+      background: #fff; border-left: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      transform: translateX(104%); transition: transform .22s ease;
+      z-index: 60; display: flex; flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 20px 20px 14px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: flex-start; gap: 10px;
+    }
+    .drawer-head h2 { margin: 0; font-size: 24px; color: var(--teal-deep); font-weight: 800; letter-spacing: -0.3px; }
+    .drawer-head p { margin: 6px 0 0; font-size: 15px; color: var(--muted); }
+    .drawer-body { padding: 16px 20px; overflow: auto; flex: 1; }
+    .drawer-foot { padding: 16px 20px; border-top: 1px solid var(--line); background: #FAFCFC; }
+    .icon-x {
+      margin-left: auto; border: 0; background: #F3F5F5; width: 36px; height: 36px;
+      border-radius: 8px; font-size: 20px; color: var(--muted);
+    }
+
+    .sent-toast {
+      display: none; position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+      background: var(--teal-dark); color: #fff; padding: 14px 22px; border-radius: 8px;
+      font-size: 16px; font-weight: 650; z-index: 70; box-shadow: var(--shadow);
+    }
+    .sent-toast.show { display: block; animation: rise .25s ease; }
+    @keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+    .note { font-size: 13px; color: var(--muted); padding: 8px 22px 22px; }
+    .note code { background: #EEF2F2; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="topnav">
+      <div class="brand">TEXLEX</div>
+      <div class="tabs">
+        <button class="tab" type="button" data-screen="referral">Referral</button>
+        <button class="tab active" type="button" data-screen="report">ADHD</button>
+        <button class="tab" type="button" data-screen="asd">ASD</button>
+      </div>
+      <button class="signout" type="button">Sign out</button>
+    </nav>
+
+    <div class="hint">
+      <span>No capsules · larger type · <strong>Review</strong> is a gate on the page, not a tab · <strong>Send report</strong> is the only outbound step</span>
+      <span>Mockup</span>
+    </div>
+
+    <!-- REFERRAL -->
+    <section class="screen" id="screen-referral">
+      <div class="ref-body">
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <h2>Read referral</h2>
+            <p class="sub">PDF or paste → form + parent email.</p>
+            <div class="drop"><strong>Drop referral PDF</strong><span>or paste below</span></div>
+            <div class="field"><label>Paste</label><textarea readonly>Thank you for seeing Maya Chen for ADHD assessment…</textarea></div>
+            <button class="btn primary lg" type="button">Read → parent email</button>
+          </div>
+          <div class="card">
+            <h2>Confirm</h2>
+            <p class="sub">Only what you need to send.</p>
+            <div class="row2">
+              <div class="field"><label>First</label><input value="Maya" readonly /></div>
+              <div class="field"><label>Last</label><input value="Chen" readonly /></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>DOB</label><input value="12/03/2016" readonly /></div>
+              <div class="field"><label>Mobile</label><input value="0412 345 678" readonly /></div>
+            </div>
+            <div class="field"><label>Email</label><input value="parent@example.com" readonly /></div>
+            <div class="field">
+              <label>Assessment</label>
+              <div class="seg">
+                <button class="on" type="button">ADHD</button>
+                <button type="button">ASD</button>
+                <button type="button">SLD</button>
+              </div>
+            </div>
+            <button class="btn primary block lg" type="button">Send to parent</button>
+            <div style="display:flex;gap:10px;margin-top:10px">
+              <button class="btn ghost block" type="button">Email</button>
+              <button class="btn ghost block" type="button">SMS</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Parent sees</h2>
+          <p class="sub">Azure Mind · live preview</p>
+          <div class="preview">
+            <div class="preview-head">
+              <img src="/logo-azure-mind.png" alt="Azure Mind" />
+              <h3>ADHD assessment</h3>
+              <p>Shared Psychologist–Paediatrician pathway</p>
+            </div>
+            <div class="preview-body">
+              <p>Perth Paediatrics shared Maya’s referral with Azure Mind. Book with Vishal Maharaj.</p>
+              <div class="fee"><div><b>Clinic · 60 min</b></div><div class="price">$1,150</div></div>
+              <div class="fee"><div><b>Telehealth · 60 min</b></div><div class="price">$650</div></div>
+              <div class="help">Reply <strong>BOOK</strong> for help from Kalee.</div>
+            </div>
+          </div>
+          <div class="sms"><strong style="color:var(--teal-deep)">SMS</strong> · Azure Mind: ADHD booking for Maya — reply BOOK</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADHD -->
+    <section class="screen active" id="screen-report">
+      <div class="workspace-bar">
+        <button class="btn soft" type="button" id="toggle-today">Today</button>
+        <div class="title">Maya Chen <span>· ADHD</span></div>
+        <div class="status" id="status-pill">Ready to send</div>
+        <div class="spacer"></div>
+        <button class="btn ghost" type="button">Save</button>
+        <button class="btn primary lg" type="button" id="open-send">Send report</button>
+      </div>
+
+      <div class="today-rail" id="today-rail">
+        <div class="card">
+          <h2>Today · Cliniko</h2>
+          <p class="sub">Pick a patient, then write. Stays hidden while you work.</p>
+          <div class="appt" data-close-today>
+            <div><b>Maya Chen</b><small>16:30–17:30 · ADHD assessment</small></div>
+            <span class="open-label">Open →</span>
+          </div>
+          <div class="appt" data-close-today>
+            <div><b>Tyler Robertson</b><small>14:00–14:30 · review</small></div>
+            <span class="open-label">Open →</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="write-grid">
+        <div class="card sectnav">
+          <h2>Report</h2>
+          <p class="sub">One section</p>
+          <button type="button">Background <span class="tick">✓</span></button>
+          <button type="button">Interview <span class="tick">✓</span></button>
+          <button class="on" type="button">Inattention</button>
+          <button type="button">Hyperactivity</button>
+          <button type="button">Formulation</button>
+          <button type="button">Limitations</button>
+        </div>
+
+        <div class="card">
+          <h2>Inattention</h2>
+          <p class="sub">Write here. Review sits underneath when the report is almost done — not a separate destination.</p>
+          <div class="score"><b>6 / 9</b> · threshold met</div>
+          <div class="meter"><i></i></div>
+          <ul class="list">
+            <li>Careless mistakes on schoolwork (teacher + parent).</li>
+            <li>Sustained attention on homework ~8 minutes.</li>
+            <li>Does not seem to listen when spoken to directly.</li>
+            <li>Fails to finish chores / school tasks once started.</li>
+            <li>Avoids sustained mental effort; easily distracted.</li>
+          </ul>
+          <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+            <button class="btn primary" type="button">Generate</button>
+            <button class="btn ghost" type="button">From scribe</button>
+          </div>
+
+          <div class="review">
+            <h3>Review</h3>
+            <ul>
+              <li>Criteria consistent with notes</li>
+              <li>No fabrication flags</li>
+              <li>Demographics locked</li>
+            </ul>
+            <div class="row">
+              <button class="btn ghost" type="button">Run review again</button>
+              <button class="btn primary lg" type="button" id="open-send-2">Send report</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Assist</h2>
+          <p class="sub">Scores and blockers — unlocks Send</p>
+          <div class="score"><b>Inattention</b> 6/9</div>
+          <div class="meter"><i></i></div>
+          <div class="score"><b>Hyperactivity</b> 4/9</div>
+          <div class="meter"><i style="width:44%"></i></div>
+          <div class="score"><b>Presentation</b><br />Combined</div>
+          <p class="sub" style="margin-top:16px;margin-bottom:0">
+            If something blocks send, it shows here as plain text — e.g. “2 review items” — not a capsule row.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-asd">
+      <div class="workspace-bar">
+        <div class="title">ASD <span>· same shell</span></div>
+        <div class="status draft">Draft</div>
+        <div class="spacer"></div>
+        <button class="btn primary lg" type="button" id="open-send-asd">Send report</button>
+      </div>
+      <div class="ref-body">
+        <div class="card">
+          <h2>Where Review lives</h2>
+          <p class="sub">Not a phase. Not a capsule. A checklist panel under the writing surface.</p>
+          <ul class="list">
+            <li><strong>While writing</strong> — Assist shows soft warnings.</li>
+            <li><strong>When clear</strong> — Review panel shows green path + Send report.</li>
+            <li><strong>When blocked</strong> — Send stays disabled; list the blockers in large type.</li>
+            <li><strong>Send report</strong> — builds PDF + opens drawer. Done.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2>What we killed</h2>
+          <p class="sub">Old chrome that aged the product.</p>
+          <div class="help">
+            Gone: Package · phase capsules · pill badges · eight header buttons · separate Final PDF step<br /><br />
+            Kept: teal · large type · Write canvas · Send report drawer · Azure Mind on parent mail
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="note">Open <code>/texlex-ux-mockup.html</code> · mockup only</p>
+  </div>
+
+  <div class="backdrop" id="backdrop"></div>
+  <aside class="drawer" id="send-drawer" aria-label="Send report">
+    <div class="drawer-head">
+      <div>
+        <h2>Send report</h2>
+        <p>Builds Final PDF · Azure Mind preview</p>
+      </div>
+      <button class="icon-x" type="button" id="close-send" aria-label="Close">×</button>
+    </div>
+    <div class="drawer-body">
+      <div class="field">
+        <label>Who receives this</label>
+        <div class="checks">
+          <button class="check on" type="button"><i>✓</i> Parent</button>
+          <button class="check on" type="button"><i>✓</i> GP / referrer</button>
+          <button class="check" type="button"><i></i> School</button>
+        </div>
+      </div>
+      <div class="field"><label>To</label><input value="parent@example.com, gp@clinic.com.au" readonly /></div>
+      <div class="field"><label>From</label><input value="admin@azuremind.com.au" readonly /></div>
+      <div class="preview" style="margin-top:8px">
+        <div class="preview-head">
+          <img src="/logo-azure-mind.png" alt="Azure Mind" />
+          <h3>ADHD assessment summary</h3>
+          <p>Attached · Maya_Chen_ADHD.pdf</p>
+        </div>
+        <div class="preview-body">
+          <p>Maya’s assessment summary is attached. Reply here for questions — Azure Mind admin.</p>
+        </div>
+      </div>
+      <div class="sms"><strong style="color:var(--teal-deep)">SMS</strong> · Summary emailed for Maya</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn primary block lg" type="button" id="confirm-send">Send report</button>
+    </div>
+  </aside>
+
+  <div class="sent-toast" id="sent-toast">Sent · parent + GP · PDF attached</div>
+
+  <script>
+    const screens = { referral: "screen-referral", report: "screen-report", asd: "screen-asd" };
+
+    function show(name) {
+      Object.values(screens).forEach((id) => document.getElementById(id).classList.remove("active"));
+      document.getElementById(screens[name]).classList.add("active");
+      document.querySelectorAll(".topnav .tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.screen === name);
+      });
+      closeSend();
+    }
+
+    document.querySelectorAll(".topnav .tab").forEach((tab) => {
+      tab.addEventListener("click", () => show(tab.dataset.screen));
+    });
+
+    const drawer = document.getElementById("send-drawer");
+    const backdrop = document.getElementById("backdrop");
+    const today = document.getElementById("today-rail");
+
+    function openSend() {
+      drawer.classList.add("open");
+      backdrop.classList.add("open");
+    }
+    function closeSend() {
+      drawer.classList.remove("open");
+      backdrop.classList.remove("open");
+    }
+
+    ["open-send", "open-send-2", "open-send-asd"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("click", openSend);
+    });
+    document.getElementById("close-send").addEventListener("click", closeSend);
+    backdrop.addEventListener("click", closeSend);
+
+    document.getElementById("toggle-today").addEventListener("click", () => {
+      today.classList.toggle("open");
+    });
+    document.querySelectorAll("[data-close-today]").forEach((el) => {
+      el.addEventListener("click", () => today.classList.remove("open"));
+    });
+
+    document.getElementById("confirm-send").addEventListener("click", () => {
+      closeSend();
+      const pill = document.getElementById("status-pill");
+      if (pill) {
+        pill.textContent = "Sent";
+        pill.classList.add("sent");
+      }
+      const toast = document.getElementById("sent-toast");
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2200);
+    });
+
+    document.querySelectorAll(".seg button").forEach((b) => {
+      b.addEventListener("click", () => {
+        b.parentElement.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+      });
+    });
+
+    document.querySelectorAll(".check").forEach((c) => {
+      c.addEventListener("click", () => {
+        c.classList.toggle("on");
+        const mark = c.querySelector("i");
+        if (mark) mark.textContent = c.classList.contains("on") ? "✓" : "";
+      });
+    });
+  </script>
+</body>
+</html>

@@ -22,6 +22,7 @@ In `.env.local`:
 TEXLEX_REFERRAL_INTAKE_ENABLED=1
 TEXLEX_REFERRAL_INTAKE_LIVE=0
 TEXLEX_REFERRAL_LIVE_COMMS=0
+TEXLEX_REFERRAL_AUTO_FIRST_CONTACT=0
 TEXLEX_DEFAULT_CLINIC_SLUG=perth-paediatrics
 TEXLEX_TOKEN_ENCRYPTION_KEY=<long random>
 SUPABASE_SERVICE_ROLE_KEY=<from Supabase Project Settings → API → service_role>
@@ -51,5 +52,6 @@ Inbox should show **Intake enabled · Mailbox safe · Comms off** (no red “dis
    `POST /api/referral-intake/watch/renew` with `Authorization: Bearer $CRON_SECRET`.
 
 ## Safety
-- Keep `TEXLEX_REFERRAL_LIVE_COMMS=0` — intake never emails/SMS parents.
+- Keep `TEXLEX_REFERRAL_LIVE_COMMS=0` — staff cannot send real parent email/SMS.
+- Keep `TEXLEX_REFERRAL_AUTO_FIRST_CONTACT=0` — enabling manual send must not auto-contact existing Ready referrals.
 - No automatic redistribution or clinical decisions.

@@ -1,6 +1,10 @@
 import { writeReferralAudit } from "./audit";
 import { resolveClinicBySlug } from "./clinics";
-import { referralLiveCommsEnabled } from "./config";
+import {
+  referralAutoFirstContactEnabled,
+  referralLiveCommsEnabled,
+} from "./config";
+import { maybeAutoSendFirstContact } from "./contact-send";
 import { storeReferralDocument } from "./document-store";
 import { isLikelySamePatient, providerDedupeKey } from "./duplicate";
 import { verifyReferralForAutoReady } from "./auto-verify";
@@ -16,17 +20,13 @@ import type {
 
 /**
  * Create a referral from an inbound (or synthetic/manual) email + attachments.
- * Idempotent on provider message id. Does not send parent email/SMS.
+ * Idempotent on provider message id.
+ * Stage B auto-send runs only when LIVE_COMMS + AUTO_FIRST_CONTACT are both on,
+ * and only for the referral just created in this call — never for existing Ready rows.
  */
 export async function createReferralFromIntake(
   input: CreateIntakeReferralInput
 ): Promise<CreateIntakeReferralResult> {
-  if (referralLiveCommsEnabled()) {
-    // Safety: intake must never auto-message parents in Phase 1 even if the flag is flipped.
-    console.warn(
-      "[referral-intake] TEXLEX_REFERRAL_LIVE_COMMS is on, but intake still will not send parent messages."
-    );
-  }
 
   const clinic = await resolveClinicBySlug(input.clinicSlug);
   const actor = input.actor ?? "system";
@@ -490,9 +490,35 @@ async function finishIntakeAfterEvent(args: {
         score: o.score,
         child: [o.extract.childFirst, o.extract.childLast].filter(Boolean).join(" "),
       })),
-      liveCommsBlocked: true,
+      liveCommsBlocked: !referralLiveCommsEnabled(),
+      autoFirstContactEnabled: referralAutoFirstContactEnabled(),
     },
   });
+
+  // Stage B — only this newly auto-verified referral, never the existing Ready queue.
+  if (passAutoReady && finalDashboardStatus === "ready_for_contact") {
+    try {
+      const auto = await maybeAutoSendFirstContact({
+        referralId: referral.id,
+        clinicId: clinic.id,
+        newlyCreatedAndVerified: true,
+      });
+      if (auto.attempted && auto.result?.ok && !auto.result.dryRun) {
+        return {
+          ok: true,
+          referralId: referral.id,
+          intakeEventId: intakeEventId,
+          documentIds,
+          dashboardStatus: "contact_attempted",
+          duplicateOfReferralId,
+          extract,
+          error: extractError,
+        };
+      }
+    } catch (autoError) {
+      console.warn("[referral-intake] Stage B auto-send skipped:", autoError);
+    }
+  }
 
   return {
     ok: true,

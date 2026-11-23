@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { anthropic, MODELS } from "@/lib/anthropic-client";
+import { polishReportProse } from "@/lib/texlex-pdf-sanitize";
 import {
   ADHD_FORMULATION_CRITIC_STYLE_GUIDANCE,
   ADHD_FORMULATION_SYSTEM_PROMPT,
@@ -109,7 +110,7 @@ function formatClinicianLockBlock(lock: ClinicianLock | undefined): string {
   const outcomeRules =
     lock.divaState === "negative"
       ? [
-          "- DIVA-5 Negative structure (match exemplar quality, not exemplar wording):",
+          "- Young DIVA-5 Negative structure (match exemplar quality, not exemplar wording):",
           "  (1) Open: evidence does not support ADHD; insufficient IA/HI against DSM-5; not a pervasive, developmentally persistent primary attentional pattern. No held open. No hedging.",
           "  (2) Elevated scales: acknowledge as perceived symptom burden, not diagnosis; not substantiated on structured interview against DSM-5; distinguish behavioural concern from diagnostic threshold. Represent domains accurately; do not invent illegibility.",
           "  (3) Positive reformulation: what the presentation is more consistent with, grounded in case evidence (including the child's account).",
@@ -119,11 +120,11 @@ function formatClinicianLockBlock(lock: ClinicianLock | undefined): string {
         ]
       : lock.divaState === "not-administered"
         ? [
-            "- DIVA-5 Not administered: ADHD remains held open. This is the only genuinely open/deferred ADHD outcome. Do not affirm ADHD.",
+            "- Young DIVA-5 Not administered: ADHD remains held open. This is the only genuinely open/deferred ADHD outcome. Do not affirm ADHD.",
             "- Scales quantify perceived burden only; close with what assessment is required before a position can be taken.",
           ]
         : [
-            "- DIVA-5 Positive structure: affirm ADHD with the derived presentation once; weave supporting evidence (no scale recitation); address differentials once; close with preliminary position and ratification pathway.",
+            "- Young DIVA-5 Positive structure: sentence one is the clinical lock opening, reproduced verbatim; weave supporting evidence (no scale recitation); address differentials once; close with outstanding questions. State what remains to be clarified or monitored. Do not restate the diagnosis, the presentation, or the pathway status.",
           ];
 
   return [
@@ -145,7 +146,7 @@ function formatClinicianLockBlock(lock: ClinicianLock | undefined): string {
     }`,
     `- Assessment date: ${lock.assessmentDate?.trim() || "[not provided]"}`,
     `- Assessment modality: ${lock.assessmentModality?.trim() || "[not provided]"}`,
-    `- DIVA-5 outcome: ${lock.divaState || "[not provided]"}`,
+    `- Young DIVA-5 outcome: ${lock.divaState || "[not provided]"}`,
     `- Presentation: ${presentationForLock(lock)}`,
     `- Severity stated: ${lock.severityStated || "[not provided]"}`,
     `- Inattention met: ${lock.inattentionMet ?? 0} of ${lock.inattentionTotal ?? 9} (threshold ${lock.threshold ?? "?"})`,
@@ -153,8 +154,8 @@ function formatClinicianLockBlock(lock: ClinicianLock | undefined): string {
     `- Criteria marked met: ${met || "none"}`,
     "",
     "Rules:",
-    "- Never contradict the clinician lock on DIVA-5 outcome, criterion counts, presentation, age, year level, or school.",
-    "- Do not claim a DIVA-5 was completed unless divaState is positive or negative as entered; if not-administered, say it was not administered.",
+    "- Never contradict the clinician lock on Young DIVA-5 outcome, criterion counts, presentation, age, year level, or school.",
+    "- Do not claim a Young DIVA-5 was completed unless divaState is positive or negative as entered; if not-administered, say it was not administered.",
     ...outcomeRules,
     "- Do not invent teacher names, dates, ages, year levels, onset timings, or instrument outcomes.",
     "- Use parent and client names exactly as locked (quoted FIXED STRINGS). Never substitute a similar-sounding name (Eleanor for Elena is forbidden).",
@@ -162,7 +163,7 @@ function formatClinicianLockBlock(lock: ClinicianLock | undefined): string {
     "- Where a date, age, or onset is not in the lock, notes, or documents, omit it or state it is not available.",
     "- Do not add further-review / paediatric-enquiry deferrals unless the clinician explicitly wrote them in notes or recommendation shorthand.",
     "- Do not contradict settled findings (e.g. do not recommend sensory review when notes record no sensory concerns).",
-    "- This consensus assessment is primary; paediatric involvement is ratification, not re-investigation. Do not defer the clinician's determinations beyond ratification language the clinician provided.",
+    "- Pathway status is not part of this section. Do not describe the assessment as consensus based, preliminary, or subject to ratification.",
     "- Render the clinician's judgement only; do not substitute monitoring, caution, or recommendation language the clinician did not enter.",
     "- Do not invent recommendation items, assessment batteries, or timelines in the formulation.",
     "- Uploaded PDFs are collateral only: quote scores that appear in them, but do not use them to override the clinician lock.",
@@ -227,7 +228,7 @@ export async function POST(req: NextRequest) {
       lockBlock,
       body.prompt,
       pdfs.length
-        ? "Attached collateral PDFs may be quoted briefly for scores and form content that actually appear in them. Integrate those findings into the clinical reasoning once; do not walk through scale clusters. They must not override the clinician lock on DIVA-5, criterion counts, presentation, age, year level, or school. Do not invent teacher names or other identifiers not clearly present in the documents or notes."
+        ? "Attached collateral PDFs may be quoted briefly for scores and form content that actually appear in them. Integrate those findings into the clinical reasoning once; do not walk through scale clusters. They must not override the clinician lock on Young DIVA-5, criterion counts, presentation, age, year level, or school. Do not invent teacher names or other identifiers not clearly present in the documents or notes."
         : "",
     ]
       .filter(Boolean)
@@ -281,7 +282,7 @@ export async function POST(req: NextRequest) {
     }
 
     return new Response(
-      JSON.stringify({ text: finalText, criticPassed, modelUsed }),
+      JSON.stringify({ text: polishReportProse(finalText), criticPassed, modelUsed }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (e) {

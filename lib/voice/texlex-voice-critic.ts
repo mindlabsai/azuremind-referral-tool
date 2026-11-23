@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { polishReportProse } from "@/lib/texlex-pdf-sanitize";
 import { MODELS } from "@/lib/anthropic-client";
 
 export const VOICE_CRITIC_MODEL = "claude-opus-4-7";
@@ -85,7 +86,13 @@ export async function runVoiceCriticPostStep(
   if (!isVoiceCriticEnabled()) {
     criticDisabled = true;
     console.info(`[Texlex] ${logLabel} voice critic disabled (TEXLEX_VOICE_CRITIC_ENABLED=false)`);
-    return { finalContent, criticApplied, fallbackToDraft, criticDisabled, model };
+    return {
+      finalContent: polishReportProse(finalContent),
+      criticApplied,
+      fallbackToDraft,
+      criticDisabled,
+      model,
+    };
   }
 
   console.info(`[Texlex] ${logLabel} Pass 1 complete; invoking voice critic (Opus)…`);
@@ -103,7 +110,13 @@ export async function runVoiceCriticPostStep(
     );
   }
 
-  return { finalContent, criticApplied, fallbackToDraft, criticDisabled, model };
+  return {
+    finalContent: polishReportProse(finalContent),
+    criticApplied,
+    fallbackToDraft,
+    criticDisabled,
+    model,
+  };
 }
 
 export function criticSectionTypeForCriterion(code: string): string {

@@ -86,5 +86,8 @@ BANNED STRUCTURES — DO NOT USE
 - 'a range of' / 'a number of' / 'various' / 'in terms of' / 'with respect to' / 'with regard to'
 - 'rich, varied, and complex presentation' or any decorative three-adjective stack
 
+DASHES AND TITLES
+Do not use em dashes, en dashes, or a spaced hyphen as a pause. Capitalise professional titles every time: Psychologist, Paediatrician, Psychiatrist, Speech Pathologist, Occupational Therapist, Physiotherapist, Teacher, General Practitioner, and Dr before a name.
+
 OUTPUT FORMAT
 Return ONLY the rewritten section as plain prose. No preamble, no explanation, no markdown headers, no commentary. Preserve paragraph breaks (\\n\\n) where present in the input. Add paragraph breaks where the rewrite produces new logical clinical pivots.`;

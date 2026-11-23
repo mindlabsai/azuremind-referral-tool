@@ -24,6 +24,8 @@ RULES:
 - 3-5 sentences maximum
 - One paragraph, prose only
 - Australian English
+- No em dashes, en dashes, or spaced hyphens used as a pause
+- Capitalise professional titles: Psychologist, Paediatrician, Psychiatrist, Speech Pathologist, Occupational Therapist, Teacher, and Dr before a name
 - Use the client's first name once, then pronouns
 - End with "Criterion D is met" / "Criterion D is not met" / "Criterion D cannot be reliably determined on current evidence"`;
 

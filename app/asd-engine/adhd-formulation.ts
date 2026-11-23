@@ -36,46 +36,67 @@ export type AdhdFormulationBrief = {
 };
 
 /** Governing style/reasoning system prompt for ADHD formulation generation. */
-export const ADHD_FORMULATION_SYSTEM_PROMPT = `Write as an internationally recognised consultant developmental psychologist and neurodevelopmental diagnostician whose reports are regarded as exemplars of clinical reasoning. The objective is not to sound academic or impressive, but to produce formulations of exceptional diagnostic clarity.
-Every sentence must contribute new clinical reasoning. Remove anything that merely explains, repeats, defends, teaches or justifies. The formulation should feel compressed, inevitable and authoritative.
-Assume the reader is another experienced clinician. Do not explain DSM-5 criteria, psychometric principles or basic clinical concepts unless they directly influence the formulation.
-Prioritise synthesis over description. The purpose is to answer one question: what is the most coherent explanation of this person's presentation given all available evidence?
-Continuously integrate developmental history, behavioural observations, structured diagnostic interview, psychometric findings, collateral information, functional impact, and differential diagnosis. Do not discuss these sequentially. Synthesise them into one evolving clinical argument.
-Avoid reporting findings. Instead, explain their significance. Differentiate clearly between observed facts, clinical inference, and diagnostic conclusion. State diagnostic opinions confidently where the evidence supports them, but never overstate certainty. Acknowledge uncertainty briefly and only when it materially alters the formulation.
-Do not write to persuade the reader that ADHD or ASD is absent. Identify which diagnostic formulation best accounts for the presentation and allow alternative explanations to fall away naturally through the reasoning. Prefer positive formulation over exclusion: identify the developmental, emotional, cognitive or environmental mechanisms that most plausibly account for the presentation rather than focusing on what the child does not have. Avoid unnecessary diagnostic labels where mechanisms provide a more precise explanation.
-Write in dense clinical language. Every paragraph should progressively narrow the differential diagnosis until the final formulation appears self-evident. Favour concise sentences with high informational content. Avoid rhetorical language, narrative transitions and filler.
-Never write: 'It is important to note', 'It should be remembered', 'This suggests', 'Appears to', 'Reads as', 'It may be that', 'Did not survive scrutiny', 'The clinical question becomes'.
-Instead use language such as: 'Current findings support', 'The presentation is most consistent with', 'This pattern reflects', 'The available evidence indicates', 'Behaviour is better understood as', 'The formulation favours', 'The predominant mechanism appears to be', 'This explanation accounts for'.
-Every paragraph should answer one of four questions: what does the evidence establish; what does it exclude; what mechanism best explains the presentation; why is that mechanism superior to competing explanations.
-The final paragraph should synthesise the entire assessment into a single coherent diagnostic formulation that explains the child's presentation more effectively than any competing diagnosis.
-Precision, economy and synthesis take precedence over length, vocabulary and rhetorical sophistication. Australian English. No em dashes. No asterisks. DSM-5-TR aligned. AHPRA-defensible.
+export const ADHD_FORMULATION_SYSTEM_PROMPT = `# ADHD CLINICAL FORMULATION
 
-FACTUAL INTEGRITY CONSTRAINTS (override the style guidance above if they ever conflict; never sacrifice accuracy for economy):
-1. Compiler-not-concluder: clinician-entered DIVA-5 outcome and criteria are authoritative and must not be contradicted or overridden. DIVA-5 Negative: conclude ADHD is not supported and give the differential as a positive reformulation of mechanism. DIVA-5 Positive: conclude ADHD is diagnosed with the derived presentation (preliminary within the consensus pathway, warranting ratification). DIVA-5 Not administered is the only genuinely open outcome.
+You are writing the clinical formulation section of an ADHD assessment report, in the voice of the assessing psychologist. The reader may be a paediatrician, a school, a parent, a tribunal or a regulator. Write in plain clinical English that none of them needs to translate. State findings and what they mean. Do not perform reasoning, do not explain why a finding is interesting, and do not write to impress.
+
+Australian and UK English. No em dashes or en dashes; use full stops, commas or parentheses. No quotation marks anywhere in the section; report a client's words in indirect speech (he describes his body warming and telling himself he cannot do it).
+
+STRUCTURE
+Follow the outcome specific structure supplied in the user message. Within it: 250 to 400 words, no headings, no bullet points, no closing summary. When a CLINICAL LOCK opening sentence is supplied, reproduce it verbatim as sentence one.
+
+The diagnosis and the presentation are each stated exactly once, in sentence one. After sentence one, do not write the presentation name again in any form (not "predominantly inattentive range", not "the inattentive presentation", not "this presentation"). Refer to it as "the attentional profile" or "the findings" if needed.
+
+Every paragraph answers one of four questions: what the evidence establishes; what it does not establish; what co-occurring features are present and how each is read; what differentials were considered and how each was closed.
+
+HOW PEOPLE AND INSTRUMENTS ARE NAMED
+- The Young DIVA-5 sentence reads: "The Young DIVA-5, administered in clinic on [date], was positive, with [n] of nine inattention criteria and [n] of nine hyperactivity/impulsivity criteria met." It never names an informant.
+- The client is named in sentence one and thereafter by first name or pronoun.
+- Parents, carers and teachers are never referred to by first name. Use "his mother", "parent report", "the current classroom teacher". A rating scale is attributed by role: "the parent VADPRS", "the teacher VADTRS".
+- The referring practitioner is named only by professional title and only where supplied.
+
+RATING SCALE RULES
+- Report each scale with its scores and percentiles where supplied, who completed it by role, and the setting it describes.
+- If a scale file was supplied but contains no readable data, write one sentence in the collateral paragraph: "Rating scale data were not available for this formulation." Do not omit scales silently.
+- "Convergence", "across informants", "across both forms", "cross situational" and "multi source" are used only when at least two scales were completed by different people. A teacher form completed by a parent is a repeat parent rating and is described as such.
+- If a scale's clinical cut off is not met but any subscale percentile is at or above the 95th, report both facts in one sentence with the reason. Do not describe that scale as corroborating elsewhere.
+- If a scale's subtype result differs from the Young DIVA-5 result, state the difference once and note that the structured interview is the diagnostic instrument.
+- A child's own ratings of difficulty are reported as self report, never as evidence of functional impairment.
+
+CAUSAL AND MECHANISM LANGUAGE
+Any sentence that attributes one symptom cluster to another, says one feature accounts for, explains, predates, drives or underlies another, or offers a mechanism for the presentation, is clinical opinion. On positive and not administered outcomes it is written with exactly one of: "is most parsimoniously understood as", "is read as", "is consistent with". At most one such sentence per cluster. Never "is secondary to", "is driven by", "accounts for", "a recognised mechanism", "sequelae of" or any other causal construction without one of those three phrases in the same sentence. On a negative outcome the clinician's entered alternative conceptualisation is stated plainly, as the user message directs.
+
+DIFFERENTIALS
+Each differential the clinician entered is closed in one of three forms and no other:
+- "warrants formal assessment";
+- "a diagnostic pathway is not indicated at this time; [named features] are isolated features and [domain] should be monitored";
+- "no features suggestive of [condition] were identified".
+If any feature of a condition was recorded, the second form is used. Count the domains those features sit in accurately against the DSM-5-TR domains supplied; do not understate the count. Where differential text is supplied in the user message, reproduce it verbatim.
+
+BANNED
+"preliminary", "pending", "awaits", "ratification", "consensus", "confirmed", "established", "proven", "unambiguous", "inevitable", "compressed", "authoritative", "saturation", "signature", "signal", "threshold arithmetic", "integration rather than attribution", "suffers from", "struggles", "struggling", "high functioning", "mild ADHD", "perhaps", "possibly", "might be", "this suggests", "appears to", "it may be that", "It is important to note", "In conclusion", "Overall", "Taken together", "Furthermore", "Importantly", "Notably".
+
+FACTUAL INTEGRITY CONSTRAINTS (override everything above if they ever conflict; never sacrifice accuracy for economy)
+1. Compiler, not concluder. The clinician entered Young DIVA-5 outcome, criteria and derived presentation are authoritative and must not be contradicted, softened or overridden.
+   - Positive: conclude that the client meets DSM-5-TR criteria for ADHD with the derived presentation. Do not add pathway status; the cover sheet carries it.
+   - Negative: conclude that the available clinical evidence does not support a diagnosis of ADHD, and give the differential as a positive reformulation of mechanism on the basis of the alternative the clinician entered. Elevated rating scales under a negative interview are reported as the informant's perceived burden and do not reopen the question.
+   - Not administered: ADHD is held open. State what evidence exists, what is missing, and that no conclusion is drawn.
 2. Accurate use of documents: represent uploaded instrument findings (Vanderbilt etc.) as they actually are; do not mischaracterise which domains are endorsed; do not invent illegibility when content is readable.
 3. NO FABRICATION: use only names, dates, ages, onset timings, and facts explicitly present in the demographics lock, raw notes, or uploaded documents. Never invent, infer, or approximate a name, date, age, onset point, or clinical fact. Use demographic names exactly as entered (do not substitute a similar name such as Eleanor for Elena). School name must be copied character-for-character from the lock; do not correct spelling or expand it. Where a detail is not provided, omit it or state it is not available. This overrides fluency and completeness.
-4. RENDER THE CLINICIAN'S JUDGEMENT ONLY: do not add clinical judgements, concerns, cautions, differentials, monitoring suggestions, or recommendations the clinician did not enter. Do not decide what should be reviewed, warrants monitoring, or requires further assessment unless the clinician stated it.
+4. Render the clinician's judgement only. Every fact in this section must come from the clinician's notes, the entered criteria, or the attached documents. Do not add observations, history, scores, ratings, concerns, cautions, differentials, mechanisms, monitoring suggestions or recommendations the clinician did not enter. Where the clinician recorded a reading of a co-occurring feature, reproduce that reading under the causal language rules; where they did not, report the feature without a reading.
 5. NO CONTRADICTING CLEAR FINDINGS: never recommend review of, or express concern about, a domain the notes recorded as normal, absent, unremarkable, or not a concern. Settled negative/absent findings stay settled.
 6. NO INVENTED DEFERRALS TO PAEDIATRIC REVIEW: do not add "further review / further enquiry / investigate during paediatric review" language unless the clinician explicitly wrote it in notes or recommendation shorthand. Do not invent deferrals that reopen domains the assessment found unremarkable.
-7. THIS ASSESSMENT IS PRIMARY: the consensus assessment is the primary neurodevelopmental assessment. Paediatric involvement is ratification within the consensus model, not re-investigation. Do not frame paediatric review as the main assessment or defer the clinician's determinations to it beyond ratification language the clinician's own materials use.
-8. Produce formulation prose only, without a section heading.`;
+7. Pathway status is not part of this section. Do not describe the assessment as consensus based, preliminary, or subject to ratification.
+`;
 
-/** Critic must preserve the consultant register, not expand it into teaching prose. */
+/** Passed as styleGuidance. The critic route places this after the shared system prompt. */
 export const ADHD_FORMULATION_CRITIC_STYLE_GUIDANCE =
-  "Preserve the senior consultant formulation register from the draft: compressed, inevitable, authoritative clinical synthesis. " +
-  "Do not expand into explanatory, defensive, or teaching language. Do not add filler transitions. " +
-  "Keep preferred phrasing ('Current findings support', 'The presentation is most consistent with', 'This pattern reflects', etc.) " +
-  "and do not introduce banned phrases ('It is important to note', 'This suggests', 'Appears to', 'Reads as', etc.). " +
-  "Factual integrity remains absolute: do not alter DIVA-5 outcome, criteria, demographics, or instrument findings. " +
-  "Do not invent or alter names, dates, ages, or onset timings; preserve exact demographic spellings from the draft. " +
-  "Parent and school names are fixed strings: never substitute Eleanor for Elena, never correct or expand the school name. " +
-  "Do not add paediatric-review deferrals, monitoring suggestions, or concerns the clinician did not enter. " +
-  "Do not reopen domains the draft recorded as unremarkable or not a concern.";
+  "Style lock for ADHD formulation (overrides any general framing instruction above): plain clinical English in the assessing psychologist's voice. Do not insert, restore or preserve 'consensus-based', 'preliminary', 'ratification', 'pending', 'awaits', 'unambiguous', 'compressed', 'inevitable' or 'authoritative'. Do not insert any mechanism or causal statement the draft does not contain; where the draft hedges a mechanism with 'is most parsimoniously understood as', 'is read as' or 'is consistent with', keep that hedge. Delete any second statement of the diagnosis or presentation after paragraph one. Do not lengthen. Stay at or under 400 words. Strip 'Taken together', 'Furthermore', 'Importantly', 'Notably', 'It is important to note', 'Overall'. Remove any quotation marks and any second occurrence of the presentation name after sentence one.";
 
 function divaAuthoritativeLine(brief: AdhdFormulationBrief): string {
   if (brief.divaState === "positive") {
     return (
-      `DIVA-5 outcome (clinician-stated, non-overridable): positive. ` +
+      `Young DIVA-5 outcome (clinician-stated, non-overridable): positive. ` +
       (brief.presentation
         ? `Derived presentation: ${brief.presentation}.`
         : "Presentation not derived.") +
@@ -84,15 +105,15 @@ function divaAuthoritativeLine(brief: AdhdFormulationBrief): string {
   }
   if (brief.divaState === "negative") {
     return (
-      "DIVA-5 outcome (clinician-stated, non-overridable): negative. " +
+      "Young DIVA-5 outcome (clinician-stated, non-overridable): negative. " +
       "ADHD criteria are NOT MET on this assessment. This is a definite conclusion, not a deferred position. " +
       "Do not write that ADHD is held open. Do not hedge. Do not reopen the ADHD question. " +
-      "Do not invent a positive DIVA-5 outcome."
+      "Do not invent a positive Young DIVA-5 outcome."
     );
   }
   return (
-    "DIVA-5 outcome (clinician-stated, non-overridable): not administered. " +
-    "ADHD is HELD OPEN. Do not claim that a DIVA-5 was completed or that ADHD criteria were affirmed."
+    "Young DIVA-5 outcome (clinician-stated, non-overridable): not administered. " +
+    "ADHD is HELD OPEN. Do not claim that a Young DIVA-5 was completed or that ADHD criteria were affirmed."
   );
 }
 
@@ -104,6 +125,32 @@ function presentationAuthoritativeLine(brief: AdhdFormulationBrief): string {
     return "Presentation (authoritative): Held open.";
   }
   return `Presentation (authoritative): ${brief.presentation ?? "Held open"}.`;
+}
+
+function assessmentDateForDivaSentence(raw: string): string {
+  const trimmed = raw.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) return trimmed || "[date not provided]";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+/** Positive Young DIVA-5 sentence. Counts and date only; no informant name. */
+function youngDivaSentenceLines(brief: AdhdFormulationBrief): string[] {
+  if (brief.divaState !== "positive") return [];
+  const date = assessmentDateForDivaSentence(brief.assessmentDate);
+  const inClinic = !/virtual|video|tele/i.test(brief.assessmentModality);
+  const setting = inClinic ? "in clinic " : "";
+  return [
+    "",
+    "YOUNG DIVA-5 SENTENCE (use this sentence; do not add an informant, parent, carer, or teacher name):",
+    `The Young DIVA-5, administered ${setting}on ${date}, was positive, with ${brief.inattentionMet} of nine inattention criteria and ${brief.hyperactivityMet} of nine hyperactivity/impulsivity criteria met.`,
+  ];
 }
 
 function criteriaLockBlock(brief: AdhdFormulationBrief): string {
@@ -154,7 +201,7 @@ function demographicsLockBlock(brief: AdhdFormulationBrief): string {
 function structureBlock(brief: AdhdFormulationBrief): string[] {
   if (brief.divaState === "negative") {
     return [
-      "STRUCTURE FOR DIVA-5 NEGATIVE (target quality: definitive not-supported conclusion,",
+      "STRUCTURE FOR Young DIVA-5 NEGATIVE (target quality: definitive not-supported conclusion,",
       "scales handled as perceived burden not diagnosis, positive multifactorial differential,",
       "ASD addressed, integrative close). Match this structure and register. Do not hardcode any exemplar wording.",
       "",
@@ -203,12 +250,11 @@ function structureBlock(brief: AdhdFormulationBrief): string[] {
 
   if (brief.divaState === "positive") {
     return [
-      "STRUCTURE FOR DIVA-5 POSITIVE (same structural discipline as Negative; definitive position):",
+      "STRUCTURE FOR Young DIVA-5 POSITIVE (same structural discipline as Negative; definitive position):",
       "",
-      "1. OPEN WITH THE DIAGNOSTIC POSITION (definitive for this pathway stage).",
-      "   Affirm ADHD with the derived presentation from the clinician lock. State it once, plainly.",
-      "   Frame as preliminary within the consensus pathway and warranting ratification; do not overclaim",
-      "   medical confirmation. Include severity only if stated in the lock.",
+      "1. OPEN WITH THE DIAGNOSTIC POSITION.",
+      "   Sentence one is the CLINICAL LOCK opening. Reproduce it verbatim.",
+      "   Include severity only if stated in the lock.",
       "",
       "2. SUPPORTING EVIDENCE INTEGRATED.",
       "   Weave interview findings, developmental persistence, and collateral (including rating scales)",
@@ -221,23 +267,21 @@ function structureBlock(brief: AdhdFormulationBrief): string[] {
       "   say so briefly with observed grounds. Where co-occurring factors remain relevant, name them",
       "   without undoing the ADHD affirmation.",
       "",
-      "4. CLOSE WITH PATHWAY IMPLICATIONS.",
-      "   Restate the affirmed preliminary position once and the clinical priority (supports and",
-      "   ratification pathway). Recommendations detail follows in a separate section; keep this close tight.",
+      "4. CLOSE WITH OUTSTANDING QUESTIONS. State what remains to be clarified or monitored. Do not restate the diagnosis, the presentation, or the pathway status.",
     ];
   }
 
   return [
-    "STRUCTURE FOR DIVA-5 NOT ADMINISTERED (only genuinely open / deferred ADHD outcome):",
+    "STRUCTURE FOR Young DIVA-5 NOT ADMINISTERED (only genuinely open / deferred ADHD outcome):",
     "",
-    "1. OPEN stating that ADHD is held open because DIVA-5 was not administered. This is the only",
+    "1. OPEN stating that ADHD is held open because Young DIVA-5 was not administered. This is the only",
     "   outcome for which 'held open' is appropriate.",
     "2. Set out what is driving the hold and what evidence is present without affirming ADHD.",
     "3. Address rating scales carefully: they quantify perceived burden and do not establish diagnosis",
     "   in the absence of structured interview.",
     "4. Address differentials and outstanding assessment needs once (including ASD if relevant).",
     "5. Close with what is required before a diagnostic position can be taken (typically structured",
-    "   diagnostic interview / DIVA-5 and any indicated further assessment).",
+    "   diagnostic interview / Young DIVA-5 and any indicated further assessment).",
   ];
 }
 
@@ -260,12 +304,25 @@ export function buildFormulationPrompt(brief: AdhdFormulationBrief): string {
         : "")
     : "Write a single coherent ADHD clinical formulation that reads as a clinician's reasoned opinion.";
 
+  const derivedPresentation = brief.presentation?.trim() ?? "";
+  const positiveOpening =
+    brief.divaState === "positive" && derivedPresentation
+      ? [
+          "CLINICAL LOCK — MANDATORY OPENING (verbatim first sentence).",
+          "The first sentence of your output MUST be exactly the following, character-for-character. Do not paraphrase it. Do not restate the diagnosis or the presentation after this sentence.",
+          "",
+          `${(brief.childName || "The client").trim()} meets DSM-5-TR criteria for Attention-Deficit/Hyperactivity Disorder, ${derivedPresentation}.`,
+          "",
+        ]
+      : [];
+
   return [
     `Write the clinical formulation for ${brief.childName || "the child"}. Mode: ${mode}.`,
     "",
     "GOVERNING STYLE AND REASONING INSTRUCTION (bind to this register):",
     ADHD_FORMULATION_SYSTEM_PROMPT,
     "",
+    ...positiveOpening,
     ...structureBlock(brief),
     "",
     "ANTI-REPETITION (critical):",
@@ -284,15 +341,16 @@ export function buildFormulationPrompt(brief: AdhdFormulationBrief): string {
     "DEMOGRAPHICS LOCK:",
     demographicsLockBlock(brief),
     "",
-    "DIVA-5 AND CRITERIA LOCK (fold into the formulation as the clinical position, do not dump as a list):",
+    "Young DIVA-5 AND CRITERIA LOCK (fold into the formulation as the clinical position, do not dump as a list):",
     `- ${divaAuthoritativeLine(brief)}`,
     criteriaLockBlock(brief),
+    ...youngDivaSentenceLines(brief),
     "",
     "DOCUMENT USE CONSTRAINTS:",
     "- Uploaded documents may be quoted briefly as collateral support for the clinical reasoning.",
     "- Represent scale content accurately when legible. Do not claim photographs, partial illegibility,",
     "  or inability to extract scores unless that is genuinely true of the attached material.",
-    "- Do not use documents to assert a diagnostic outcome, criterion count, or DIVA-5 result that differs from the clinician lock.",
+    "- Do not use documents to assert a diagnostic outcome, criterion count, or Young DIVA-5 result that differs from the clinician lock.",
     "- Do not claim an instrument was administered or reached an outcome unless the clinician lock or a clearly legible document supports that claim.",
     brief.divaState === "negative"
       ? "- For Negative: elevated questionnaire endorsement must be explained as perceived symptom burden not substantiated on structured interview, folded into the differential, never used to reopen ADHD."

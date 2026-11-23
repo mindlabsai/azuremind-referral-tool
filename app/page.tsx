@@ -1233,38 +1233,43 @@ export default function Home() {
   );
 
   const recordReferral = useCallback(
-    (sentEmail: boolean, sentSms: boolean, status: string) => {
-      void fetch("/api/referrals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          child_first_name: childFirst,
-          child_last_name: childLast,
-          child_dob: childDob,
-          parent_first_name: parentFirst,
-          parent_last_name: parentLast,
-          parent_email: parentEmail,
-          parent_mobile: parentMobile,
-          assessment_type: assessmentType,
-          booking_link: bookingLink,
-          clinic_phone: clinicPhone,
-          sent_email: sentEmail,
-          sent_sms: sentSms,
-          send_status: status,
-        }),
-      })
-        .then(async (res) => {
-          let json: { success?: boolean } = {};
-          try {
-            json = (await res.json()) as { success?: boolean };
-          } catch {
-            /* ignore */
-          }
-          if (res.ok && json.success === true) void loadReferrals();
-        })
-        .catch((error) => {
-          console.error("Failed to save referral:", error);
+    async (sentEmail: boolean, sentSms: boolean, status: string): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/referrals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            child_first_name: childFirst,
+            child_last_name: childLast,
+            child_dob: childDob,
+            parent_first_name: parentFirst,
+            parent_last_name: parentLast,
+            parent_email: parentEmail,
+            parent_mobile: parentMobile,
+            assessment_type: assessmentType,
+            booking_link: bookingLink,
+            clinic_phone: clinicPhone,
+            sent_email: sentEmail,
+            sent_sms: sentSms,
+            send_status: status,
+          }),
         });
+        let json: { success?: boolean; error?: string } = {};
+        try {
+          json = (await res.json()) as { success?: boolean; error?: string };
+        } catch {
+          /* ignore */
+        }
+        if (res.ok && json.success === true) {
+          void loadReferrals();
+          return true;
+        }
+        console.error("Failed to save referral:", json.error || res.status);
+        return false;
+      } catch (error) {
+        console.error("Failed to save referral:", error);
+        return false;
+      }
     },
     [
       assessmentType,
@@ -1295,15 +1300,24 @@ export default function Home() {
         }
         const smsResult = await sendSmsWithCurrentForm();
         if (!smsResult.ok) {
-          recordReferral(true, false, "email_sent");
+          const saved = await recordReferral(true, false, "email_sent");
           setSendStatus({
             type: "error",
-            message: "The email was sent. The text could not be sent.",
+            message: saved
+              ? "The email was sent. The text could not be sent."
+              : "The email was sent, but it could not be saved to the register. Check clinic access.",
           });
           return;
         }
-        recordReferral(true, true, "email_sms_sent");
-        setSendStatus({ type: "success", message: "Sent." });
+        const saved = await recordReferral(true, true, "email_sms_sent");
+        setSendStatus(
+          saved
+            ? { type: "success", message: "Sent. Saved to register." }
+            : {
+                type: "error",
+                message: "Sent to parent, but it could not be saved to the register. Check clinic access.",
+              }
+        );
         return;
       }
       const smsResult = await sendSmsWithCurrentForm();
@@ -1314,8 +1328,15 @@ export default function Home() {
         });
         return;
       }
-      recordReferral(false, true, "sms_sent");
-      setSendStatus({ type: "success", message: "Text sent." });
+      const saved = await recordReferral(false, true, "sms_sent");
+      setSendStatus(
+        saved
+          ? { type: "success", message: "Text sent. Saved to register." }
+          : {
+              type: "error",
+              message: "Text sent, but it could not be saved to the register. Check clinic access.",
+            }
+      );
     } finally {
       setSending(false);
     }

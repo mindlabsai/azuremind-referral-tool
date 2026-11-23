@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reeboot AI · Medical Angels</title>
+<style>
+:root{
+  --navy:#00607d;--navy2:#004f6b;--aqua:#08c6d5;--ink:#13212a;--muted:#5c6f77;--soft:#f4f8f9;--line:#dfe8ea;
+  --max:1120px;
+  --eyebrow:12px;--h1:72px;--h2:52px;--h3:30px;--lede:22px;--body:18px;--meta:15px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif;color:var(--ink);background:#fff;font-size:var(--body);line-height:1.5}
+img{max-width:100%;display:block}
+a{color:var(--navy)}
+.shell{max-width:var(--max);margin:0 auto;padding:0 48px}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:40;height:72px;display:flex;align-items:center;background:rgba(255,255,255,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--line)}
+.topbar-inner{width:100%;max-width:var(--max);margin:0 auto;padding:0 48px;display:flex;align-items:center}
+.brand{width:40px;height:40px;display:flex;align-items:center}
+.brand img{height:36px;width:auto}
+.topbar nav{margin-left:auto;display:flex;gap:28px;align-items:center}
+.topbar nav a{font-size:var(--meta);text-decoration:none;color:#2a3d47;letter-spacing:.01em}
+.topbar nav a:last-child{color:var(--navy);font-weight:650}
+.chapter{padding:128px 0 112px;scroll-margin-top:88px}
+.hero{min-height:100vh;display:flex;align-items:center;padding-top:96px;background:radial-gradient(circle at 86% 8%,rgba(8,198,213,.12),transparent 34%),#fff;text-align:center}
+.hero .shell{max-width:980px}
+.eyebrow{font-size:var(--eyebrow);letter-spacing:.18em;text-transform:uppercase;font-weight:750;color:var(--navy);margin:0 0 20px}
+.hero .wordmark{width:480px;max-width:78%;margin:0 auto 48px;mix-blend-mode:multiply}
+.hero h1,.chapter h2{margin:0 0 24px;font-weight:600;letter-spacing:-.048em;line-height:1.05}
+.hero h1{font-size:clamp(44px,6vw,var(--h1))}
+.hero h1 span,.chapter h2 span{display:block;color:var(--navy)}
+.lede,.section-lede{font-size:var(--lede);line-height:1.4;color:var(--muted);max-width:720px;margin:0 auto 0;font-weight:400}
+.section-lede{margin:0 0 56px;max-width:760px}
+.section-lede p{margin:0 0 16px;font-size:inherit;line-height:inherit;color:inherit}
+.section-lede p:last-child{margin-bottom:0}
+.hero .lede{margin-top:0}
+.rule{width:48px;height:2px;background:var(--aqua);border:0;margin:36px auto 0}
+.hero-principle{margin:48px auto 0;max-width:640px;font-size:26px;letter-spacing:-.03em;line-height:1.25;font-weight:600}
+.hero-principle span{display:block;margin-top:14px;font-size:var(--meta);font-weight:400;color:var(--muted);letter-spacing:0;line-height:1.5}
+.scroll{margin-top:64px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+h2{font-size:clamp(36px,4.6vw,var(--h2))}
+.soft{background:var(--soft)}
+
+.intervals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:8px}
+.interval{background:#fff;border:1px solid var(--line);padding:44px 36px 48px;min-height:440px}
+.icon{width:48px;height:48px;margin-bottom:32px}
+.icon svg{width:48px;height:48px}
+.interval em{display:block;font-style:normal;font-size:var(--eyebrow);letter-spacing:.16em;text-transform:uppercase;font-weight:750;color:var(--navy);margin-bottom:16px}
+.interval h3{font-size:var(--h3);letter-spacing:-.035em;margin:0 0 18px;font-weight:600;line-height:1.18}
+.interval p{margin:0;color:var(--muted);font-size:var(--body);line-height:1.5}
+.hook{font-size:clamp(28px,3.2vw,44px);letter-spacing:-.04em;line-height:1.12;margin:72px 0 0;font-weight:600}
+.hook strong{display:block;color:var(--navy);font-weight:600}
+
+.wall{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;border-top:1px solid var(--line)}
+.e{padding:40px 36px 44px 0;border-bottom:1px solid var(--line)}
+.e:nth-child(even){padding-left:36px;padding-right:0}
+.e strong{display:block;font-size:56px;letter-spacing:-.05em;color:var(--navy);line-height:1;font-weight:600}
+.e b{display:block;margin-top:18px;font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
+.e span{display:block;margin-top:10px;font-size:var(--body);color:var(--muted);line-height:1.45;font-weight:400}
+
+.why{margin-top:56px;max-width:760px}
+.why p{font-size:var(--lede);line-height:1.4;margin:0 0 16px;color:var(--ink)}
+.textlink{display:inline-block;margin-top:8px;font-size:var(--body);font-weight:650;text-decoration:none;color:var(--navy);border-bottom:1.5px solid var(--aqua);padding-bottom:2px}
+
+.grid6{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 40px;border-top:1px solid var(--line)}
+.tile{padding:36px 0 40px;border-bottom:1px solid var(--line)}
+.tile h3{margin:20px 0 10px;font-size:22px;letter-spacing:-.025em;font-weight:600}
+.tile p{margin:0;color:var(--muted);font-size:var(--body);line-height:1.45}
+.limits{margin-top:48px;max-width:760px}
+.limits p{margin:0;font-size:var(--body);color:var(--muted);line-height:1.5}
+
+.art{width:100%;margin:8px 0 36px;height:auto}
+.where{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:8px 0 0;border:0}
+.where article{background:#fff;border:1px solid var(--line);padding:36px 32px 40px;min-height:280px}
+.where article + article{padding-left:36px}
+.product-tiles{margin-top:48px}
+.where em{display:block;font-style:normal;font-size:var(--eyebrow);letter-spacing:.16em;text-transform:uppercase;font-weight:750;color:var(--navy);margin-bottom:10px}
+.where h3{margin:0 0 8px;font-size:22px;letter-spacing:-.025em;font-weight:600}
+.where p{margin:0;color:var(--muted);font-size:var(--body);line-height:1.45}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;margin-top:8px}
+.lane em{display:block;font-style:normal;color:var(--navy);font-size:var(--eyebrow);letter-spacing:.16em;font-weight:750;margin-bottom:14px}
+.lane h3{margin:0 0 12px;font-size:24px;font-weight:600;letter-spacing:-.03em}
+.lane p{margin:0;color:var(--muted);font-size:var(--body);line-height:1.45}
+.loop{margin-top:12px;border-top:1px solid var(--line)}
+.step{display:grid;grid-template-columns:64px 200px 1fr;gap:24px;padding:22px 0;border-bottom:1px solid var(--line);align-items:start}
+.step em{font-style:normal;color:var(--navy);font-size:var(--eyebrow);letter-spacing:.16em;font-weight:750;padding-top:4px}
+.step h3{margin:0;font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1.25}
+.step p{margin:0;font-size:var(--body);color:var(--muted);line-height:1.45}
+.principles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;margin-top:40px}
+.principles b{display:block;margin-bottom:8px;font-size:18px}
+.principles span{display:block;font-size:var(--body);color:var(--muted);line-height:1.45}
+.gp{margin:40px 0 0;padding:0 0 0 22px;border:0;border-left:2px solid var(--aqua);font-size:var(--lede);letter-spacing:-.02em;line-height:1.4;color:var(--ink);font-style:normal}
+.gp small{display:block;margin-top:14px;font-size:var(--eyebrow);letter-spacing:.16em;text-transform:uppercase;color:var(--navy);font-style:normal}
+
+.final{padding:140px 0 80px}
+#meet{scroll-margin-top:88px}
+.final h2{max-width:18em}
+.close-line{font-size:var(--lede);color:var(--muted);max-width:640px;margin:0 0 12px}
+.contact-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:80px;align-items:start;margin-top:72px;padding-top:48px;border-top:1px solid var(--line);text-align:left}
+.contact-grid .name{font-size:32px;letter-spacing:-.035em;font-weight:600;margin:0}
+.contact-grid .role{margin:10px 0 0;font-size:var(--body);color:var(--navy);line-height:1.45}
+.contact-grid dl{margin:0;display:grid;grid-template-columns:120px 1fr;gap:10px 16px;font-size:var(--body)}
+.contact-grid dt{color:var(--muted);font-weight:400}
+.contact-grid dd{margin:0}
+.contact-grid a{text-decoration:none;color:var(--ink)}
+.contact-grid a:hover{color:var(--navy)}
+.company{margin-top:28px;font-size:var(--meta);color:var(--muted);line-height:1.5}
+.src{max-width:var(--max);margin:0 auto;padding:0 48px 80px;font-size:var(--meta);color:var(--muted);line-height:1.55}
+.foot{border-top:1px solid var(--line);padding:28px 0 48px;color:var(--muted);font-size:var(--meta)}
+@media(max-width:980px){
+  .intervals,.grid6,.lanes,.principles,.contact-grid,.wall,.where{grid-template-columns:1fr}
+  .where article + article{padding-left:0;border-left:0;border-top:1px solid var(--line)}
+  .step{grid-template-columns:56px 1fr;gap:16px}
+  .step p{grid-column:2}
+  .e:nth-child(even){padding-left:0}
+  .shell,.topbar-inner,.src{padding-left:24px;padding-right:24px}
+  .hero h1{font-size:44px}
+  .interval{min-height:0}
+  .topbar nav a:not(:last-child){display:none}
+}
+@media print{
+  @page{size:A4;margin:14mm 16mm 14mm}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .topbar,.scroll{display:none}
+  .shell,.src{padding-left:0;padding-right:0}
+  a{color:inherit;text-decoration:none}
+  .chapter{padding:6mm 0;break-after:auto}
+  .hero.chapter{min-height:269mm;padding:0;break-after:page;display:flex;align-items:center}
+  #solve,#evidence,#product,#model,#meet{break-before:page}
+  .hero h1{font-size:26pt}
+  .hero .lede{font-size:12pt}
+  .hero .wordmark{width:340px;margin-bottom:22px}
+  .hero-principle{font-size:15pt;margin-top:7mm}
+  h2{font-size:18pt;margin-bottom:10px}
+  .section-lede{font-size:11pt;margin-bottom:6mm;max-width:none;line-height:1.4}
+  .section-lede p{margin:0 0 3.5mm}
+  .eyebrow{margin-bottom:8px}
+  .intervals,.grid6,.lanes,.principles,.where{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+  .wall,.contact-grid{grid-template-columns:1fr 1fr!important}
+  .where article + article{padding-left:18px!important;border-left:1px solid var(--line)!important;border-top:0!important}
+  .e:nth-child(even){padding-left:20px!important}
+
+  #solve,#model{min-height:269mm}
+  #solve .section-lede{margin-bottom:4mm;font-size:11pt;line-height:1.42}
+  #solve .section-lede p{margin:0 0 3mm}
+  #solve .hook{font-size:16pt;margin:4mm 0 5mm;letter-spacing:-.03em}
+  .solve-rest{break-before:page;padding-top:2mm}
+  .step{grid-template-columns:40px 150px 1fr!important;gap:16px!important;padding:12px 0!important}
+  .step p{grid-column:auto!important;font-size:10.5pt;line-height:1.45}
+  .step h3{font-size:12pt}
+  .gp{margin-top:12mm;font-size:13pt;break-inside:avoid}
+  .principles{gap:24px;margin-top:10mm;break-inside:avoid}
+  .principles span{font-size:10.5pt}
+
+  .e{padding:16px 16px 20px 0;break-inside:avoid}
+  .e strong{font-size:22pt}
+  .e b{font-size:12pt;margin-top:8px}
+  .e span{font-size:10.5pt;margin-top:8px;line-height:1.4}
+  .evidence-rest{break-before:page;padding:6mm 0}
+  .evidence-rest .gp{margin-top:14mm;font-size:13pt}
+
+  #product{min-height:269mm}
+  #product .section-lede{margin-bottom:7mm;font-size:11pt}
+  #product .where{gap:16px!important;margin:2mm 0 0;border:0!important}
+  #product .where article,#product .where article + article{padding:7mm 6mm 8mm!important;border:1px solid var(--line)!important;min-height:62mm;background:#fff}
+  #product .where h3{font-size:14pt;margin:8px 0 8px}
+  #product .where p{font-size:10.5pt}
+  #product .icon{margin-bottom:10px}
+  .art{margin:3mm 0 0;width:100%;height:168mm;max-height:none;break-inside:avoid}
+  .product-rest{break-before:page;padding-top:2mm;min-height:269mm}
+  #product .where article{min-height:0}
+  .product-tiles{break-before:page;margin-top:0;padding-top:2mm}
+  .lanes{gap:24px;margin-top:6mm}
+  .lane h3{font-size:15pt}
+  .lane p{font-size:11pt;line-height:1.45}
+  .grid6{gap:0 28px;margin-top:8mm!important}
+  .tile{padding:14px 0 16px}
+  .tile h3{font-size:13pt;margin:8px 0 6px}
+  .tile p{font-size:10.5pt}
+
+  .final{padding:8mm 0 0}
+  #meet{padding:8mm 0 0}
+  #meet h2{font-size:16pt;max-width:none;margin-bottom:8px}
+  .close-line{margin:0 0 6px;font-size:11pt}
+  .contact-grid{gap:32px!important;margin-top:10mm;padding-top:8mm}
+  .contact-grid .name{font-size:16pt}
+  .contact-grid dl{font-size:11pt;gap:8px 12px}
+  .company{margin-top:10px;font-size:10pt}
+  #meet .src{padding:12mm 0 0;font-size:8.5pt;line-height:1.4;max-width:none;break-inside:avoid}
+  #meet .foot{padding:4mm 0 0;margin-top:4mm;border-top:1px solid var(--line)}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top"><img src="reeboot-bolt.png" alt="Reeboot"></a>
+    <nav>
+      <a href="#solve">The gap</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#product">Product</a>
+      <a href="#model">Between Care</a>
+      <a href="#meet">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<section class="chapter hero" id="top">
+  <div class="shell">
+    <p class="eyebrow">Confidential · Medical Angels · October 2026</p>
+    <img class="wordmark" src="reeboot-wordmark.png" alt="Reeboot AI, mental health engagement layer">
+    <h1>Mental health care has gaps.<span>Reeboot is designed to live inside them.</span></h1>
+    <p class="lede">Reeboot is a voice-led conversation the person opens on iOS, Android or the web. It is built in Australia by an AHPRA Registered Psychologist and Medtech Engineer. It sits with the person when the clinic is closed, and leaves clinical responsibility where it belongs.</p>
+    <hr class="rule">
+    <p class="hero-principle">The Clinician provides care.<br>Reeboot supports the person around it.
+      <span>Voice Led. Non Diagnostic. Risk owned by the product. Medmate for a Doctor, on the person’s terms. No conversation feed to the GP or the Psychologist.</span>
+    </p>
+    <p class="scroll">The problem</p>
+  </div>
+</section>
+
+<section class="chapter soft" id="solve">
+  <div class="shell">
+    <p class="eyebrow">What we are solving</p>
+    <h2>The gap is not inside the clinic.<span>It is before entry, between contacts, and after exit.</span></h2>
+    <div class="section-lede">
+      <p>Reeboot is an AI-powered mental health platform that bridges the gap between healthcare appointments.</p>
+      <p>Today, mental healthcare is largely appointment-based. But people experience stress, anxiety and emotional difficulties every day, not just when they see a Clinician.</p>
+    </div>
+    <p class="hook">Reeboot changes that.</p>
+    <div class="section-lede">
+      <p>Built with a real-world clinical lens, Reeboot provides 24/7 personalised mental health support through natural voice and text conversations, drawing on evidence-based psychological approaches to help people manage everyday emotional and psychological challenges.</p>
+      <p>What makes Reeboot different is its connection to real healthcare.</p>
+      <p>Through our clinical partnership with Medmate, a national telehealth GP service, users can access on-demand virtual consultations with Medmate Doctors when their needs extend beyond digital support and require primary healthcare input.</p>
+      <p>Reeboot also incorporates clinical risk identification and escalation logic, designed to recognise indicators of significant psychological distress and direct users towards appropriate emergency care when required.</p>
+      <p>Our model connects three critical stages of mental healthcare: before care, between care and after care, supporting early intervention, continuity and ongoing wellbeing.</p>
+      <p>We're building the digital front door to mental healthcare: combining accessible AI support, real-world clinical pathways and scalable integration with Australia's primary healthcare through GPs, pharmacies and healthcare partners.</p>
+    </div>
+
+    <div class="solve-rest">
+    <p class="eyebrow">The three intervals</p>
+    <h2>Before care. Between care. Continued care.<span>The hours Reeboot is built to occupy.</span></h2>
+    <div class="loop">
+      <article class="step">
+        <em>01</em>
+        <h3>Before care</h3>
+        <p>Preventative access, with no referral required. The Australian median delay from onset of an anxiety disorder to first treatment contact is eleven years. Mood disorders: three years. Substance use: eight. In that interval the person is already unwell, and already talking. Reeboot is a clinically guarded conversation before a problem has a name.</p>
+      </article>
+      <article class="step">
+        <em>02</em>
+        <h3>Between care</h3>
+        <p>Clinician Triggered, while the person waits. A referral can be written today. The first session may still be weeks or months away. In primary care psychotherapy, one in five dropouts occur between assessment and session one. Reeboot is offered alongside the referral, not instead of it, so that interval is not empty.</p>
+      </article>
+      <article class="step">
+        <em>03</em>
+        <h3>Continued care</h3>
+        <p>Engagement the Clinician does not have to run. About a quarter of people leave psychotherapy before the work can hold. Completers average 7.4 sessions; those who leave, 2.4. Reeboot stays available between appointments and after an episode steps down, without turning routine use into a Clinician inbox.</p>
+      </article>
+    </div>
+
+    <blockquote class="gp">
+      The wait may be unavoidable. Unsupported waiting does not have to be.
+      <small>The interval Reeboot occupies</small>
+    </blockquote>
+    </div>
+  </div>
+</section>
+
+<section class="chapter" id="evidence">
+  <div class="shell">
+    <p class="eyebrow">The evidence, as it stands</p>
+    <h2>People wait years to enter care.<span>Then a quarter of them leave it.</span></h2>
+    <p class="section-lede">These figures are not Reeboot outcomes. They are the conditions in which the product is being built. A comparative pilot has to earn any claim beyond that.</p>
+
+    <div class="wall">
+      <article class="e">
+        <strong>11 years</strong>
+        <b>Median delay, anxiety, to first treatment contact in Australia</b>
+        <span>Venkatesh, Whiteford, Li and Diminic, <em>Epidemiology and Psychiatric Sciences</em>, 2025. Mood disorders: 3 years. Substance use: 8. The National Mental Health Commission has described delays of this order as typical across mental and substance use disorders.</span>
+      </article>
+      <article class="e">
+        <strong>45.1%</strong>
+        <b>Share of Australians with a 12 month disorder who saw a Health Professional for it</b>
+        <span>National Study of Mental Health and Wellbeing, 2020–22. The planning target is 67%. Prevalence of a 12 month disorder: 21.5%. WHO, 2022: one in eight people worldwide live with a mental disorder; even in high income countries only about one third of people with depression receive formal care.</span>
+      </article>
+      <article class="e">
+        <strong>38.8%</strong>
+        <b>Needed a Psychologist in 2024–25 and delayed, or did not go</b>
+        <span>ABS Patient Experiences. 25.3% named cost. An APS member poll found 34% of people wait around one month for a Psychologist, 49% wait two to four months, and 18% wait five months or longer. Australia has no single national wait time. Variation is the fact.</span>
+      </article>
+      <article class="e">
+        <strong>25.3%</strong>
+        <b>Dropout from primary care psychotherapy</b>
+        <span>Haugom, Drivenes, Stavestrand, Osnes and Moltu, <em>BMC Psychiatry</em>, 2023. 20% of dropouts were between assessment and session one; 21.8% between sessions four and five. NHS Talking Therapies, 2023/24: 37% of referrals completed treatment, 23% left incomplete, 16% were never assessed (Nuffield Trust, 2025).</span>
+      </article>
+    </div>
+
+    <div class="evidence-rest">
+      <div class="wall">
+        <article class="e">
+          <strong>13.1%</strong>
+          <b>US 12 to 21 year olds who used generative AI when sad, angry or nervous</b>
+          <span>JAMA Network Open, 2025. Among 18 to 21 year olds: 22.2%. Two thirds of users did so at least monthly. Rousmaniere and colleagues, 2025: among US adults who already use language models and report a mental health condition, 48.7% had used them for psychological support. That last figure is not population prevalence. It is what happens once someone is already in an ungoverned channel.</span>
+        </article>
+        <article class="e">
+          <strong>Most</strong>
+          <b>Waiting list digital tools did not outperform waiting or self help</b>
+          <span>A 2024 systematic review of digital interventions for people waiting for face to face psychotherapy found limited advantage over controls, with adherence and dropout already a problem. Reeboot is therefore built around a real care pathway, not as a substitute for one.</span>
+        </article>
+      </div>
+      <blockquote class="gp">
+        Health systems are still arguing about whether artificial intelligence belongs in mental health. A substantial share of the public has already decided, and they have decided in favour of products with no clinical owner, no risk protocol, and no Clinician in the room. The useful question is not whether a model will be in the conversation. It is whether the model sitting there is accountable to a Clinician, or to no one.
+        <small>The question the product is built to answer</small>
+      </blockquote>
+    </div>
+  </div>
+</section>
+
+<section class="chapter soft" id="product">
+  <div class="shell">
+    <p class="eyebrow">What Reeboot is</p>
+    <h2>A conversation the person can open without a referral.<span>Voice or text. iOS, Android, and the web.</span></h2>
+    <div class="section-lede">
+      <p>The person talks. Reeboot holds a clinically governed session: reflection, coping tools, journalling and continuity. Language is generated by a model. Safety, state, consent, escalation and session behaviour belong to Reeboot. There is no Clinician portal, and no conversation feed to the GP or the Psychologist.</p>
+      <p>Reeboot is a digital mental health support platform designed to complement, not replace, professional clinical care. It does not provide crisis intervention, diagnose conditions, make clinical decisions on a person’s behalf, monitor individuals outside active sessions, or function as a separate medical record.</p>
+      <p>Conversations may incorporate principles and techniques informed by Cognitive Behavioural Therapy (CBT), Acceptance and Commitment Therapy (ACT), distress tolerance, family systems approaches and psychoeducation. These are used to support reflection, emotional understanding, coping skills and self-management, without representing the delivery of formal psychological treatment.</p>
+    </div>
+
+    <div class="where">
+      <article>
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none"><rect x="14" y="6" width="20" height="36" rx="4" stroke="#00607d" stroke-width="2"/><path d="M20 10h8" stroke="#08c6d5" stroke-width="2" stroke-linecap="round"/><circle cx="24" cy="36" r="1.6" fill="#00607d"/></svg>
+        </div>
+        <em>01 · iOS</em>
+        <h3>iPhone. App Store.</h3>
+        <p>Native iOS. Voice, text, hands free. Listed as Reeboot AI. The GP or Psychologist does not download anything.</p>
+      </article>
+      <article>
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none"><path d="M16 10l16 9v14l-16 9V10z" stroke="#00607d" stroke-width="2" stroke-linejoin="round"/><path d="M16 19h16M16 33h16" stroke="#08c6d5" stroke-width="2"/></svg>
+        </div>
+        <em>02 · Android</em>
+        <h3>Android. Same conversation.</h3>
+        <p>The same governed session on Android. Voice, text, on the device people already carry.</p>
+      </article>
+      <article>
+        <div class="icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="12" width="36" height="24" rx="3" stroke="#00607d" stroke-width="2"/><path d="M6 18h36" stroke="#08c6d5" stroke-width="2"/><circle cx="12" cy="15" r="1.2" fill="#00607d"/><circle cx="16.5" cy="15" r="1.2" fill="#00607d"/><circle cx="21" cy="15" r="1.2" fill="#00607d"/></svg>
+        </div>
+        <em>03 · Web</em>
+        <h3>Browser. One product.</h3>
+        <p>The same layer on the web, including Between Care at btw.reebootai.com. Three surfaces. One conversation.</p>
+      </article>
+    </div>
+
+    <div class="product-rest">
+    <p class="eyebrow">How it sits</p>
+    <h2>The person holds Reeboot.<span>Real care stays with the Clinician.</span></h2>
+    <svg class="art" viewBox="0 0 1100 900" preserveAspectRatio="xMidYMin meet" role="img" aria-label="The person reaches Reeboot on iOS, Android or the web. Reeboot holds engagement, care connection through Medmate, and risk. Real care remains with the Psychologist and GP.">
+      <text x="550" y="36" text-anchor="middle" fill="#00607d" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif" letter-spacing="3" font-weight="700">THE PERSON</text>
+
+      <rect x="100" y="64" width="100" height="188" rx="18" fill="#fff" stroke="#08c6d5" stroke-width="3"/>
+      <rect x="116" y="88" width="68" height="128" rx="6" fill="#f4f8f9"/>
+      <circle cx="150" cy="232" r="7" fill="#00607d"/>
+      <text x="150" y="284" text-anchor="middle" fill="#13212a" font-size="20" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="650">iOS</text>
+      <text x="150" y="312" text-anchor="middle" fill="#5c6f77" font-size="15" font-family="-apple-system,BlinkMacSystemFont,sans-serif">App Store</text>
+
+      <rect x="500" y="64" width="100" height="188" rx="14" fill="#fff" stroke="#00607d" stroke-width="3"/>
+      <rect x="516" y="88" width="68" height="128" rx="5" fill="#f4f8f9"/>
+      <rect x="536" y="228" width="28" height="8" rx="4" fill="#00607d"/>
+      <text x="550" y="284" text-anchor="middle" fill="#13212a" font-size="20" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="650">Android</text>
+      <text x="550" y="312" text-anchor="middle" fill="#5c6f77" font-size="15" font-family="-apple-system,BlinkMacSystemFont,sans-serif">Same conversation</text>
+
+      <rect x="848" y="88" width="164" height="116" rx="10" fill="#fff" stroke="#00607d" stroke-width="3"/>
+      <path d="M848 118h164" stroke="#08c6d5" stroke-width="2.4"/>
+      <circle cx="872" cy="103" r="5" fill="#08c6d5"/>
+      <circle cx="890" cy="103" r="5" fill="#00607d"/>
+      <circle cx="908" cy="103" r="5" fill="#dfe8ea"/>
+      <text x="930" y="284" text-anchor="middle" fill="#13212a" font-size="20" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="650">Web</text>
+      <text x="930" y="312" text-anchor="middle" fill="#5c6f77" font-size="15" font-family="-apple-system,BlinkMacSystemFont,sans-serif">reebootai.com</text>
+
+      <path d="M150 252 V 352" stroke="#08c6d5" stroke-width="2.6"/>
+      <path d="M550 252 V 352" stroke="#08c6d5" stroke-width="2.6"/>
+      <path d="M930 204 V 352" stroke="#00607d" stroke-width="2.6"/>
+      <path d="M150 352 H 930" stroke="#dfe8ea" stroke-width="2.4"/>
+      <path d="M550 352 V 372" stroke="#08c6d5" stroke-width="3"/>
+
+      <rect x="200" y="372" width="700" height="150" rx="18" fill="#fff" stroke="#08c6d5" stroke-width="3"/>
+      <text x="550" y="428" text-anchor="middle" fill="#00607d" font-size="18" font-family="-apple-system,BlinkMacSystemFont,sans-serif" letter-spacing="3.2" font-weight="700">REEBOOT</text>
+      <text x="550" y="468" text-anchor="middle" fill="#13212a" font-size="26" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="600">Clinically governed conversation</text>
+      <text x="550" y="500" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">before · between · continued</text>
+
+      <path d="M550 522 V 560" stroke="#08c6d5" stroke-width="3"/>
+      <path d="M170 560 H 930" stroke="#dfe8ea" stroke-width="2.4"/>
+      <path d="M170 560 V 584" stroke="#dfe8ea" stroke-width="2.4"/>
+      <path d="M550 560 V 584" stroke="#08c6d5" stroke-width="2.4"/>
+      <path d="M930 560 V 584" stroke="#dfe8ea" stroke-width="2.4"/>
+
+      <rect x="40" y="584" width="260" height="280" rx="14" fill="#fff" stroke="#dfe8ea" stroke-width="2"/>
+      <text x="170" y="640" text-anchor="middle" fill="#00607d" font-size="14" font-family="-apple-system,BlinkMacSystemFont,sans-serif" letter-spacing="2.4" font-weight="700">LANE 01</text>
+      <text x="170" y="686" text-anchor="middle" fill="#13212a" font-size="24" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="650">Engagement</text>
+      <text x="170" y="726" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">Anytime. No referral.</text>
+      <text x="170" y="756" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">Reflection, coping, journal.</text>
+
+      <rect x="420" y="584" width="260" height="280" rx="14" fill="#fff" stroke="#dfe8ea" stroke-width="2"/>
+      <text x="550" y="640" text-anchor="middle" fill="#00607d" font-size="14" font-family="-apple-system,BlinkMacSystemFont,sans-serif" letter-spacing="2.4" font-weight="700">LANE 02</text>
+      <text x="550" y="686" text-anchor="middle" fill="#13212a" font-size="24" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="650">Care connection</text>
+      <text x="550" y="726" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">Medmate, if they ask.</text>
+      <text x="550" y="756" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">No transcript. No booking.</text>
+
+      <rect x="800" y="584" width="260" height="280" rx="14" fill="#fff" stroke="#dfe8ea" stroke-width="2"/>
+      <text x="930" y="640" text-anchor="middle" fill="#00607d" font-size="14" font-family="-apple-system,BlinkMacSystemFont,sans-serif" letter-spacing="2.4" font-weight="700">LANE 03</text>
+      <text x="930" y="686" text-anchor="middle" fill="#13212a" font-size="24" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="650">Risk</text>
+      <text x="930" y="726" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">000 · Lifeline · 13YARN</text>
+      <text x="930" y="756" text-anchor="middle" fill="#5c6f77" font-size="16" font-family="-apple-system,BlinkMacSystemFont,sans-serif">Access is not visibility.</text>
+    </svg>
+
+    <div class="product-tiles">
+    <p class="eyebrow">How it is built</p>
+    <h2>The same conversation.<span>Held to a clinical standard.</span></h2>
+    <div class="lanes">
+      <article class="lane">
+        <em>Lane 01</em>
+        <h3>Engagement</h3>
+        <p>Clinically guarded, non diagnostic. Reflection, skills, continuity. Preventative access before a problem is formally defined.</p>
+      </article>
+      <article class="lane">
+        <em>Lane 02</em>
+        <h3>Care connection</h3>
+        <p>If need surfaces, Reeboot offers an Australian Doctor through Medmate. The person chooses. Reeboot does not book, and does not send a transcript.</p>
+      </article>
+      <article class="lane">
+        <em>Lane 03</em>
+        <h3>Risk</h3>
+        <p>A risk indicator changes state. Safety Check. Ordinary conversation pauses. Those services do not receive the chat. Access is not visibility.</p>
+      </article>
+    </div>
+    <div class="grid6">
+      <article class="tile">
+        <h3>Voice Led</h3>
+        <p>Text, voice, hands free, multilingual. The GP does not learn a new clinical system.</p>
+      </article>
+      <article class="tile">
+        <h3>Clinically governed</h3>
+        <p>AHPRA Registered Psychologist. Crisis is a path to a human, not a composition exercise.</p>
+      </article>
+      <article class="tile">
+        <h3>Risk logic</h3>
+        <p>Logged as time, category and outcome. Not a clinical record of the person. Two named people, multi factor access.</p>
+      </article>
+      <article class="tile">
+        <h3>Medmate</h3>
+        <p>A Doctor when medical input is reasonable. Optional. A brief reason only.</p>
+      </article>
+      <article class="tile">
+        <h3>Privacy is structural</h3>
+        <p>No conversation feed to the GP or Psychologist. If something is useful, the patient brings it.</p>
+      </article>
+      <article class="tile">
+        <h3>Australian data</h3>
+        <p>Held in Australia. TLS in transit, AES-256 at rest. Aggregate reporting only, above a cohort threshold.</p>
+      </article>
+    </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<section class="chapter soft" id="model">
+  <div class="shell">
+    <p class="eyebrow">Between Care model · unchanged</p>
+    <h2>Mental healthcare happens in appointments.<span>Life happens between them.</span></h2>
+    <p class="section-lede">Reeboot supports continuity from referral into real care: available immediately after referral, while a patient waits, and between appointments without replacing the GP, Psychologist or therapeutic relationship.</p>
+
+    <div class="loop">
+      <article class="step">
+        <em>01</em>
+        <h3>GP identifies need</h3>
+        <p>The GP assesses the patient and makes the ordinary psychology referral. Reeboot is offered alongside the referral, not instead of it.</p>
+      </article>
+      <article class="step">
+        <em>02</em>
+        <h3>Reeboot begins immediately</h3>
+        <p>The patient can use the Reeboot they already know while waiting: conversational support, reflection, coping tools, journalling and established safety pathways.</p>
+      </article>
+      <article class="step">
+        <em>03</em>
+        <h3>Psychologist provides real care</h3>
+        <p>The Psychologist receives and manages the conventional referral. There is no Reeboot monitoring dashboard and no automatic activity feed.</p>
+      </article>
+      <article class="step">
+        <em>04</em>
+        <h3>Reeboot remains available</h3>
+        <p>Between appointments, the patient can continue using Reeboot independently without turning routine platform use into Clinician-managed digital treatment.</p>
+      </article>
+      <article class="step">
+        <em>05</em>
+        <h3>The patient decides what returns</h3>
+        <p>If a reflection, journal entry, coping plan or conversation is useful, the patient can choose to bring it into the next consultation.</p>
+      </article>
+    </div>
+
+    <div class="principles">
+      <div><b>Human care remains primary.</b><span>Diagnosis, formulation, treatment and prescribing remain with Qualified Professionals.</span></div>
+      <div><b>Privacy is structural.</b><span>Reeboot supports the patient. It does not report on the patient as part of this model.</span></div>
+      <div><b>Product discipline matters.</b><span>The strategy uses the existing Reeboot patient experience rather than creating another clinical platform.</span></div>
+    </div>
+
+    <blockquote class="gp">
+      “I’m referring you to a Psychologist. Reeboot is optional support while you wait and between appointments. It does not replace them. Your conversations are not sent to me or to them. If something is useful, you can bring it.”
+      <small>The sentence a GP can say in one consult</small>
+    </blockquote>
+  </div>
+</section>
+
+<section class="chapter final" id="meet">
+  <div class="shell">
+    <p class="eyebrow">Contact</p>
+    <p class="close-line">Reeboot does not create another place to receive mental healthcare.</p>
+    <h2>It supports the person between the places where care already happens.</h2>
+    <p class="close-line" style="margin-top:20px">Available now on iOS, Android, and the web.</p>
+
+    <div class="contact-grid">
+      <div>
+        <p class="name">Vishal Maharaj</p>
+        <p class="role">Co-Founder and Clinical Governance Lead<br>AHPRA Registered Psychologist · Medtech Engineer</p>
+        <p class="company">Reeboot AI Pty Ltd<br>ABN 51 690 887 551<br>58 Milligan Street, Perth WA 6000</p>
+      </div>
+      <div>
+        <dl>
+          <dt>Email</dt>
+          <dd><a href="mailto:vishal@greymind.ai">vishal@greymind.ai</a></dd>
+          <dt>Phone</dt>
+          <dd><a href="tel:+61406040660">0406 040 660</a></dd>
+          <dt>iOS</dt>
+          <dd><a href="https://apps.apple.com/app/reeboot-ai/id6755493226">App Store · Reeboot AI</a></dd>
+          <dt>Android</dt>
+          <dd>Same governed conversation</dd>
+          <dt>Web</dt>
+          <dd><a href="https://www.reebootai.com">reebootai.com</a></dd>
+          <dt>Model</dt>
+          <dd><a href="https://btw.reebootai.com/#model">btw.reebootai.com</a></dd>
+        </dl>
+        <p class="company">Mutual disclosure first. Then architecture, data flows and commercials, openly.</p>
+      </div>
+    </div>
+
+    <p class="src">Sources. ABS, Patient Experiences 2024–25. ABS, National Study of Mental Health and Wellbeing 2020–22. National Mental Health Commission, National Report Card 2024. Venkatesh, Whiteford, Li and Diminic, treatment delays, <em>Epidemiology and Psychiatric Sciences</em> (2025). WHO, World Mental Health Report (2022). Australian Psychological Society member poll on wait times. Haugom, Drivenes, Stavestrand, Osnes and Moltu, <em>BMC Psychiatry</em> (2023). Nuffield Trust, NHS Talking Therapies (2025). JAMA Network Open, generative AI for mental health advice among US youth (2025). Rousmaniere et al., language model use for psychological support (2025). Waiting list digital interventions review (2024). Product definition from the Reeboot Introductory Presentation, July 2026. Between Care model from the approved print edition, September 2026; wording in that section is unchanged. These figures are not Reeboot outcomes.</p>
+    <footer class="foot">Reeboot AI · Confidential introductory document for Medical Angels · October 2026</footer>
+  </div>
+</section>
+</body>
+</html>

@@ -7,9 +7,21 @@ export function referralIntakeEnabled(): boolean {
   return process.env.TEXLEX_REFERRAL_INTAKE_ENABLED === "1";
 }
 
-/** When false (default), never send parent email/SMS from intake paths. */
+/**
+ * When false (default), staff cannot send real parent email/SMS.
+ * Manual Stage A send only — does NOT enable automatic first contact.
+ */
 export function referralLiveCommsEnabled(): boolean {
   return process.env.TEXLEX_REFERRAL_LIVE_COMMS === "1";
+}
+
+/**
+ * When false (default), Stage B automatic first contact is off.
+ * Requires TEXLEX_REFERRAL_LIVE_COMMS=1 as well — enabling live manual send alone
+ * must never auto-message existing Ready for contact referrals.
+ */
+export function referralAutoFirstContactEnabled(): boolean {
+  return process.env.TEXLEX_REFERRAL_AUTO_FIRST_CONTACT === "1";
 }
 
 /** When false (default), Pub/Sub + watch handlers acknowledge but do not process. */

@@ -16,15 +16,15 @@ export default function ASDLiveFormulationEnginePage() {
   const [notes, setNotes] = useState(SAMPLE_NOTE);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 text-slate-950">
+    <div className="texlex-surface min-h-screen bg-[#102033] p-8 text-[#f4f8fc]">
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <Brain className="h-7 w-7" />
-              <h1 className="text-3xl font-semibold tracking-tight">ASD Live Formulation Engine</h1>
+              <h1 className="text-[40px] font-medium tracking-tight">ASD</h1>
             </div>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
+            <p className="mt-2 max-w-3xl text-[18px] text-[#c5d4e4]">
               Raw clinical notes become DSM-linked markers, missing-evidence prompts, contradiction alerts, and
               report-ready formulation blocks while the assessor types.
             </p>
@@ -42,7 +42,16 @@ export default function ASDLiveFormulationEnginePage() {
             <Button type="button" variant="secondary" asChild>
               <Link href="/asd-engine/report">Texlex Live Report Generator</Link>
             </Button>
-            <SignOutButton className="inline-flex h-8 items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-60" />
+            <Button type="button" variant="outline" asChild>
+              <Link href="/asd-engine/interview">Criterion interview</Link>
+            </Button>
+            <Button type="button" variant="outline" asChild>
+              <Link href="/asd-engine/interview/a-screen">A1–A3 screen</Link>
+            </Button>
+            <Button type="button" variant="outline" asChild>
+              <Link href="/parent-screen">Parent screen</Link>
+            </Button>
+            <SignOutButton className="bg-transparent px-0 text-[18px] font-semibold text-[#c5d4e4]" />
           </div>
         </div>
 
@@ -58,7 +67,7 @@ export default function ASDLiveFormulationEnginePage() {
                 onChange={(e) => setNotes(e.target.value)}
                 maxLength={50000}
                 placeholder="Type live ASD/ADHD assessment notes here..."
-                className="min-h-[560px] resize-none rounded-xl bg-white text-base leading-7"
+                className="min-h-[560px] resize-none rounded-none border-0 bg-transparent text-[22px] leading-8 text-[#f4f8fc]"
               />
             </CardContent>
           </Card>
