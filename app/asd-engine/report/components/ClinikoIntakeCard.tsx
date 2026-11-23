@@ -35,6 +35,7 @@ import {
   storePracticeSource,
   type PracticeSource,
 } from "@/lib/practice-source";
+import { readWorkspaceOpen } from "@/lib/workspace-open";
 
 const IMPORT_FILES_PREF_KEY = "texlex.cliniko.importFilesOnAppt";
 
@@ -72,6 +73,9 @@ type ClinikoIntakeCardProps = {
   /** Hold draft restore while calendar/search patient load (+ optional file import) runs. */
   onPatientLoadStart?: () => void;
   onPatientLoadEnd?: () => void;
+  onSourceChange?: (source: PracticeSource) => void;
+  /** When false, hide the appointment calendar only — Cliniko/Halaxy + search stay visible. */
+  calendarOpen?: boolean;
 };
 
 function formatDobLabel(dob: string | null): string {
@@ -111,11 +115,13 @@ export function ClinikoIntakeCard({
   onDateSeenFromAppointment,
   onPatientLoadStart,
   onPatientLoadEnd,
+  onSourceChange,
+  calendarOpen = true,
 }: ClinikoIntakeCardProps) {
   const [source, setSource] = useState<PracticeSource>("cliniko");
-  const [configured, setConfigured] = useState(true);
+  const [sourceReady, setSourceReady] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [showSearchCard, setShowSearchCard] = useState(() => !cliniko);
+  const [showSearchCard, setShowSearchCard] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [slowSearch, setSlowSearch] = useState(false);
@@ -123,6 +129,9 @@ export function ClinikoIntakeCard({
   const [loadingPatientId, setLoadingPatientId] = useState<string | null>(null);
   const [importFilesEnabled, setImportFilesEnabled] = useState(true);
   const [importingFiles, setImportingFiles] = useState(false);
+  const [halaxyAvailable, setHalaxyAvailable] = useState(true);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const workspaceOpenedRef = useRef(false);
   const onErrorRef = useRef(onError);
   const onLoadedRef = useRef(onLoaded);
   const collateralDocsRef = useRef(collateralDocs);
@@ -133,8 +142,38 @@ export function ClinikoIntakeCard({
   }, [collateralDocs]);
 
   useEffect(() => {
-    setSource(cliniko?.source ?? readStoredPracticeSource());
+    const requested = typeof window === "undefined" ? null : readWorkspaceOpen(window.location.search);
+    const next = cliniko?.source ?? requested?.source ?? readStoredPracticeSource();
+    setSource(next === "halaxy" ? "halaxy" : "cliniko");
   }, [cliniko?.source]);
+
+  // Detect Halaxy availability once so the button can stay disabled if unset.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/halaxy/status", { credentials: "same-origin" });
+        const data = (await response.json()) as { configured?: boolean };
+        if (cancelled) return;
+        if (response.status === 401) return;
+        if (data.configured === false) {
+          setHalaxyAvailable(false);
+          if (readStoredPracticeSource() === "halaxy") {
+            storePracticeSource("cliniko");
+            setSource("cliniko");
+            setStatusNotice("Halaxy is not configured on this server. Using Cliniko.");
+          }
+        } else {
+          setHalaxyAvailable(true);
+        }
+      } catch {
+        // Leave Halaxy clickable; the source status check will report errors.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -162,28 +201,64 @@ export function ClinikoIntakeCard({
 
   useEffect(() => {
     let cancelled = false;
+    setSourceReady(false);
+    setConnectionError(null);
     void (async () => {
       try {
-        const response = await fetch(`${practiceApiBase(source)}/status`);
+        const response = await fetch(`${practiceApiBase(source)}/status`, {
+          credentials: "same-origin",
+        });
         const data = (await response.json()) as {
           configured?: boolean;
           connected?: boolean;
           error?: string;
         };
         if (cancelled) return;
-        if (!data.configured) {
-          console.warn("Cliniko credentials not configured.");
-          setConfigured(false);
+
+        if (response.status === 401) {
+          setConnectionError("Sign in again to load patients from Cliniko / Halaxy.");
+          setSourceReady(false);
           return;
         }
-        setConfigured(true);
-        if (!data.connected) {
-          setConnectionError(`${practiceLabel(source)} connection failed. Check the API credentials.`);
+
+        if (source === "halaxy" && data.configured === false) {
+          setHalaxyAvailable(false);
+          setStatusNotice("Halaxy is not configured on this server. Using Cliniko.");
+          setSource("cliniko");
+          storePracticeSource("cliniko");
+          setSourceReady(false);
+          return;
+        }
+
+        if (data.configured === false) {
+          setConnectionError(
+            `${practiceLabel(source)} credentials are missing. Ask an admin to set the API keys.`
+          );
+          setSourceReady(false);
+          return;
+        }
+
+        if (source === "halaxy") setHalaxyAvailable(true);
+        setSourceReady(true);
+        if (data.connected === false) {
+          setConnectionError(
+            data.error?.trim() ||
+              `${practiceLabel(source)} connection failed. Check the API credentials.`
+          );
+        } else {
+          setConnectionError(null);
+          if (source === "cliniko") {
+            setStatusNotice((prev) =>
+              prev?.includes("Halaxy is not configured") ? prev : null
+            );
+          }
         }
       } catch {
         if (!cancelled) {
-          setConfigured(true);
-          setConnectionError(`${practiceLabel(source)} connection failed. Check the API credentials.`);
+          setSourceReady(false);
+          setConnectionError(
+            `${practiceLabel(source)} connection failed. Check the API credentials.`
+          );
         }
       }
     })();
@@ -193,7 +268,7 @@ export function ClinikoIntakeCard({
   }, [source]);
 
   useEffect(() => {
-    if (!configured || connectionError || !showSearchCard) {
+    if (!sourceReady || connectionError || !showSearchCard) {
       setResults([]);
       setSearching(false);
       setSlowSearch(false);
@@ -201,7 +276,7 @@ export function ClinikoIntakeCard({
     }
 
     const trimmed = searchQuery.trim();
-    console.log("[cliniko-ui] search effect", { configured, connectionError, showSearchCard, trimmed });
+    console.log("[cliniko-ui] search effect", { sourceReady, connectionError, showSearchCard, trimmed });
     if (trimmed.length < 2) {
       setResults([]);
       setSearching(false);
@@ -210,13 +285,17 @@ export function ClinikoIntakeCard({
     }
 
     let cancelled = false;
-    const slowTimer = setTimeout(() => setSlowSearch(true), 5000);
+    const slowTimer = setTimeout(() => {
+      if (!cancelled) setSlowSearch(true);
+    }, 5000);
     const debounceTimer = setTimeout(() => {
+      if (cancelled) return;
       setSearching(true);
       void (async () => {
         try {
           const response = await fetch(
-            `${practiceApiBase(source)}/patients/search?q=${encodeURIComponent(trimmed)}`
+            `${practiceApiBase(source)}/patients/search?q=${encodeURIComponent(trimmed)}`,
+            { credentials: "same-origin" }
           );
           const data = (await response.json()) as { patients?: ClinikoPatient[]; error?: string };
           if (cancelled) return;
@@ -241,8 +320,10 @@ export function ClinikoIntakeCard({
       cancelled = true;
       clearTimeout(slowTimer);
       clearTimeout(debounceTimer);
+      setSearching(false);
+      setSlowSearch(false);
     };
-  }, [configured, connectionError, searchQuery, showSearchCard, source]);
+  }, [sourceReady, connectionError, searchQuery, showSearchCard, source]);
 
   const connectedLabel = useMemo(() => {
     if (cliniko?.connectedName) return cliniko.connectedName;
@@ -313,7 +394,7 @@ export function ClinikoIntakeCard({
         source,
         baseline: buildClinikoBaseline(data.patient, data.customFields ?? {}, mapped),
       });
-      setShowSearchCard(false);
+      // Keep search visible so Cliniko/Halaxy choice + name search stay findable.
 
       const nameLabel =
         mapped.clientName || `${data.patient.first_name} ${data.patient.last_name}`.trim();
@@ -332,8 +413,8 @@ export function ClinikoIntakeCard({
             patientId: patient.id,
             apiBase: practiceApiBase(source),
             existingDocs: collateralDocsRef.current ?? [],
-            // ADHD: curated instruments only. ASD: all importable patient files.
-            asrsOnly: engine === "adhd",
+            // Halaxy lists every file for manual selection. ADHD Cliniko stays on preferred forms.
+            asrsOnly: source === "halaxy" ? false : engine === "adhd",
           });
           if (result.additions.length > 0) {
             setCollateralDocs((prev) => mergeImportedCollateralDocs(prev, result.additions));
@@ -357,42 +438,77 @@ export function ClinikoIntakeCard({
     }
   };
 
-  if (configured === false) return null;
+  useEffect(() => {
+    if (workspaceOpenedRef.current || !sourceReady || connectionError) return;
+    if (typeof window === "undefined") return;
+    const request = readWorkspaceOpen(window.location.search);
+    if (!request || source !== request.source) return;
+    if (cliniko?.patientId === request.patientId) {
+      workspaceOpenedRef.current = true;
+      return;
+    }
+    workspaceOpenedRef.current = true;
+    storePracticeSource(request.source);
+    void handleSelectPatient(
+      { id: request.patientId },
+      {
+        importFiles: request.importFiles,
+        appointmentStartsAt: request.appointmentStartsAt,
+      }
+    );
+  }, [cliniko?.patientId, sourceReady, connectionError, source]);
 
   return (
-    <div className="space-y-3" data-testid="cliniko-intake">
-      {connectionError ? (
-        <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
-          {connectionError}
+    <div className="space-y-4" data-testid="cliniko-intake">
+      <div className="space-y-2 rounded-lg border border-[#2c455f] bg-[#12263a] px-3 py-3">
+        <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#849aaf]">
+          Load patient
         </p>
-      ) : null}
-
-      {configured && !connectionError ? (
-        <div className="flex gap-1.5">
-          {(["cliniko", "halaxy"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-xs",
-                source === option
-                  ? "border-primary bg-primary/10 text-foreground"
-                  : "border-border/70 text-muted-foreground hover:bg-muted/50"
-              )}
-              onClick={() => {
-                setSource(option);
-                storePracticeSource(option);
-                setConnectionError(null);
-                setResults([]);
-              }}
-            >
-              {practiceLabel(option)}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-2">
+          {(["cliniko", "halaxy"] as const).map((option) => {
+            const disabled = option === "halaxy" && !halaxyAvailable;
+            return (
+              <button
+                key={option}
+                type="button"
+                disabled={disabled}
+                title={disabled ? "Halaxy is not configured on this server" : undefined}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-[16px] font-medium",
+                  source === option
+                    ? "border-[#9fc3f2] bg-[#1a3348] text-[#f4f8fc]"
+                    : "border-[#2c455f] text-[#b7c9db] hover:border-[#4d78a3] hover:text-[#f4f8fc]",
+                  disabled && "cursor-not-allowed opacity-45 hover:border-[#2c455f] hover:text-[#b7c9db]"
+                )}
+                onClick={() => {
+                  if (disabled) return;
+                  setSource(option);
+                  storePracticeSource(option);
+                  onSourceChange?.(option);
+                  setConnectionError(null);
+                  setStatusNotice(null);
+                  setResults([]);
+                  setShowSearchCard(true);
+                }}
+              >
+                {practiceLabel(option)}
+              </button>
+            );
+          })}
         </div>
-      ) : null}
+        {statusNotice ? (
+          <p className="rounded-md border border-[#3a5f82] bg-[#1a3348] px-3 py-2 text-[15px] text-[#d7e6f5]">
+            {statusNotice}
+          </p>
+        ) : null}
+        {connectionError ? (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[15px] text-[#f0d9a8]">
+            {connectionError}
+          </p>
+        ) : null}
+      </div>
 
-      {configured && !connectionError ? (
+      {sourceReady && !connectionError && calendarOpen ? (
         <ClinikoMyCalendar
           source={source}
           selectedPatientId={cliniko?.patientId ?? null}
@@ -414,9 +530,9 @@ export function ClinikoIntakeCard({
         />
       ) : null}
 
-      {cliniko && !showSearchCard ? (
-        <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2">
-          <p className="text-sm">
+      {cliniko ? (
+        <div className="space-y-2 rounded-lg border border-[#2c455f] bg-[#12263a] px-3 py-2">
+          <p className="text-[16px] text-[#f4f8fc]">
             Connected to {practiceLabel(cliniko.source)} · {connectedLabel} ·{" "}
             <button
               type="button"
@@ -424,7 +540,7 @@ export function ClinikoIntakeCard({
                 "underline-offset-4",
                 changePatientDisabled
                   ? "cursor-not-allowed opacity-50"
-                  : "hover:underline"
+                  : "text-[#9fc3f2] hover:underline"
               )}
               disabled={changePatientDisabled}
               title={
@@ -447,7 +563,7 @@ export function ClinikoIntakeCard({
             </button>
           </p>
           {cliniko.source === "halaxy" ? null : (
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <label className="flex items-center gap-2 text-[15px] text-[#b7c9db]">
               <input
                 type="checkbox"
                 checked={cliniko.syncEnabled}
@@ -462,13 +578,13 @@ export function ClinikoIntakeCard({
         </div>
       ) : null}
 
-      {configured && !connectionError && showSearchCard ? (
+      {sourceReady && !connectionError && showSearchCard ? (
         <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
-          <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-4")}>
+          <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
             <div>
-              <h3 className="text-base font-semibold">Or search by name</h3>
-              <p className="text-sm text-muted-foreground">
-                Prefer the calendar above when the booking is on your schedule
+              <h3 className="text-[20px] font-semibold text-[#f4f8fc]">Search by name</h3>
+              <p className="text-[15px] text-[#849aaf]">
+                Or use the calendar above when the booking is on your schedule
               </p>
             </div>
             <label className="block space-y-1.5">
@@ -481,23 +597,23 @@ export function ClinikoIntakeCard({
               />
             </label>
             {searching ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-[15px] text-[#849aaf]">
                 <Loader2 className="size-4 animate-spin" />
                 Searching {practiceLabel(source)}…
               </div>
             ) : null}
             {slowSearch ? (
-              <p className="text-sm text-muted-foreground">{practiceLabel(source)} is taking longer than usual…</p>
+              <p className="text-[15px] text-[#849aaf]">{practiceLabel(source)} is taking longer than usual…</p>
             ) : null}
             <div className="space-y-1">
               {!searching && searchQuery.trim().length >= 2 && results.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No results found</p>
+                <p className="text-[15px] text-[#849aaf]">No results found</p>
               ) : null}
               {results.map((patient) => (
                 <button
                   key={patient.id}
                   type="button"
-                  className="flex w-full items-center justify-between rounded-lg border border-border/70 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
+                  className="flex w-full items-center justify-between rounded-lg border border-[#2c455f] px-3 py-2 text-left text-[16px] text-[#f4f8fc] transition-colors hover:bg-[#1a3348]"
                   onClick={() => void handleSelectPatient(patient)}
                   disabled={loadingPatientId === patient.id}
                 >
@@ -509,15 +625,33 @@ export function ClinikoIntakeCard({
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
-              onClick={() => setShowSearchCard(false)}
-            >
-              Cancel / Manual entry
-            </button>
+            {cliniko ? (
+              <button
+                type="button"
+                className="text-[15px] text-[#849aaf] underline-offset-4 hover:underline"
+                onClick={() => setShowSearchCard(false)}
+              >
+                Hide search
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="text-[15px] text-[#849aaf] underline-offset-4 hover:underline"
+                onClick={() => setShowSearchCard(false)}
+              >
+                Cancel / Manual entry
+              </button>
+            )}
           </CardContent>
         </Card>
+      ) : sourceReady && !connectionError && cliniko && !showSearchCard ? (
+        <button
+          type="button"
+          className="text-[16px] text-[#9fc3f2] underline-offset-4 hover:underline"
+          onClick={() => setShowSearchCard(true)}
+        >
+          Search {practiceLabel(source)} by name
+        </button>
       ) : null}
     </div>
   );

@@ -12,7 +12,6 @@ import {
 import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
@@ -50,6 +49,8 @@ import { SavedDraftsByName } from "../../asd-engine/report/components/SavedDraft
 import { TexlexPdfPreviewPane } from "../../asd-engine/report/components/TexlexPdfPreviewPane";
 import { TexlexReportImport } from "../../asd-engine/report/components/TexlexReportImport";
 import { TexlexSectionHeading } from "../../asd-engine/report/components/TexlexSectionHeading";
+import { AdhdReportSidebarNav } from "./components/AdhdReportSidebarNav";
+import { clearTexlexSectionOpenState } from "@/app/asd-engine/report/components/TexlexCollapsibleSection";
 import type { NamedDraftHit } from "@/lib/texlex-draft-name-search";
 import type { TexlexImportedReport } from "@/lib/texlex-report-import/types";
 import { finalizeImportedReport } from "@/lib/texlex-report-import/scrub-content";
@@ -79,6 +80,10 @@ import {
   downloadBlob,
 } from "@/app/asd-engine/report/pdf/utils";
 import { TEXLEX_SIGNATURE } from "@/app/asd-engine/report/constants/texlexBoilerplate";
+import {
+  TEXLEX_SECTION_CONTAINER_CLASS,
+  TEXLEX_SECTION_CONTENT_CLASS,
+} from "@/app/asd-engine/report/constants/texlexSectionSurface";
 import { TexlexFinalizeReviewPanel } from "@/app/asd-engine/report/components/TexlexFinalizeReviewPanel";
 import type { LetterKind, LetterMergeFields } from "@/lib/texlex-comms/letters";
 import { parseRecipientList } from "@/lib/texlex-comms/letters";
@@ -148,7 +153,7 @@ const DEFAULT_ASSESSOR =
 const AUTO_SAVE_DEBOUNCE_MS = 1500;
 
 const INPUT_CLASS =
-  "flex h-10 w-full rounded-lg border border-input bg-background px-3 py-1.5 text-base leading-[1.55] shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+  "flex h-auto min-h-11 w-full border-0 border-b border-[#2c455f] bg-transparent px-0 py-2 text-[23px] leading-[1.55] text-[#f4f8fc] shadow-none outline-none placeholder:text-[#7e95ab] focus-visible:border-[#b7d4f5] disabled:cursor-not-allowed disabled:opacity-50";
 
 const NARRATIVE_SECTIONS = [
   {
@@ -187,6 +192,23 @@ const NARRATIVE_SECTIONS = [
 const SESSION_NARRATIVE_SECTIONS = NARRATIVE_SECTIONS.filter(
   (s) => s.id !== "collateral-summary"
 );
+
+const PRESENTING_SECTION = NARRATIVE_SECTIONS[0]!;
+const BACKGROUND_SECTIONS = NARRATIVE_SECTIONS.filter((s) =>
+  s.id.startsWith("background-")
+);
+const COLLATERAL_SUMMARY_SECTION = NARRATIVE_SECTIONS.find(
+  (s) => s.id === "collateral-summary"
+)!;
+
+const BACKGROUND_SUBLABELS: Record<string, string> = {
+  "background-pregnancy-birth": "Pregnancy & birth",
+  "background-early-development": "Early development",
+  "background-educational-history": "Educational history",
+  "background-emotional-behavioural-sensory": "Emotional, behavioural & sensory",
+};
+
+const PROSE_FIELD_CLASS = "min-h-[96px] text-[15px] leading-relaxed";
 
 const RECOMMENDATIONS_SECTION = {
   id: "recommendations",
@@ -508,41 +530,73 @@ function buildAdhdEngineContextBlock(args: {
 
 function CriterionRow({
   code,
+  domain,
   label,
   state,
   onChange,
 }: {
   code: string;
+  domain: string;
   label: string;
   state: AdhdCriterionState;
   onChange: (s: AdhdCriterionState) => void;
 }) {
+  const title = domain.replace(new RegExp(`^${code}\\s+`), "");
+
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-border/50 py-2">
-      <div className="min-w-0">
-        <span className="text-base font-medium text-foreground">{code}</span>
-        <span className="ml-2 text-base text-muted-foreground">{label}</span>
-      </div>
-      <div className="flex shrink-0 gap-1">
-        {(["met", "not-met", "unset"] as AdhdCriterionState[]).map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => onChange(opt)}
-            className={cn(
-              "rounded px-2 py-0.5 text-xs",
-              state === opt
-                ? opt === "met"
-                  ? "bg-emerald-600 text-white"
-                  : opt === "not-met"
-                    ? "bg-slate-600 text-white"
-                    : "bg-muted text-foreground"
-                : "bg-muted/50 text-muted-foreground hover:bg-muted"
-            )}
-          >
-            {opt === "met" ? "Met" : opt === "not-met" ? "Not met" : "Unset"}
-          </button>
-        ))}
+    <div
+      className={cn(
+        "rounded-2xl border px-4 py-4 transition-colors sm:px-5",
+        state === "met"
+          ? "border-[#5a8f6a]/70 bg-[#143028]/70"
+          : state === "not-met"
+            ? "border-[#8a5a5a]/55 bg-[#2a1818]/35"
+            : "border-[#2c455f] bg-[#12263a]/55"
+      )}
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <span className="inline-flex min-w-[2.75rem] items-center justify-center rounded-md bg-[#0f1f30] px-2 py-1 text-[15px] font-semibold tracking-wide text-[#9fc3f2]">
+              {code}
+            </span>
+            <p className="text-[20px] font-semibold leading-snug tracking-tight text-[#f4f8fc]">
+              {title}
+            </p>
+          </div>
+          <p className="text-[17px] leading-relaxed text-[#9eb2c6]">{label}</p>
+        </div>
+        <div
+          className="grid w-full shrink-0 grid-cols-3 gap-2 sm:w-auto sm:min-w-[20rem]"
+          role="group"
+          aria-label={`${code} rating`}
+        >
+          {(
+            [
+              ["met", "Met"],
+              ["not-met", "Not met"],
+              ["unset", "Unset"],
+            ] as const
+          ).map(([opt, optLabel]) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onChange(opt)}
+              className={cn(
+                "rounded-xl border px-3 py-3 text-[16px] font-semibold transition-colors",
+                state === opt
+                  ? opt === "met"
+                    ? "border-[#7eb98e] bg-[#1d4a34] text-[#e8f6ec]"
+                    : opt === "not-met"
+                      ? "border-[#c48a8a] bg-[#4a2828] text-[#f6e8e8]"
+                      : "border-[#9fc3f2] bg-[#16324c] text-[#eaf1f8]"
+                  : "border-[#2c455f] bg-[#0f1f30] text-[#b7c9db] hover:border-[#4a6a8a] hover:text-[#eaf1f8]"
+              )}
+            >
+              {optLabel}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -561,7 +615,7 @@ function DetailField({
 }) {
   return (
     <label className="block space-y-1 text-base">
-      <span className="text-muted-foreground">{label}</span>
+      <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">{label}</span>
       <input
         className={INPUT_CLASS}
         value={value}
@@ -1597,6 +1651,7 @@ export default function AdhdReportPage() {
     generateAbortRef.current = null;
     lastHydratedPatientIdRef.current = null;
     suppressAutosaveRef.current = true;
+    clearTexlexSectionOpenState();
     setReportEpoch((epoch) => epoch + 1);
 
     // Clear busy flags here — do not rely on stale generate finally blocks (gated away).
@@ -1608,6 +1663,7 @@ export default function AdhdReportPage() {
     setPatientDetails(patientDetailsAfterNewReport());
     setCliniko(null);
     setClinikoIntakeResetKey((key) => key + 1);
+    setTodayOpen(true);
     setRawNotes("");
     setCollateralDocs([]);
     setSectionTexts(emptySectionTexts());
@@ -2562,7 +2618,7 @@ export default function AdhdReportPage() {
           : "";
 
   return (
-    <div className="min-h-screen bg-[var(--bg-page)] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[16px] leading-[1.5] text-foreground">
+    <div className="texlex-report texlex-desk texlex-surface min-h-screen bg-[#102033] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[23px] leading-[1.6] text-[#f4f8fc]">
       <TexlexReportHeader
         clientName={patientDetails.clientName}
         assessmentLabel="ADHD assessment"
@@ -2611,51 +2667,40 @@ export default function AdhdReportPage() {
         onToggleToday={() => setTodayOpen((v) => !v)}
         todayOpen={todayOpen}
         engineHomeHref="/adhd-engine"
+        restoreNotice={
+          localDraftRestoredNotice
+            ? {
+                message: `Draft restored — last saved ${formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}`,
+                onDiscard: discardLocalDraftRestored,
+              }
+            : null
+        }
       />
 
       {clinikoNotice ? (
         <div className="flex justify-center px-6 pt-3">
-          <div className="w-full max-w-6xl rounded-md bg-amber-50 px-3 py-2 text-[15px] text-amber-900">
+          <div className="w-full max-w-[1760px] rounded-xl border border-[#2c455f] bg-[#16324c] px-4 py-2.5 text-[16px] text-[#eaf1f8]">
             {clinikoNotice}
-          </div>
-        </div>
-      ) : null}
-
-      {localDraftRestoredNotice ? (
-        <div className="flex justify-center border-b border-border/60 bg-muted/30 px-6 py-2">
-          <div className="flex w-full max-w-6xl flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              Draft restored — last saved{" "}
-              {formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={discardLocalDraftRestored}
-            >
-              Discard
-            </Button>
           </div>
         </div>
       ) : null}
 
       {draftResumePrompt ? (
         <div
-          className="border-b border-amber-300/60 bg-amber-50 px-6 py-3 dark:border-amber-800/60 dark:bg-amber-950/30"
+          className="border-b border-[#2c455f] bg-[#12263a] px-6 py-3.5"
           role="dialog"
           aria-label="Resume draft"
         >
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-foreground">
+          <div className="mx-auto flex max-w-[1760px] flex-wrap items-center justify-between gap-3">
+            <p className="text-[16px] text-[#c5d4e4]">
               Resume previous draft for {draftResumePrompt.patientLabel}? Last saved{" "}
               {draftResumePrompt.lastSavedLabel}.
             </p>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-4">
               <Button
                 type="button"
                 size="sm"
+                className="h-9 px-4 text-[15px]"
                 onClick={() => {
                   const stored = draftResumePrompt.stored;
                   applyAdhdSavedState(stored);
@@ -2673,22 +2718,45 @@ export default function AdhdReportPage() {
               >
                 Resume
               </Button>
-              <Button
+              <button
                 type="button"
-                size="sm"
-                variant="outline"
+                className="text-[15px] font-semibold text-[#9fc3f2] underline-offset-4 hover:underline"
                 onClick={() => setDraftResumePrompt(null)}
               >
                 Discard
-              </Button>
+              </button>
             </div>
           </div>
         </div>
       ) : null}
 
-      <div className="flex justify-center px-6 py-6 pb-32">
-        <div className="grid w-full max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="min-w-0 space-y-6 text-[15px] leading-[1.55]">
+      <div className="mx-auto flex max-w-[1760px] gap-6 px-5 py-6 pb-20">
+        <AdhdReportSidebarNav />
+
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto max-w-[1180px] space-y-5 text-[23px] leading-[1.55]">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-[#2c455f]/80 bg-[#12263a]/70 px-4 py-2.5 text-[13px] text-[#9eb2c6]">
+              <span>
+                Presentation{" "}
+                <span className="font-semibold text-[#eaf1f8]">
+                  {pipeline.presentation.presentation ?? "Held open"}
+                </span>
+              </span>
+              <span>
+                IA{" "}
+                <span className="font-semibold text-[#eaf1f8]">
+                  {pipeline.counts.inattentionMet}/{pipeline.counts.inattentionTotal}
+                </span>
+              </span>
+              <span>
+                HI{" "}
+                <span className="font-semibold text-[#eaf1f8]">
+                  {pipeline.counts.hyperactivityMet}/{pipeline.counts.hyperactivityTotal}
+                </span>
+              </span>
+              <span>Threshold {pipeline.presentation.threshold}</span>
+            </div>
+
             {todayOpen ? (
               <section id="cliniko-calendar">
                 <ClinikoIntakeCard
@@ -2734,7 +2802,7 @@ export default function AdhdReportPage() {
             )}
 
             <section id="scribe">
-              <TexlexSectionHeading>Scribe</TexlexSectionHeading>
+              <TexlexSectionHeading className="mb-3">Scribe</TexlexSectionHeading>
               <TexlexScribe
                 key={reportEpoch}
                 sessionGenerating={sessionSectionsGenerating}
@@ -2759,10 +2827,11 @@ export default function AdhdReportPage() {
               onApply={applyImportedReport}
             />
 
-            <Card>
-              <CardContent className="space-y-4 pt-6">
-                <TexlexSectionHeading>Client details</TexlexSectionHeading>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <section id="patient-details">
+              <TexlexSectionHeading className="mb-3">Client details</TexlexSectionHeading>
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-1">
                     <DetailField
                       label="Client name"
@@ -2780,7 +2849,7 @@ export default function AdhdReportPage() {
                     />
                   </div>
                   <label className="block space-y-1 text-base">
-                    <span className="text-muted-foreground">Date of birth</span>
+                    <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">Date of birth</span>
                     <input
                       type="date"
                       className={INPUT_CLASS}
@@ -2816,7 +2885,7 @@ export default function AdhdReportPage() {
                     }}
                   />
                   <label className="block space-y-1 text-base">
-                    <span className="text-muted-foreground">Report date</span>
+                    <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">Report date</span>
                     <input
                       type="date"
                       className={INPUT_CLASS}
@@ -2828,7 +2897,7 @@ export default function AdhdReportPage() {
                     />
                   </label>
                   <label className="block space-y-1 text-base">
-                    <span className="text-muted-foreground">Date of assessment (date seen)</span>
+                    <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">Date of assessment (date seen)</span>
                     <input
                       type="date"
                       className={INPUT_CLASS}
@@ -2873,8 +2942,8 @@ export default function AdhdReportPage() {
                       setPatientDetails((prev) => ({ ...prev, parent2Email }));
                     }}
                   />
-                  <div className="space-y-2 sm:col-span-2">
-                    <span className="block text-base text-muted-foreground">
+                  <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                    <span className="block text-xs font-normal uppercase tracking-wide text-[#849aaf]">
                       Attending parents / informants
                     </span>
                     <div className="flex flex-wrap gap-4">
@@ -2906,8 +2975,8 @@ export default function AdhdReportPage() {
                       </p>
                     ) : null}
                   </div>
-                  <div className="space-y-2 sm:col-span-2">
-                    <span className="block text-base text-muted-foreground">Assessment modality</span>
+                  <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                    <span className="block text-xs font-normal uppercase tracking-wide text-[#849aaf]">Assessment modality</span>
                     <div className="flex flex-wrap gap-4">
                       {(
                         [
@@ -2964,51 +3033,146 @@ export default function AdhdReportPage() {
                     }}
                   />
                 </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </section>
 
-            <Card>
-              <CardContent className="space-y-3 pt-6">
-                <TexlexSectionHeading>Raw clinical notes</TexlexSectionHeading>
-                <Textarea
-                  value={rawNotes}
-                  onChange={(e) => {
-                    touch();
-                    setRawNotes(e.target.value);
-                  }}
-                  rows={10}
-                  placeholder="Paste raw clinical notes for section generation and engine scraping."
-                />
-              </CardContent>
-            </Card>
+            <section id="raw-notes">
+              <TexlexSectionHeading className="mb-3">Raw clinical notes</TexlexSectionHeading>
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
+                  <Textarea
+                    className={PROSE_FIELD_CLASS}
+                    value={rawNotes}
+                    onChange={(e) => {
+                      touch();
+                      setRawNotes(e.target.value);
+                    }}
+                    rows={5}
+                    placeholder="Paste raw clinical notes for section generation and engine scraping."
+                  />
+                </CardContent>
+              </Card>
+            </section>
 
-            <Card>
-              <CardContent className="space-y-3 pt-6">
-                <TexlexSectionHeading>Collateral documents</TexlexSectionHeading>
-                <CollateralDocumentsUpload
-                  collateralDocs={collateralDocs}
-                  setCollateralDocs={setCollateralDocs}
-                  touch={touch}
-                  inputClass={INPUT_CLASS}
-                  clinikoPatientId={cliniko?.patientId ?? null}
-                  practiceSource={cliniko?.source}
-                  engine="adhd"
-                />
-              </CardContent>
-            </Card>
+            <section id="presenting-concerns">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <TexlexSectionHeading>{PRESENTING_SECTION.label}</TexlexSectionHeading>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning || sectionGenerating[PRESENTING_SECTION.id]}
+                  onClick={() => void generateSection(PRESENTING_SECTION.id, PRESENTING_SECTION.route)}
+                >
+                  {sectionGenerating[PRESENTING_SECTION.id] ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Generating
+                    </>
+                  ) : (
+                    "Generate"
+                  )}
+                </Button>
+              </div>
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
+                  {sectionGenerating[PRESENTING_SECTION.id] ? (
+                    <p className="text-[15px] text-[#849aaf]">Generating…</p>
+                  ) : (
+                    <Textarea
+                      className={PROSE_FIELD_CLASS}
+                      value={sectionTexts[PRESENTING_SECTION.id] ?? ""}
+                      onChange={(e) => {
+                        touch();
+                        setSectionTexts((prev) => ({
+                          ...prev,
+                          [PRESENTING_SECTION.id]: e.target.value,
+                        }));
+                      }}
+                      placeholder="Generate this section, or type/edit clinical prose here."
+                      rows={5}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </section>
 
-            {NARRATIVE_SECTIONS.map((section) => (
-              <Card key={section.id} id={section.id}>
-                <CardContent className="space-y-3 pt-6">
+            <section id="background" className="space-y-3">
+              <TexlexSectionHeading className="mb-1">Background</TexlexSectionHeading>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {BACKGROUND_SECTIONS.map((section) => (
+                  <Card key={section.id} id={section.id} className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                    <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-2")}>
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-[15px] font-semibold text-[#c5d4e4]">
+                          {BACKGROUND_SUBLABELS[section.id]}
+                        </h3>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          disabled={bulkRunning || sectionGenerating[section.id]}
+                          onClick={() => void generateSection(section.id, section.route)}
+                        >
+                          {sectionGenerating[section.id] ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            "Generate"
+                          )}
+                        </Button>
+                      </div>
+                      {sectionGenerating[section.id] ? (
+                        <p className="text-[14px] text-[#849aaf]">Generating…</p>
+                      ) : (
+                        <Textarea
+                          className="min-h-[88px] text-[14px] leading-relaxed"
+                          value={sectionTexts[section.id] ?? ""}
+                          onChange={(e) => {
+                            touch();
+                            setSectionTexts((prev) => ({
+                              ...prev,
+                              [section.id]: e.target.value,
+                            }));
+                          }}
+                          placeholder="Generate or edit…"
+                          rows={4}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+
+            <section id="collateral" className="space-y-3">
+              <TexlexSectionHeading className="mb-1">Collateral</TexlexSectionHeading>
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
+                  <CollateralDocumentsUpload
+                    collateralDocs={collateralDocs}
+                    setCollateralDocs={setCollateralDocs}
+                    touch={touch}
+                    inputClass={INPUT_CLASS}
+                    clinikoPatientId={cliniko?.patientId ?? null}
+                    practiceSource={cliniko?.source}
+                    engine="adhd"
+                  />
                   <div className="flex items-center justify-between gap-3">
-                    <TexlexSectionHeading>{section.label}</TexlexSectionHeading>
+                    <h3 className="text-[15px] font-semibold text-[#c5d4e4]">
+                      {COLLATERAL_SUMMARY_SECTION.label}
+                    </h3>
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={bulkRunning || sectionGenerating[section.id]}
-                      onClick={() => void generateSection(section.id, section.route)}
+                      disabled={bulkRunning || sectionGenerating[COLLATERAL_SUMMARY_SECTION.id]}
+                      onClick={() =>
+                        void generateSection(
+                          COLLATERAL_SUMMARY_SECTION.id,
+                          COLLATERAL_SUMMARY_SECTION.route
+                        )
+                      }
                     >
-                      {sectionGenerating[section.id] ? (
+                      {sectionGenerating[COLLATERAL_SUMMARY_SECTION.id] ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Generating
@@ -3018,203 +3182,244 @@ export default function AdhdReportPage() {
                       )}
                     </Button>
                   </div>
-                  {sectionGenerating[section.id] ? (
-                    <p className="text-base text-muted-foreground">Generating…</p>
+                  {sectionGenerating[COLLATERAL_SUMMARY_SECTION.id] ? (
+                    <p className="text-[15px] text-[#849aaf]">Generating…</p>
                   ) : (
                     <Textarea
-                      className="min-h-[140px] text-base leading-relaxed"
-                      value={sectionTexts[section.id] ?? ""}
+                      className={PROSE_FIELD_CLASS}
+                      value={sectionTexts[COLLATERAL_SUMMARY_SECTION.id] ?? ""}
                       onChange={(e) => {
                         touch();
                         setSectionTexts((prev) => ({
                           ...prev,
-                          [section.id]: e.target.value,
+                          [COLLATERAL_SUMMARY_SECTION.id]: e.target.value,
                         }));
                       }}
-                      placeholder="Generate this section, or type/edit clinical prose here."
-                      rows={8}
+                      placeholder="Generate collateral summary, or type/edit here."
+                      rows={4}
                     />
                   )}
                 </CardContent>
               </Card>
-            ))}
+            </section>
 
-            <Card>
-              <CardContent className="space-y-4 pt-6">
-                <TexlexSectionHeading>Criteria (clinician entry)</TexlexSectionHeading>
+            <section id="criteria">
+              <div className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+                <div>
+                  <p className="mb-1 text-[13px] font-semibold uppercase tracking-[0.14em] text-[#9fc3f2]">
+                    Diagnostic interview
+                  </p>
+                  <TexlexSectionHeading className="mb-0 [&_h2]:text-[36px] sm:[&_h2]:text-[42px]">
+                    Young DIVA-5
+                  </TexlexSectionHeading>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[16px] text-[#9eb2c6]">
+                  <span>
+                    IA{" "}
+                    <span className="font-semibold text-[#f4f8fc]">
+                      {pipeline.counts.inattentionMet}/{pipeline.counts.inattentionTotal}
+                    </span>
+                  </span>
+                  <span>
+                    HI{" "}
+                    <span className="font-semibold text-[#f4f8fc]">
+                      {pipeline.counts.hyperactivityMet}/{pipeline.counts.hyperactivityTotal}
+                    </span>
+                  </span>
+                  <span>
+                    Presentation{" "}
+                    <span className="font-semibold text-[#f4f8fc]">
+                      {pipeline.presentation.presentation ?? "Held open"}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-6")}>
+                  <div className="rounded-2xl border border-[#2c455f] bg-[#12263a]/70 p-4 sm:p-5">
+                    <p className="mb-3 text-[14px] font-semibold uppercase tracking-[0.1em] text-[#849aaf]">
+                      Interview outcome
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {(["positive", "negative", "not-administered"] as DivaState[]).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            touch();
+                            setDivaState(opt);
+                          }}
+                          className={cn(
+                            "rounded-xl border px-4 py-3.5 text-[17px] font-semibold transition-colors",
+                            divaState === opt
+                              ? "border-[#9fc3f2] bg-[#16324c] text-[#eaf1f8]"
+                              : "border-[#2c455f] bg-[#0f1f30] text-[#b7c9db] hover:border-[#4a6a8a] hover:text-[#eaf1f8]"
+                          )}
+                        >
+                          {opt === "positive"
+                            ? "Positive"
+                            : opt === "negative"
+                              ? "Negative"
+                              : "Not administered"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-base">
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    <span>
-                      Presentation:{" "}
-                      <span className="font-medium">
-                        {pipeline.presentation.presentation ?? "Held open"}
+                  <div className="space-y-8">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <h4 className="text-[22px] font-semibold tracking-tight text-[#f4f8fc]">
+                          Inattention
+                        </h4>
+                        <span className="text-[15px] text-[#849aaf]">
+                          {pipeline.counts.inattentionMet} of {pipeline.counts.inattentionTotal} met
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {inattention.map((c) => (
+                          <CriterionRow
+                            key={c.code}
+                            code={c.code}
+                            domain={c.domain}
+                            label={c.criterion}
+                            state={criteriaStates[c.code] ?? "unset"}
+                            onChange={(state) => setCriterion(c.code, state)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <h4 className="text-[22px] font-semibold tracking-tight text-[#f4f8fc]">
+                          Hyperactivity / impulsivity
+                        </h4>
+                        <span className="text-[15px] text-[#849aaf]">
+                          {pipeline.counts.hyperactivityMet} of {pipeline.counts.hyperactivityTotal}{" "}
+                          met
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {hyperactivity.map((c) => (
+                          <CriterionRow
+                            key={c.code}
+                            code={c.code}
+                            domain={c.domain}
+                            label={c.criterion}
+                            state={criteriaStates[c.code] ?? "unset"}
+                            onChange={(state) => setCriterion(c.code, state)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block space-y-1 text-base">
+                      <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">
+                        Severity stated
                       </span>
-                    </span>
-                    <span>
-                      IA {pipeline.counts.inattentionMet}/{pipeline.counts.inattentionTotal}
-                    </span>
-                    <span>
-                      HI {pipeline.counts.hyperactivityMet}/{pipeline.counts.hyperactivityTotal}
-                    </span>
-                    <span>Threshold {pipeline.presentation.threshold}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-base font-medium">DIVA-5 gate</span>
-                  <div className="flex gap-1">
-                    {(["positive", "negative", "not-administered"] as DivaState[]).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => {
+                      <input
+                        className={INPUT_CLASS}
+                        value={severityStated}
+                        onChange={(e) => {
                           touch();
-                          setDivaState(opt);
+                          setSeverityStated(e.target.value);
                         }}
-                        className={cn(
-                          "rounded px-2 py-1 text-xs",
-                          divaState === opt
-                            ? "bg-teal-700 text-white"
-                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                        )}
-                      >
-                        {opt === "positive"
-                          ? "Positive"
-                          : opt === "negative"
-                            ? "Negative"
-                            : "Not administered"}
-                      </button>
-                    ))}
+                        placeholder="e.g. moderate"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-[14px] text-[#c5d4e4]">
+                      <input
+                        type="checkbox"
+                        checked={asdActive}
+                        onChange={(e) => {
+                          touch();
+                          setAsdActive(e.target.checked);
+                        }}
+                      />
+                      ASD active (integrated formulation)
+                    </label>
+                    <label className="flex items-center gap-2 text-[14px] text-[#c5d4e4]">
+                      <input
+                        type="checkbox"
+                        checked={mentalHealthGreenLight}
+                        onChange={(e) => {
+                          touch();
+                          setMentalHealthGreenLight(e.target.checked);
+                        }}
+                      />
+                      Mental health green light
+                    </label>
+                    <label className="flex items-center gap-2 text-[14px] text-[#c5d4e4]">
+                      <input
+                        type="checkbox"
+                        checked={medicationWanted}
+                        onChange={(e) => {
+                          touch();
+                          setMedicationWanted(e.target.checked);
+                        }}
+                      />
+                      Medication wanted
+                    </label>
                   </div>
-                </div>
 
-                <div>
-                  <h4 className="mb-1 text-base font-semibold text-muted-foreground">
-                    Inattention (IA)
-                  </h4>
-                  {inattention.map((c) => (
-                    <CriterionRow
-                      key={c.code}
-                      code={c.code}
-                      label={c.criterion}
-                      state={criteriaStates[c.code] ?? "unset"}
-                      onChange={(state) => setCriterion(c.code, state)}
-                    />
-                  ))}
-                </div>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <label className="block space-y-1 text-base">
+                      <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">
+                        Clinician framing
+                      </span>
+                      <Textarea
+                        value={clinicianStatedFraming}
+                        onChange={(e) => {
+                          touch();
+                          setClinicianStatedFraming(e.target.value);
+                        }}
+                        rows={2}
+                      />
+                    </label>
+                    <label className="block space-y-1 text-base">
+                      <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">
+                        Mental health framing
+                      </span>
+                      <Textarea
+                        value={mentalHealthFraming}
+                        onChange={(e) => {
+                          touch();
+                          setMentalHealthFraming(e.target.value);
+                        }}
+                        rows={2}
+                      />
+                    </label>
+                  </div>
 
-                <div>
-                  <h4 className="mb-1 text-base font-semibold text-muted-foreground">
-                    Hyperactivity / Impulsivity (HI)
-                  </h4>
-                  {hyperactivity.map((c) => (
-                    <CriterionRow
-                      key={c.code}
-                      code={c.code}
-                      label={c.criterion}
-                      state={criteriaStates[c.code] ?? "unset"}
-                      onChange={(state) => setCriterion(c.code, state)}
-                    />
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block space-y-1 text-base">
-                    <span className="text-muted-foreground">Severity stated</span>
+                    <span className="text-xs font-normal uppercase tracking-wide text-[#849aaf]">
+                      Recommendation shorthand
+                    </span>
                     <input
                       className={INPUT_CLASS}
-                      value={severityStated}
+                      value={recommendationShorthand}
                       onChange={(e) => {
                         touch();
-                        setSeverityStated(e.target.value);
+                        setRecommendationShorthand(e.target.value);
                       }}
-                      placeholder="e.g. moderate"
+                      placeholder="e.g. speech pathology, school support"
                     />
+                    <span className="block text-[13px] text-[#849aaf]">
+                      {parseRecommendationShorthand(recommendationShorthand).length
+                        ? `Will expand to exactly ${parseRecommendationShorthand(recommendationShorthand).length} item(s). No extras added.`
+                        : "Enter one item per comma or line. Expand produces that many recommendations only."}
+                    </span>
                   </label>
-                  <label className="flex items-center gap-2 text-base">
-                    <input
-                      type="checkbox"
-                      checked={asdActive}
-                      onChange={(e) => {
-                        touch();
-                        setAsdActive(e.target.checked);
-                      }}
-                    />
-                    ASD active (integrated formulation)
-                  </label>
-                  <label className="flex items-center gap-2 text-base">
-                    <input
-                      type="checkbox"
-                      checked={mentalHealthGreenLight}
-                      onChange={(e) => {
-                        touch();
-                        setMentalHealthGreenLight(e.target.checked);
-                      }}
-                    />
-                    Mental health green light
-                  </label>
-                  <label className="flex items-center gap-2 text-base">
-                    <input
-                      type="checkbox"
-                      checked={medicationWanted}
-                      onChange={(e) => {
-                        touch();
-                        setMedicationWanted(e.target.checked);
-                      }}
-                    />
-                    Medication wanted
-                  </label>
-                </div>
+                </CardContent>
+              </Card>
+            </section>
 
-                <label className="block space-y-1 text-base">
-                  <span className="text-muted-foreground">Clinician framing</span>
-                  <Textarea
-                    value={clinicianStatedFraming}
-                    onChange={(e) => {
-                      touch();
-                      setClinicianStatedFraming(e.target.value);
-                    }}
-                    rows={2}
-                  />
-                </label>
-
-                <label className="block space-y-1 text-base">
-                  <span className="text-muted-foreground">Mental health framing</span>
-                  <Textarea
-                    value={mentalHealthFraming}
-                    onChange={(e) => {
-                      touch();
-                      setMentalHealthFraming(e.target.value);
-                    }}
-                    rows={2}
-                  />
-                </label>
-
-                <label className="block space-y-1 text-base">
-                  <span className="text-muted-foreground">Recommendation shorthand</span>
-                  <input
-                    className={INPUT_CLASS}
-                    value={recommendationShorthand}
-                    onChange={(e) => {
-                      touch();
-                      setRecommendationShorthand(e.target.value);
-                    }}
-                    placeholder="e.g. speech pathology, school support"
-                  />
-                  <span className="block text-sm text-muted-foreground">
-                    {parseRecommendationShorthand(recommendationShorthand).length
-                      ? `Will expand to exactly ${parseRecommendationShorthand(recommendationShorthand).length} item(s). No extras added.`
-                      : "Enter one item per comma or line. Expand produces that many recommendations only."}
-                  </span>
-                </label>
-              </CardContent>
-            </Card>
-
-            <Card id="clinical-formulation">
-              <CardContent className="space-y-3 pt-6">
-                <div className="flex items-center justify-between gap-3">
-                  <TexlexSectionHeading>Clinical formulation</TexlexSectionHeading>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <section id="clinical-formulation">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <TexlexSectionHeading>Formulation</TexlexSectionHeading>
                   <Button
                     size="sm"
                     disabled={bulkRunning || formulationGenerating}
@@ -3230,26 +3435,28 @@ export default function AdhdReportPage() {
                     )}
                   </Button>
                 </div>
-                {formulationGenerating ? (
-                  <p className="text-base text-muted-foreground">Generating…</p>
-                ) : (
-                  <Textarea
-                    className="min-h-[220px] text-base leading-relaxed"
-                    value={formulation}
-                    onChange={(e) => {
-                      touch();
-                      setFormulation(e.target.value);
-                    }}
-                    placeholder="Generate the formulation, or type/edit clinical prose here."
-                    rows={12}
-                  />
-                )}
-              </CardContent>
-            </Card>
+                <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                  <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
+                    {formulationGenerating ? (
+                      <p className="text-[15px] text-[#849aaf]">Generating…</p>
+                    ) : (
+                      <Textarea
+                        className={PROSE_FIELD_CLASS}
+                        value={formulation}
+                        onChange={(e) => {
+                          touch();
+                          setFormulation(e.target.value);
+                        }}
+                        placeholder="Generate the formulation, or type/edit clinical prose here."
+                        rows={7}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </section>
 
-            <Card>
-              <CardContent className="space-y-3 pt-6">
-                <div className="flex items-center justify-between gap-3">
+              <section id="recommendations">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <TexlexSectionHeading>{RECOMMENDATIONS_SECTION.label}</TexlexSectionHeading>
                   <div className="flex shrink-0 gap-2">
                     <Button
@@ -3258,7 +3465,7 @@ export default function AdhdReportPage() {
                       disabled={bulkRunning || sectionGenerating.recommendations}
                       onClick={() => generateRecommendationsFromShorthand()}
                     >
-                      Expand shorthand
+                      Expand
                     </Button>
                     <Button
                       size="sm"
@@ -3276,151 +3483,52 @@ export default function AdhdReportPage() {
                     </Button>
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Generate reshapes the raw notes into Texlex clinical-grade recommendations
-                  (ASD-style drafting, ADHD pathway). Expand shorthand still uses only the
-                  clinician shorthand above.
-                </p>
-                {sectionGenerating.recommendations ? (
-                  <p className="text-base text-muted-foreground">Generating…</p>
-                ) : (
-                  <Textarea
-                    className="min-h-[160px] text-base leading-relaxed"
-                    value={sectionTexts.recommendations ?? ""}
-                    onChange={(e) => {
-                      touch();
-                      setSectionTexts((prev) => ({
-                        ...prev,
-                        recommendations: e.target.value,
-                      }));
-                    }}
-                    placeholder="Generate from raw notes, expand shorthand, or type/edit recommendation prose here."
-                    rows={8}
-                  />
-                )}
-              </CardContent>
-            </Card>
+                <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
+                  <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-2")}>
+                    {sectionGenerating.recommendations ? (
+                      <p className="text-[15px] text-[#849aaf]">Generating…</p>
+                    ) : (
+                      <Textarea
+                        className={PROSE_FIELD_CLASS}
+                        value={sectionTexts.recommendations ?? ""}
+                        onChange={(e) => {
+                          touch();
+                          setSectionTexts((prev) => ({
+                            ...prev,
+                            recommendations: e.target.value,
+                          }));
+                        }}
+                        placeholder="Generate from raw notes, expand shorthand, or edit here."
+                        rows={7}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </section>
+            </div>
 
-            <TexlexFinalizeReviewPanel
-              runs={finalizeReviewRuns}
-              reviewing={finalizeReviewing}
-              error={finalizeReviewError}
-              onRunReview={() => void runFinalizeReview()}
-              onAccept={(id) => updateLatestFindingStatus(id, "accepted")}
-              onReject={(id) => updateLatestFindingStatus(id, "rejected")}
-              onApply={applyFinalizeFinding}
-              finalPdfUnlocked={finalPdfUnlocked}
-            />
+            <section id="finalize-review">
+              <TexlexFinalizeReviewPanel
+                runs={finalizeReviewRuns}
+                reviewing={finalizeReviewing}
+                error={finalizeReviewError}
+                onRunReview={() => void runFinalizeReview()}
+                onAccept={(id) => updateLatestFindingStatus(id, "accepted")}
+                onReject={(id) => updateLatestFindingStatus(id, "rejected")}
+                onApply={applyFinalizeFinding}
+                onLocate={(finding) => {
+                  const el = document.getElementById(finding.sectionId);
+                  if (!el) return false;
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  return true;
+                }}
+                finalPdfUnlocked={finalPdfUnlocked}
+              />
+            </section>
 
             <div id="texlex-send" className="sr-only" aria-hidden />
           </div>
-
-          <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-            <Card>
-              <CardContent className="space-y-3 pt-6">
-                <h3 className="text-[15px] font-extrabold tracking-tight text-[#075E63]">
-                  Assist
-                </h3>
-
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between gap-2">
-                    <span>Inattention</span>
-                    <span
-                      className={cn(
-                        "font-medium",
-                        pipeline.presentation.iaPositive
-                          ? "text-emerald-700"
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {pipeline.counts.inattentionMet}/{pipeline.counts.inattentionTotal} · threshold{" "}
-                      {pipeline.presentation.threshold}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span>Hyperactivity / Impulsivity</span>
-                    <span
-                      className={cn(
-                        "font-medium",
-                        pipeline.presentation.hiPositive
-                          ? "text-emerald-700"
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {pipeline.counts.hyperactivityMet}/{pipeline.counts.hyperactivityTotal} · threshold{" "}
-                      {pipeline.presentation.threshold}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-2 border-t border-border/50 pt-1">
-                    <span>Presentation</span>
-                    <span className="font-medium">
-                      {pipeline.presentation.presentation ?? "Held open"}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
-                    Differential channels
-                  </h4>
-                  {pipeline.channels.filter((c) => c.state !== "not-indicated").length === 0 ? (
-                    <p className="text-xs text-muted-foreground">None indicated in notes.</p>
-                  ) : (
-                    pipeline.channels
-                      .filter((c) => c.state !== "not-indicated")
-                      .map((c) => (
-                        <div
-                          key={c.channel}
-                          className="flex items-center justify-between gap-2 py-0.5 text-xs"
-                        >
-                          <span>{c.channel}</span>
-                          <Badge
-                            variant={
-                              c.state === "present-investigate" ? "destructive" : "secondary"
-                            }
-                          >
-                            {c.state === "present-investigate" ? "Investigate" : "Assessed"}
-                          </Badge>
-                        </div>
-                      ))
-                  )}
-                </div>
-
-                <div>
-                  <h4 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
-                    ASD differential
-                  </h4>
-                  <Badge
-                    variant={pipeline.asdDifferential.flagged ? "destructive" : "secondary"}
-                  >
-                    {pipeline.asdDifferential.flagged
-                      ? "Flagged"
-                      : "Below threshold"}
-                  </Badge>
-                </div>
-
-                <div>
-                  <h4 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
-                    Mental health screen
-                  </h4>
-                  <div className="space-y-1 text-xs">
-                    {pipeline.mentalHealth.risk.present ? (
-                      <Badge variant="destructive">Risk surfaced</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">No risk flags</span>
-                    )}
-                    {pipeline.mentalHealth.depression.surfaced ? (
-                      <div>Depression cluster surfaced</div>
-                    ) : null}
-                    {pipeline.mentalHealth.anxiety.surfaced ? (
-                      <div>Anxiety cluster surfaced</div>
-                    ) : null}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </aside>
-        </div>
+        </main>
       </div>
 
       <NewReportConfirmModal

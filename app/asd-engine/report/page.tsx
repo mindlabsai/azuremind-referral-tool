@@ -58,6 +58,10 @@ import { ClinikoIntakeCard } from "./components/ClinikoIntakeCard";
 import { ClinikoCollateralImport } from "./components/ClinikoCollateralImport";
 import { TexlexScribe } from "./components/TexlexScribe";
 import { TexlexSectionHeading } from "./components/TexlexSectionHeading";
+import {
+  clearTexlexSectionOpenState,
+  TexlexCollapsibleSection,
+} from "./components/TexlexCollapsibleSection";
 import { TexlexSectionRawNotesField } from "./components/TexlexSectionRawNotesField";
 import { TexlexModelPill } from "./components/TexlexModelPill";
 import { TexlexReportSidebarNav } from "./components/TexlexReportSidebarNav";
@@ -136,9 +140,11 @@ import {
   FUNCTIONAL_IMPACT_RENDER_FALLBACK,
   isInsufficientEvidenceNarrative,
   isTexlexSubsectionEmpty,
-  downloadBlob,
+  deliverPdfBlob,
+  openPdfViewerSlot,
   resolveFunctionalImpactDisplay,
   safeFilenamePart,
+  safePdfFilename,
 } from "./pdf/utils";
 import {
   collateralDocNeedsPdfBytes,
@@ -2095,6 +2101,7 @@ export default function TexlexReportPage() {
   const pdfDownloading = pdfBusyMode !== null;
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewFilename, setPdfPreviewFilename] = useState("Texlex-ASD-Report.pdf");
   const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [clinikoSyncInProgress, setClinikoSyncInProgress] = useState(false);
   const [newReportModalOpen, setNewReportModalOpen] = useState(false);
@@ -3751,10 +3758,12 @@ export default function TexlexReportPage() {
     }
     suppressAutosaveRef.current = true;
     cloudResumeHandledPatientRef.current = null;
+    clearTexlexSectionOpenState();
     setReportEpoch((epoch) => epoch + 1);
 
     setDraftResumePrompt(null);
     setLocalDraftRestoredNotice(null);
+    setTodayOpen(true);
 
     const fresh = defaultDraft();
     setPatientDetails(patientDetailsAfterNewReport());
@@ -3799,6 +3808,7 @@ export default function TexlexReportPage() {
     setLastEditAt(0);
     setPdfPreviewOpen(false);
     setPdfPreviewError(null);
+    setPdfPreviewFilename("Texlex-ASD-Report.pdf");
     setPdfPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -3984,29 +3994,34 @@ export default function TexlexReportPage() {
       ).toBlob();
     }
     const stem = safeFilenamePart(reportName);
-    const filename = `${stem}-ASDReport-${cleanDraft.patientDetails.reportDate}.pdf`;
+    const datePart = safeFilenamePart(cleanDraft.patientDetails.reportDate || new Date().toISOString().slice(0, 10));
+    const filename = safePdfFilename(`${stem}-ASDReport-${datePart}.pdf`);
     return { blob, filename };
   }, [persistPayload]);
 
-  const triggerPdfDownload = useCallback((blob: Blob, filename: string) => {
-    downloadBlob(blob, filename);
-  }, []);
-
   const handleDownloadOnly = useCallback(async () => {
     if (pdfBusyMode !== null) return;
+    // Must open before any await or popup blockers kill the tab.
+    const viewer = openPdfViewerSlot();
     setPdfBusyMode("only");
     setClinikoSyncNotice(null);
     try {
       const { blob, filename } = await buildAsdPdfBlob();
-      triggerPdfDownload(blob, filename);
+      deliverPdfBlob(blob, filename, viewer);
+      setPdfPreviewFilename(filename);
       setClinikoSyncNotice(`Downloaded — not saved to ${practiceLabel(cliniko?.source)}.`);
     } catch (error) {
+      try {
+        viewer?.close();
+      } catch {
+        /* ignore */
+      }
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");
     } finally {
       setPdfBusyMode(null);
     }
-  }, [buildAsdPdfBlob, cliniko?.source, pdfBusyMode, triggerPdfDownload]);
+  }, [buildAsdPdfBlob, cliniko?.source, pdfBusyMode]);
 
   const finalPdfUnlocked = useMemo(() => {
     if (!finalizeReviewRuns.length) return false;
@@ -4412,8 +4427,9 @@ export default function TexlexReportPage() {
     setPdfPreviewOpen(true);
     setPdfPreviewError(null);
     try {
-      const { blob } = await buildAsdPdfBlob();
+      const { blob, filename } = await buildAsdPdfBlob();
       const url = URL.createObjectURL(blob);
+      setPdfPreviewFilename(filename);
       setPdfPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return url;
@@ -4539,6 +4555,7 @@ export default function TexlexReportPage() {
 
   const handleDownloadAndSave = useCallback(async () => {
     if (pdfBusyMode !== null) return;
+    const viewer = openPdfViewerSlot();
     setPdfBusyMode("save");
     setClinikoSyncNotice(null);
     if (cliniko?.patientId && cliniko.syncEnabled && cliniko.source !== "halaxy") {
@@ -4589,7 +4606,8 @@ export default function TexlexReportPage() {
     }
     try {
       const { blob, filename } = await buildAsdPdfBlob();
-      triggerPdfDownload(blob, filename);
+      deliverPdfBlob(blob, filename, viewer);
+      setPdfPreviewFilename(filename);
       const finalisePatientId = cliniko?.patientId;
       let clinikoFileOk = !finalisePatientId;
       if (finalisePatientId) {
@@ -4651,12 +4669,17 @@ export default function TexlexReportPage() {
         document.getElementById("texlex-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 250);
     } catch (error) {
+      try {
+        viewer?.close();
+      } catch {
+        /* ignore */
+      }
       console.error("Texlex PDF export failed:", error);
       window.alert("Could not prepare the PDF. Please try again.");
     } finally {
       setPdfBusyMode(null);
     }
-  }, [buildAsdPdfBlob, cliniko, patientDetails, pdfBusyMode, triggerPdfDownload]);
+  }, [buildAsdPdfBlob, cliniko, patientDetails, pdfBusyMode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -4777,7 +4800,7 @@ export default function TexlexReportPage() {
     "flex h-auto min-h-11 w-full border-0 border-b border-[#2c455f] bg-transparent px-0 py-2 text-[23px] leading-[1.55] text-[#f4f8fc] shadow-none outline-none placeholder:text-[#7e95ab] focus-visible:border-[#b7d4f5] disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="texlex-report texlex-surface min-h-screen bg-[#102033] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[23px] leading-[1.6] text-[#f4f8fc]">
+    <div className="texlex-report texlex-desk texlex-surface min-h-screen bg-[#102033] font-[family-name:var(--font-geist-sans,system-ui,Inter,sans-serif)] text-[23px] leading-[1.6] text-[#f4f8fc]">
       <TexlexReportHeader
         clientName={patientDetails.clientName}
         assessmentLabel="ASD assessment"
@@ -4818,67 +4841,58 @@ export default function TexlexReportPage() {
         onToggleToday={() => setTodayOpen((v) => !v)}
         todayOpen={todayOpen}
         engineHomeHref="/asd-engine"
+        onGenerateAll={handleGenerateReport}
+        generateAllBusy={Boolean(generatingSectionId)}
         statusExtras={
           <>
             {saveToast ? (
-              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-[#9fc3f2]" aria-live="polite">
                 Saved
               </span>
             ) : null}
             {clinikoToast ? (
-              <span className="font-medium text-foreground" aria-live="polite">
+              <span className="font-medium text-[#eaf1f8]" aria-live="polite">
                 {clinikoToast}
               </span>
             ) : null}
             {clinikoSyncNotice ? (
-              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-[#9fc3f2]" aria-live="polite">
                 {clinikoSyncNotice}
               </span>
             ) : null}
             {newReportToast ? (
-              <span className="font-medium text-emerald-600 dark:text-emerald-500" aria-live="polite">
+              <span className="font-medium text-[#9fc3f2]" aria-live="polite">
                 Started new report
               </span>
             ) : null}
           </>
         }
+        restoreNotice={
+          localDraftRestoredNotice
+            ? {
+                message: `Draft restored — last saved ${formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}`,
+                onDiscard: discardLocalDraftRestored,
+              }
+            : null
+        }
       />
-
-      {localDraftRestoredNotice ? (
-        <div className="border-b border-border/60 bg-muted/30 px-5 py-2">
-          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              Draft restored — last saved{" "}
-              {formatLocalDraftClockTime(localDraftRestoredNotice.lastSaved)}
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={discardLocalDraftRestored}
-            >
-              Discard
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {draftResumePrompt ? (
         <div
-          className="border-b border-amber-300/60 bg-amber-50 px-5 py-3 dark:border-amber-800/60 dark:bg-amber-950/30"
+          className="border-b border-[#2c455f] bg-[#12263a] px-6 py-3.5"
           role="dialog"
           aria-label="Resume draft"
         >
-          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-foreground">
-              Resume previous draft for {draftResumePrompt.patientLabel}? Last saved {draftResumePrompt.lastSavedLabel}.
+          <div className="mx-auto flex max-w-[1760px] flex-wrap items-center justify-between gap-3">
+            <p className="text-[16px] text-[#c5d4e4]">
+              Resume previous draft for {draftResumePrompt.patientLabel}? Last saved{" "}
+              {draftResumePrompt.lastSavedLabel}.
             </p>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-4">
               <Button
                 type="button"
                 size="sm"
-                variant="default"
+                className="h-9 px-4 text-[15px]"
                 onClick={() => {
                   const linked = cliniko;
                   applyLocalDraftData(draftResumePrompt.stored, { clinicalOnly: true });
@@ -4913,26 +4927,25 @@ export default function TexlexReportPage() {
               >
                 Resume
               </Button>
-              <Button
+              <button
                 type="button"
-                size="sm"
-                variant="outline"
+                className="text-[15px] font-semibold text-[#9fc3f2] underline-offset-4 hover:underline"
                 onClick={() => {
                   setDraftResumePrompt(null);
                 }}
               >
                 Discard
-              </Button>
+              </button>
             </div>
           </div>
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-[1600px] gap-6 bg-transparent px-5 py-8">
+      <div className="mx-auto flex max-w-[1760px] gap-6 bg-transparent px-5 py-8">
         <TexlexReportSidebarNav />
 
         <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-[760px] space-y-8 text-[23px] leading-[1.6]">
+          <div className="mx-auto max-w-[1100px] space-y-3 text-[23px] leading-[1.55]">
             {todayOpen ? (
               <section id="cliniko-calendar">
                 <ClinikoIntakeCard
@@ -4970,8 +4983,7 @@ export default function TexlexReportPage() {
               <section id="cliniko-calendar" className="sr-only" aria-hidden />
             )}
 
-            <section id="scribe">
-              <TexlexSectionHeading className="mb-3">Scribe</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="scribe" title="Scribe">
               <TexlexScribe
                 key={reportEpoch}
                 sessionGenerating={sessionSectionsGenerating}
@@ -4990,7 +5002,7 @@ export default function TexlexReportPage() {
                   {sectionGenErrors["session-sections"]}
                 </p>
               ) : null}
-            </section>
+            </TexlexCollapsibleSection>
 
             <section id="report-header">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
@@ -5004,8 +5016,7 @@ export default function TexlexReportPage() {
               </Card>
             </section>
 
-            <section id="assessment-context">
-              <TexlexSectionHeading className="mb-3">Assessment context</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="assessment-context" title="Assessment context">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="whitespace-pre-wrap text-[15px] leading-[1.55] text-muted-foreground">
@@ -5013,10 +5024,9 @@ export default function TexlexReportPage() {
                   </div>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="consent">
-              <TexlexSectionHeading className="mb-3">Consent and use of report</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="consent" title="Consent and use of report">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="whitespace-pre-wrap text-[15px] leading-[1.55] text-muted-foreground">
@@ -5024,7 +5034,7 @@ export default function TexlexReportPage() {
                   </div>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
             <TexlexReportImport
               engine="asd"
@@ -5045,8 +5055,7 @@ export default function TexlexReportPage() {
 
             <TexlexAuditorCaseListPanel className="mb-2" />
 
-            <section id="patient-details">
-              <TexlexSectionHeading className="mb-3">Client details</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="patient-details" title="Client details">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   {(() => {
@@ -5512,10 +5521,9 @@ export default function TexlexReportPage() {
                   </div>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="diagnostic-conclusion">
-              <TexlexSectionHeading className="mb-3">Diagnostic conclusion</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="diagnostic-conclusion" title="Diagnostic conclusion">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={cn(TEXLEX_SECTION_CONTENT_CLASS, "space-y-3")}>
                   <p className="text-sm text-muted-foreground">
@@ -5559,14 +5567,13 @@ export default function TexlexReportPage() {
                   </fieldset>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="raw-notes">
-              <TexlexSectionHeading className="mb-3">Raw clinical notes</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="raw-notes" title="Raw clinical notes">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
-                    rows={12}
+                    rows={10}
                     value={rawNotes}
                     onChange={(e) => {
                       touch();
@@ -5576,14 +5583,18 @@ export default function TexlexReportPage() {
                     className="rounded-lg"
                   />
                   <SectionCharWordCount text={rawNotes} />
-                  <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <p className="max-w-[42ch] text-[13px] text-[#849aaf]">
+                      Generate all fills every editable section from these notes. You can still generate
+                      or regenerate each section on its own.
+                    </p>
                     <Button
                       type="button"
                       size="lg"
-                      className="px-5 text-sm font-semibold"
+                      className="min-w-[160px] px-5 text-[15px] font-semibold"
                       onClick={handleGenerateReport}
                     >
-                      {generatingSectionId ? "Stop generation" : "Generate Report"}
+                      {generatingSectionId ? "Stop generation" : "Generate all"}
                     </Button>
                   </div>
                   {sectionGenErrors["report-generation"] ? (
@@ -5591,16 +5602,11 @@ export default function TexlexReportPage() {
                       {sectionGenErrors["report-generation"]}
                     </p>
                   ) : null}
-                  <p className="mt-2 text-right text-xs text-muted-foreground">
-                    Click to populate all editable sections from the raw notes above. Each section can also be generated
-                    or regenerated individually.
-                  </p>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="presenting-concerns">
-              <TexlexSectionHeading className="mb-1">Presenting concerns</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="presenting-concerns" title="Presenting concerns">
               <Card className={cn(TEXLEX_SECTION_CONTAINER_CLASS, "mt-2")}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <TexlexSectionRawNotesField>
@@ -5658,10 +5664,10 @@ export default function TexlexReportPage() {
                   </label>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="background" className="space-y-[14px]">
-              <TexlexSectionHeading className="mb-1">Background</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="background" title="Background">
+              <div className="space-y-[14px]">
               {(
                 [
                   ["pregnancyBirth", "Pregnancy & birth", "background-pregnancy-birth", TEXLEX_SECTION_MODELS.pregnancyBirth],
@@ -5751,10 +5757,11 @@ export default function TexlexReportPage() {
                 </Card>
               );
               })}
-            </section>
+            </div>
+            </TexlexCollapsibleSection>
 
-            <section id="collateral" className="space-y-[14px]">
-              <TexlexSectionHeading className="mb-1">Collateral documents</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="collateral" title="Collateral documents">
+              <div className="space-y-[14px]">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <div className="space-y-4">
@@ -5828,10 +5835,11 @@ export default function TexlexReportPage() {
                   ) : null}
                 </CardContent>
               </Card>
-            </section>
+            </div>
+            </TexlexCollapsibleSection>
 
-            <section id="dsm-criteria" className="space-y-[14px]">
-              <TexlexSectionHeading>DSM-5-TR criteria (A &amp; B)</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="dsm-criteria" title="DSM-5-TR criteria (A & B)">
+              <div className="space-y-[14px]">
               <div className="whitespace-pre-wrap text-sm text-muted-foreground">{TEXLEX_DSM_INTRO}</div>
               <p className="text-sm text-muted-foreground">
                 Auto-suggested ratings derive from the live marker matrix in the engine assistant. Use the clinician
@@ -5902,10 +5910,10 @@ export default function TexlexReportPage() {
                   criterionGenerate={getCriterionGenerateProps(code)}
                 />
               ))}
-            </section>
+            </div>
+            </TexlexCollapsibleSection>
 
-            <section id="functional-impact">
-              <TexlexSectionHeading className="mb-3">Functional impact summary</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="functional-impact" title="Functional impact summary">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
@@ -5955,17 +5963,19 @@ export default function TexlexReportPage() {
                   </div>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="formulation">
-              <span id="clinical-formulation" className="block scroll-mt-28" />
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
-                <TexlexSectionHeading>Clinical formulation and consensus opinion</TexlexSectionHeading>
+            <TexlexCollapsibleSection
+              id="formulation"
+              title="Clinical formulation and consensus opinion"
+              actions={
                 <span className="text-xs text-muted-foreground sm:text-right">
                   Generating with:{" "}
                   {DIAGNOSTIC_CONCLUSION_FORMULATION_LABEL[resolveTexlexDiagnosticConclusion(diagnosticConclusion)]}
                 </span>
-              </div>
+              }
+            >
+              <span id="clinical-formulation" className="block scroll-mt-28" />
               {showDiagnosticConclusionMismatch ? (
                 <div
                   className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-50"
@@ -6128,10 +6138,9 @@ export default function TexlexReportPage() {
                   />
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="recommendations">
-              <TexlexSectionHeading className="mb-3">Recommendations</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="recommendations" title="Recommendations">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <ReportTextarea
@@ -6178,11 +6187,12 @@ export default function TexlexReportPage() {
                   />
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
-            <section id="limitations">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <TexlexSectionHeading>Limitations</TexlexSectionHeading>
+            <TexlexCollapsibleSection
+              id="limitations"
+              title="Limitations"
+              actions={
                 <Button
                   type="button"
                   variant="ghost"
@@ -6195,7 +6205,8 @@ export default function TexlexReportPage() {
                 >
                   {editLimitations ? "Lock boilerplate" : "Edit boilerplate"}
                 </Button>
-              </div>
+              }
+            >
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   {editLimitations ? (
@@ -6218,7 +6229,7 @@ export default function TexlexReportPage() {
                   )}
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
 
             <TexlexFinalizeReviewPanel
               runs={finalizeReviewRuns}
@@ -6228,14 +6239,19 @@ export default function TexlexReportPage() {
               onAccept={(id) => updateLatestFindingStatus(id, "accepted")}
               onReject={(id) => updateLatestFindingStatus(id, "rejected")}
               onApply={applyFinalizeFinding}
+              onLocate={(finding) => {
+                const el = document.getElementById(finding.sectionId);
+                if (!el) return false;
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                return true;
+              }}
               finalPdfUnlocked={finalPdfUnlocked}
               auditChecklist={asdAuditChecklist}
             />
 
             <div id="texlex-send" className="sr-only" aria-hidden />
 
-            <section id="signature">
-              <TexlexSectionHeading className="mb-3">Signature block</TexlexSectionHeading>
+            <TexlexCollapsibleSection id="signature" title="Signature block">
               <Card className={TEXLEX_SECTION_CONTAINER_CLASS}>
                 <CardContent className={TEXLEX_SECTION_CONTENT_CLASS}>
                   <blockquote className="space-y-3 border-l-2 border-border pl-4 text-[15px] leading-[1.55] text-muted-foreground">
@@ -6253,14 +6269,14 @@ export default function TexlexReportPage() {
                   </blockquote>
                 </CardContent>
               </Card>
-            </section>
+            </TexlexCollapsibleSection>
           </div>
         </main>
 
-        <aside className="hidden shrink-0 lg:block">
-          <div className="sticky top-24 w-[380px] overflow-y-auto pb-10" style={{ maxHeight: "calc(100vh - 6rem)" }}>
-            <div className="border-t border-[#2c455f] py-4">
-              <p className="mb-3 text-[18px] font-semibold uppercase tracking-[0.08em] text-[#849aaf]">Assist</p>
+        <aside className="hidden shrink-0 xl:block">
+          <div className="sticky top-24 w-[460px] overflow-y-auto pb-10" style={{ maxHeight: "calc(100vh - 6rem)" }}>
+            <div className="rounded-2xl border border-[#2c455f] bg-[#0f1f30]/80 px-4 py-4">
+              <p className="mb-3 text-[14px] font-semibold uppercase tracking-[0.1em] text-[#849aaf]">Assist</p>
               <EngineAssistant rawNotes={rawNotes} compact />
             </div>
           </div>
@@ -6280,6 +6296,7 @@ export default function TexlexReportPage() {
         blobUrl={pdfPreviewUrl}
         error={pdfPreviewError}
         title={`${patientDetails.clientName.trim() || "Client"} · ASD report`}
+        downloadFilename={pdfPreviewFilename}
         onClose={closePdfPreview}
       />
       <TexlexSendDrawer

@@ -264,27 +264,116 @@ export function safeFilenamePart(value: string): string {
   return cleaned || "Texlex-Report";
 }
 
+/** Sanitize a full PDF filename (no path separators — those silently break `<a download>`). */
+export function safePdfFilename(filename: string): string {
+  const trimmed = filename.trim() || "Texlex-Report.pdf";
+  const base = trimmed
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+  return /\.pdf$/i.test(base) ? base : `${base}.pdf`;
+}
+
+function asPdfBlob(blob: Blob): Blob {
+  return blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+}
+
+/**
+ * Open a blank tab synchronously under the user click gesture.
+ * Call this before any `await` — popup blockers require it.
+ */
+export function openPdfViewerSlot(): Window | null {
+  try {
+    return window.open("about:blank", "_blank");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Trigger a browser file download from an in-memory Blob.
  * Must keep the object URL alive — revoking immediately after click cancels
  * the download in Chromium/Safari even when the UI reports success.
+ * Prefer element.click() over synthetic MouseEvent (not treated as a user gesture).
  */
 export function downloadBlob(blob: Blob, filename: string): void {
-  const safeName = filename.trim() || "Texlex-Report.pdf";
-  const url = URL.createObjectURL(blob);
+  const safeName = safePdfFilename(filename);
+  const pdfBlob = asPdfBlob(blob);
+  const nav = window.navigator as Navigator & {
+    msSaveOrOpenBlob?: (b: Blob, name: string) => boolean;
+  };
+  if (typeof nav.msSaveOrOpenBlob === "function") {
+    nav.msSaveOrOpenBlob(pdfBlob, safeName);
+    return;
+  }
+
+  const url = URL.createObjectURL(pdfBlob);
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = safeName;
   anchor.rel = "noopener";
+  anchor.type = "application/pdf";
   anchor.style.display = "none";
   document.body.appendChild(anchor);
-  anchor.dispatchEvent(
-    new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
-  );
+  // Native click is required for Chromium to honor the download attribute.
+  anchor.click();
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
     anchor.remove();
   }, 60_000);
+}
+
+/**
+ * Deliver a PDF after async generation:
+ * 1) classic `<a download>` attempt
+ * 2) load into a tab opened synchronously at click-time (always visible; Cmd/Ctrl+S works)
+ */
+export function deliverPdfBlob(
+  blob: Blob,
+  filename: string,
+  viewer?: Window | null
+): void {
+  const pdfBlob = asPdfBlob(blob);
+  const safeName = safePdfFilename(filename);
+
+  // Always trigger a classic download first — most reliable local save path.
+  // Separate object URLs so revoking the download URL does not blank the viewer tab.
+  downloadBlob(pdfBlob, safeName);
+
+  if (viewer && !viewer.closed) {
+    const viewUrl = URL.createObjectURL(pdfBlob);
+    try {
+      // Prefer writing an embed into the gesture-opened tab — more reliable than
+      // location.replace(blob:) which some browsers leave stuck on about:blank.
+      const doc = viewer.document;
+      doc.open();
+      doc.write(
+        `<!doctype html><html><head><meta charset="utf-8"/><title>${safeName.replace(/[<>&"]/g, "")}</title>` +
+          `<style>html,body{margin:0;height:100%;background:#111}iframe,embed{border:0;width:100%;height:100%}</style></head><body>` +
+          `<iframe title="${safeName.replace(/[<>&"]/g, "")}" src="${viewUrl}" type="application/pdf"></iframe>` +
+          `</body></html>`
+      );
+      doc.close();
+      try {
+        viewer.document.title = safeName;
+      } catch {
+        /* ignore */
+      }
+      window.setTimeout(() => URL.revokeObjectURL(viewUrl), 10 * 60_000);
+    } catch {
+      try {
+        viewer.location.replace(viewUrl);
+        window.setTimeout(() => URL.revokeObjectURL(viewUrl), 10 * 60_000);
+      } catch {
+        URL.revokeObjectURL(viewUrl);
+        try {
+          viewer.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
 }
 
 export function isInsufficientEvidenceNarrative(text: string): boolean {

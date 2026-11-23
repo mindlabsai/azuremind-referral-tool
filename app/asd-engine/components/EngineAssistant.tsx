@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertTriangle, FileText, ShieldCheck, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildClinicianSelfCareStatement, useAsdEnginePipeline } from "../asd-engine-core";
+import { AssistCollapse } from "./AssistCollapse";
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -50,6 +51,103 @@ export function EngineAssistant({ rawNotes, compact }: EngineAssistantProps) {
   const scrollMax = compact ? "max-h-[220px]" : "max-h-[340px]";
   const threeCol = compact ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-3";
 
+  const dsmSnapshotBody = (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          {!compact ? <h2 className={h2}>DSM Snapshot</h2> : null}
+          <p className={cn("text-slate-600", compact ? "text-[11px]" : "mt-1 text-xs")}>
+            Compact criterion counts — switch to Evidence view for the full matrix and ledger.
+          </p>
+        </div>
+        <Badge variant="outline" className={compact ? "text-[10px]" : undefined}>
+          {severity.label}
+        </Badge>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-xl border">
+        <table className={cn("w-full text-left", compact ? "text-[10px]" : "text-xs")}>
+          <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="p-2">Code</th>
+              <th className="p-2">N</th>
+              <th className="p-2">Status</th>
+              <th className="hidden sm:table-cell p-2">Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dsmMatrix.map((row: any) => (
+              <tr key={row.code} className="border-t">
+                <td className="p-2 font-semibold">{row.code}</td>
+                <td className="p-2 text-slate-700">{row.count}</td>
+                <td className="p-2">
+                  <Badge
+                    variant={
+                      row.status === "Strong"
+                        ? "default"
+                        : row.status === "Partial"
+                          ? "secondary"
+                          : "outline"
+                    }
+                    className="text-[10px]"
+                  >
+                    {row.status}
+                  </Badge>
+                </td>
+                <td className="hidden sm:table-cell p-2 text-slate-500">{row.confidence}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  const keySignalsBody = (
+    <>
+      {!compact ? (
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className={h2}>Key Clinical Signals</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Grouped impression only — no raw marker list or percentages.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-600">Grouped impression only — no raw marker list.</p>
+      )}
+      <ul className={cn("mt-4 space-y-3", compact && "mt-2 space-y-2")}>
+        {keyClinicalSignalRows.map((row) => (
+          <li
+            key={row.title}
+            className="flex flex-col gap-1 rounded-xl border border-slate-100 bg-slate-50/60 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+          >
+            <div className="min-w-0 flex-1">
+              <div className={cn("font-medium text-slate-900", compact ? "text-xs" : "text-sm")}>
+                {row.title}
+              </div>
+              <p className={cn("mt-1 leading-relaxed text-slate-600", compact ? "text-[11px]" : "text-xs")}>
+                {row.sentence}
+              </p>
+            </div>
+            <Badge
+              variant={
+                row.status === "Strong"
+                  ? "default"
+                  : row.status === "Moderate"
+                    ? "secondary"
+                    : "outline"
+              }
+              className="shrink-0 self-start sm:mt-0.5"
+            >
+              {row.status}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+
   return (
     <div className={cn(outer, "text-slate-950")}>
       <Tabs value={workspaceView} onValueChange={(v) => setWorkspaceView(v as "clinician" | "evidence")}>
@@ -67,98 +165,25 @@ export function EngineAssistant({ rawNotes, compact }: EngineAssistantProps) {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="clinician" className={cn("mt-4 border-0 p-0 outline-none", compact && "mt-2 space-y-3")}>
-          <Card className={cardR}>
-            <CardContent className={pad}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h2 className={h2}>DSM Snapshot</h2>
-                  <p className={cn("mt-1 text-slate-600", compact ? "text-[11px]" : "text-xs")}>
-                    Compact criterion counts — switch to Evidence view for the full matrix and ledger.
-                  </p>
-                </div>
-                <Badge variant="outline" className={compact ? "text-[10px]" : undefined}>
-                  {severity.label}
-                </Badge>
-              </div>
-              <div className="mt-3 overflow-hidden rounded-xl border">
-                <table className={cn("w-full text-left", compact ? "text-[10px]" : "text-xs")}>
-                  <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="p-2">Code</th>
-                      <th className="p-2">N</th>
-                      <th className="p-2">Status</th>
-                      <th className="hidden sm:table-cell p-2">Confidence</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dsmMatrix.map((row: any) => (
-                      <tr key={row.code} className="border-t">
-                        <td className="p-2 font-semibold">{row.code}</td>
-                        <td className="p-2 text-slate-700">{row.count}</td>
-                        <td className="p-2">
-                          <Badge
-                            variant={
-                              row.status === "Strong"
-                                ? "default"
-                                : row.status === "Partial"
-                                  ? "secondary"
-                                  : "outline"
-                            }
-                            className="text-[10px]"
-                          >
-                            {row.status}
-                          </Badge>
-                        </td>
-                        <td className="hidden sm:table-cell p-2 text-slate-500">{row.confidence}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+          {compact ? (
+            <AssistCollapse id="dsm-snapshot" title="DSM Snapshot">
+              {dsmSnapshotBody}
+            </AssistCollapse>
+          ) : (
+            <Card className={cardR}>
+              <CardContent className={pad}>{dsmSnapshotBody}</CardContent>
+            </Card>
+          )}
 
-          <Card className={cn(cardR, compact ? "mt-3" : "mt-4")}>
-            <CardContent className={pad}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h2 className={h2}>Key Clinical Signals</h2>
-                  <p className={cn("mt-1 text-slate-600", compact ? "text-[11px]" : "text-xs")}>
-                    Grouped impression only — no raw marker list or percentages.
-                  </p>
-                </div>
-              </div>
-              <ul className={cn("mt-4 space-y-3", compact && "mt-2 space-y-2")}>
-                {keyClinicalSignalRows.map((row) => (
-                  <li
-                    key={row.title}
-                    className="flex flex-col gap-1 rounded-xl border border-slate-100 bg-slate-50/60 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className={cn("font-medium text-slate-900", compact ? "text-xs" : "text-sm")}>
-                        {row.title}
-                      </div>
-                      <p className={cn("mt-1 leading-relaxed text-slate-600", compact ? "text-[11px]" : "text-xs")}>
-                        {row.sentence}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        row.status === "Strong"
-                          ? "default"
-                          : row.status === "Moderate"
-                            ? "secondary"
-                            : "outline"
-                      }
-                      className="shrink-0 self-start sm:mt-0.5"
-                    >
-                      {row.status}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          {compact ? (
+            <AssistCollapse id="key-signals" title="Key Clinical Signals">
+              {keySignalsBody}
+            </AssistCollapse>
+          ) : (
+            <Card className={cn(cardR, "mt-4")}>
+              <CardContent className={pad}>{keySignalsBody}</CardContent>
+            </Card>
+          )}
         </TabsContent>
         <TabsContent value="evidence" className="mt-4 border-0 p-0 outline-none">
           <p
@@ -225,51 +250,86 @@ export function EngineAssistant({ rawNotes, compact }: EngineAssistantProps) {
         </Card>
       ) : null}
 
-      <div className={cn("grid grid-cols-1 md:grid-cols-2", gridGap)}>
-        <Card className={cardR}>
-          <CardContent className={pad}>
-            <div className="flex items-center gap-2">
-              <AlertTriangle className={icon} />
-              <h2 className={h2}>Missing evidence</h2>
-            </div>
-            <div className="mt-4 space-y-2">
+      {compact ? (
+        <div className="space-y-3">
+          <AssistCollapse id="missing-evidence" title="Missing evidence">
+            <div className="space-y-2">
               {missing.length ? (
                 missing.map((m) => (
-                  <div key={m} className={cn("rounded-xl border bg-white p-3", compact ? "text-xs" : "text-sm")}>
+                  <div key={m} className="rounded-xl border border-[#2c455f] bg-[#0c1a2b]/60 p-3 text-xs text-[#c5d4e4]">
                     {m}
                   </div>
                 ))
               ) : (
-                <div className={cn("rounded-xl border bg-white p-3", compact ? "text-xs" : "text-sm")}>
+                <div className="rounded-xl border border-[#2c455f] bg-[#0c1a2b]/60 p-3 text-xs text-[#c5d4e4]">
                   Core ASD evidence domains detected. Review quality and cross-setting consistency.
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className={cardR}>
-          <CardContent className={pad}>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className={icon} />
-              <h2 className={h2}>Safety / contradiction checks</h2>
-            </div>
-            <div className="mt-4 space-y-2">
+          </AssistCollapse>
+          <AssistCollapse id="safety-checks" title="Safety / contradiction checks">
+            <div className="space-y-2">
               {contradictions.length ? (
                 contradictions.map((c, idx) => (
-                  <div key={idx} className={cn("rounded-xl border bg-amber-50 p-3 text-amber-950", compact ? "text-xs" : "text-sm")}>
+                  <div key={idx} className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 text-xs text-amber-50">
                     {c}
                   </div>
                 ))
               ) : (
-                <div className={cn("rounded-xl border bg-white p-3", compact ? "text-xs" : "text-sm")}>
+                <div className="rounded-xl border border-[#2c455f] bg-[#0c1a2b]/60 p-3 text-xs text-[#c5d4e4]">
                   No major contradictions detected from current notes.
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </AssistCollapse>
+        </div>
+      ) : (
+        <div className={cn("grid grid-cols-1 md:grid-cols-2", gridGap)}>
+          <Card className={cardR}>
+            <CardContent className={pad}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className={icon} />
+                <h2 className={h2}>Missing evidence</h2>
+              </div>
+              <div className="mt-4 space-y-2">
+                {missing.length ? (
+                  missing.map((m) => (
+                    <div key={m} className="rounded-xl border bg-white p-3 text-sm">
+                      {m}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border bg-white p-3 text-sm">
+                    Core ASD evidence domains detected. Review quality and cross-setting consistency.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className={cardR}>
+            <CardContent className={pad}>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className={icon} />
+                <h2 className={h2}>Safety / contradiction checks</h2>
+              </div>
+              <div className="mt-4 space-y-2">
+                {contradictions.length ? (
+                  contradictions.map((c, idx) => (
+                    <div key={idx} className="rounded-xl border bg-amber-50 p-3 text-sm text-amber-950">
+                      {c}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border bg-white p-3 text-sm">
+                    No major contradictions detected from current notes.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {workspaceView === "evidence" ? (
         <div className={cn("grid", threeCol, gridGap)}>
@@ -398,186 +458,257 @@ export function EngineAssistant({ rawNotes, compact }: EngineAssistantProps) {
         </Card>
       ) : null}
 
-      <div className={cn("grid", threeCol, gridGap)}>
-        <Card className={cardR}>
-          <CardContent className={pad}>
+      {compact ? (
+        <div className="space-y-3">
+          <AssistCollapse id="support-level" title="Level of support">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className={h2}>DSM-5-TR level of support estimate</h2>
               <Badge variant="outline">Advisory</Badge>
             </div>
-            <p className={cn("text-slate-600", compact ? "text-[11px]" : "text-xs")}>
-              Separate Criterion A and B specifiers per DSM-5-TR. This is a draft heuristic from live markers only—not a
-              diagnosis and not NDIS eligibility advice.
+            <p className="text-[11px] text-slate-600">
+              Separate Criterion A and B specifiers per DSM-5-TR. Draft heuristic only.
             </p>
             {levelOfSupport.determinable ? (
-              <div className={cn("mt-4 space-y-3", compact ? "text-xs" : "text-sm")}>
+              <div className="mt-3 space-y-3 text-xs">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="secondary">Overall L{levelOfSupport.overallLevel}</Badge>
                   <Badge variant="outline">A: L{levelOfSupport.levelA}</Badge>
                   <Badge variant="outline">B: L{levelOfSupport.levelB}</Badge>
                 </div>
-                {workspaceView === "evidence" ? (
-                  <>
-                    <pre className="whitespace-pre-wrap rounded-xl border bg-slate-50 p-3 text-xs leading-relaxed text-slate-800">
-                      {levelOfSupport.formattedSpecifier}
-                    </pre>
-                    {levelOfSupport.ndisAlignment ? (
-                      <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-xs text-amber-950">
-                        <span className="font-medium">Functional capacity / planning signal: </span>
-                        {levelOfSupport.ndisAlignment.eligibilitySignal}
-                      </div>
-                    ) : null}
-                    {levelOfSupport.coherenceFlags?.length ? (
-                      <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
-                        <span className="font-medium text-slate-700">Coherence checks</span>
-                        {levelOfSupport.coherenceFlags.map((f: any, i: number) => (
-                          <div key={i} className="text-slate-600">
-                            {f.message}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className={cn("leading-relaxed text-slate-600", compact ? "text-[11px]" : "text-xs")}>
-                    Narrative-only drafts are capped at Level 2 unless the notes explicitly describe Level 3 support
-                    needs. Open Evidence view for the full specifier block, eligibility planning signal, and
-                    standardised-assessment coherence checks.
-                  </p>
-                )}
+                <p className="leading-relaxed text-[11px] text-slate-600">
+                  Narrative-only drafts are capped at Level 2 unless notes describe Level 3 needs.
+                </p>
               </div>
             ) : (
-              <p className={cn("mt-4 text-slate-600", compact ? "text-xs" : "text-sm")}>
-                {levelOfSupport.reason || "Complete Criterion A and B thresholds to estimate separate A/B support levels."}
+              <p className="mt-3 text-xs text-slate-600">
+                {levelOfSupport.reason || "Complete Criterion A and B thresholds to estimate support levels."}
               </p>
             )}
-          </CardContent>
-        </Card>
-
-        <Card className={cardR}>
-          <CardContent className={pad}>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className={h2}>Live clinician prompts</h2>
-              <Badge variant="outline">Co-pilot</Badge>
-            </div>
-            <p className={cn("text-slate-600", compact ? "text-[11px]" : "text-xs")}>{clinicianPrompts.summary}</p>
-            <div className={cn("mt-4 space-y-3 overflow-auto pr-1", scrollMax)}>
+          </AssistCollapse>
+          <AssistCollapse id="clinician-prompts" title="Live clinician prompts">
+            <p className="text-[11px] text-slate-600">{clinicianPrompts.summary}</p>
+            <div className={cn("mt-3 space-y-3 overflow-auto pr-1", scrollMax)}>
               {clinicianPrompts.prompts?.length ? (
                 clinicianPrompts.prompts.slice(0, 8).map((p: any, idx: number) => (
-                  <div key={idx} className={cn("rounded-xl border bg-white p-3", compact ? "text-xs" : "text-sm")}>
+                  <div key={idx} className="rounded-xl border border-[#2c455f] bg-[#0c1a2b]/60 p-3 text-xs">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={
-                          p.priority === "Critical"
-                            ? "default"
-                            : p.priority === "High"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {p.priority}
-                      </Badge>
-                      <span className="text-xs font-medium text-slate-500">{p.criterion}</span>
+                      <Badge variant={p.priority === "Critical" ? "default" : "outline"}>{p.priority}</Badge>
+                      <span className="text-[11px] font-medium text-slate-500">{p.criterion}</span>
                     </div>
                     <div className="font-medium text-slate-900">{p.category}</div>
-                    <p className={cn("mt-2 leading-relaxed text-slate-700", compact ? "text-[11px]" : "text-xs")}>
-                      {p.promptForClinician}
-                    </p>
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-700">{p.promptForClinician}</p>
                   </div>
                 ))
               ) : (
-                <p className={cn("text-slate-500", compact ? "text-xs" : "text-sm")}>
-                  No prompts yet—add note content to populate the matrix.
-                </p>
+                <p className="text-xs text-slate-500">No prompts yet—add note content to populate the matrix.</p>
               )}
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className={cardR}>
-          <CardContent className={pad}>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className={h2}>NDIS functional capacity domains</h2>
-              <Badge variant="outline">Draft mapping</Badge>
-            </div>
-            <p className={cn("text-slate-600", compact ? "text-[11px]" : "text-xs")}>{ndisDomains.summary}</p>
-            <p className={cn("mt-2 text-slate-500", compact ? "text-[10px]" : "text-xs")}>
-              Six-domain rollup from detected markers for report drafting. NDIS access is not inferred or guaranteed
-              from this view.
-            </p>
-            <div className={cn("mt-4 space-y-2 overflow-auto pr-1", scrollMax)}>
+          </AssistCollapse>
+          <AssistCollapse id="ndis-domains" title="NDIS domains">
+            <p className="text-[11px] text-slate-600">{ndisDomains.summary}</p>
+            <div className={cn("mt-3 space-y-2 overflow-auto pr-1", scrollMax)}>
               {ndisDomains.domains &&
                 Object.entries(ndisDomains.domains).map(([key, d]: [string, any]) => (
                   <div
                     key={key}
-                    className={cn("flex items-start justify-between gap-2 rounded-xl border bg-white p-3", compact ? "text-xs" : "text-sm")}
+                    className="flex items-start justify-between gap-2 rounded-xl border border-[#2c455f] bg-[#0c1a2b]/60 p-3 text-xs"
                   >
                     <div>
                       <div className="font-medium text-slate-900">{d.label}</div>
-                      <div className={cn("mt-1 text-slate-600 line-clamp-3", compact ? "text-[11px]" : "text-xs")}>
-                        {workspaceView === "clinician" && key === "selfCare"
-                          ? buildClinicianSelfCareStatement(d)
-                          : d.statement}
+                      <div className="mt-1 line-clamp-3 text-[11px] text-slate-600">
+                        {key === "selfCare" ? buildClinicianSelfCareStatement(d) : d.statement}
                       </div>
                     </div>
                     <Badge variant={d.markerCount > 0 ? "secondary" : "outline"}>{d.severity}</Badge>
                   </div>
                 ))}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </AssistCollapse>
+          <AssistCollapse id="live-draft" title="Live draft sections">
+            <Tabs defaultValue="a1">
+              <TabsList className="grid h-8 w-full grid-cols-5 rounded-xl text-[10px]">
+                <TabsTrigger value="a1">A1</TabsTrigger>
+                <TabsTrigger value="a2">A2</TabsTrigger>
+                <TabsTrigger value="a3">A3</TabsTrigger>
+                <TabsTrigger value="b">B</TabsTrigger>
+                <TabsTrigger value="formulation">Form.</TabsTrigger>
+              </TabsList>
+              <TabsContent value="a1" className="mt-3 rounded-xl bg-[#0c1a2b]/60 p-3 text-xs leading-relaxed text-[#c5d4e4]">
+                {draft.A1}
+              </TabsContent>
+              <TabsContent value="a2" className="mt-3 rounded-xl bg-[#0c1a2b]/60 p-3 text-xs leading-relaxed text-[#c5d4e4]">
+                {draft.A2}
+              </TabsContent>
+              <TabsContent value="a3" className="mt-3 rounded-xl bg-[#0c1a2b]/60 p-3 text-xs leading-relaxed text-[#c5d4e4]">
+                {draft.A3}
+              </TabsContent>
+              <TabsContent value="b" className="mt-3 whitespace-pre-line rounded-xl bg-[#0c1a2b]/60 p-3 text-xs leading-relaxed text-[#c5d4e4]">
+                {draft.B}
+              </TabsContent>
+              <TabsContent value="formulation" className="mt-3 rounded-xl bg-[#0c1a2b]/60 p-3 text-xs leading-relaxed text-[#c5d4e4]">
+                {draft.formulation}
+              </TabsContent>
+            </Tabs>
+          </AssistCollapse>
+        </div>
+      ) : (
+        <>
+          <div className={cn("grid", threeCol, gridGap)}>
+            <Card className={cardR}>
+              <CardContent className={pad}>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className={h2}>DSM-5-TR level of support estimate</h2>
+                  <Badge variant="outline">Advisory</Badge>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Separate Criterion A and B specifiers per DSM-5-TR. This is a draft heuristic from live markers only—not a
+                  diagnosis and not NDIS eligibility advice.
+                </p>
+                {levelOfSupport.determinable ? (
+                  <div className="mt-4 space-y-3 text-sm">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">Overall L{levelOfSupport.overallLevel}</Badge>
+                      <Badge variant="outline">A: L{levelOfSupport.levelA}</Badge>
+                      <Badge variant="outline">B: L{levelOfSupport.levelB}</Badge>
+                    </div>
+                    {workspaceView === "evidence" ? (
+                      <>
+                        <pre className="whitespace-pre-wrap rounded-xl border bg-slate-50 p-3 text-xs leading-relaxed text-slate-800">
+                          {levelOfSupport.formattedSpecifier}
+                        </pre>
+                        {levelOfSupport.ndisAlignment ? (
+                          <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-xs text-amber-950">
+                            <span className="font-medium">Functional capacity / planning signal: </span>
+                            {levelOfSupport.ndisAlignment.eligibilitySignal}
+                          </div>
+                        ) : null}
+                        {levelOfSupport.coherenceFlags?.length ? (
+                          <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
+                            <span className="font-medium text-slate-700">Coherence checks</span>
+                            {levelOfSupport.coherenceFlags.map((f: any, i: number) => (
+                              <div key={i} className="text-slate-600">
+                                {f.message}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-xs leading-relaxed text-slate-600">
+                        Narrative-only drafts are capped at Level 2 unless the notes explicitly describe Level 3 support
+                        needs. Open Evidence view for the full specifier block, eligibility planning signal, and
+                        standardised-assessment coherence checks.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-600">
+                    {levelOfSupport.reason || "Complete Criterion A and B thresholds to estimate separate A/B support levels."}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-      <Card className={cardR}>
-        <CardContent className={pad}>
-          <div className={cn("mb-4 flex items-center gap-2", compact && "mb-2")}>
-            <FileText className={icon} />
-            <h2 className={h2}>Live draft report sections</h2>
+            <Card className={cardR}>
+              <CardContent className={pad}>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className={h2}>Live clinician prompts</h2>
+                  <Badge variant="outline">Co-pilot</Badge>
+                </div>
+                <p className="text-xs text-slate-600">{clinicianPrompts.summary}</p>
+                <div className={cn("mt-4 space-y-3 overflow-auto pr-1", scrollMax)}>
+                  {clinicianPrompts.prompts?.length ? (
+                    clinicianPrompts.prompts.slice(0, 8).map((p: any, idx: number) => (
+                      <div key={idx} className="rounded-xl border bg-white p-3 text-sm">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant={
+                              p.priority === "Critical"
+                                ? "default"
+                                : p.priority === "High"
+                                  ? "secondary"
+                                  : "outline"
+                            }
+                          >
+                            {p.priority}
+                          </Badge>
+                          <span className="text-xs font-medium text-slate-500">{p.criterion}</span>
+                        </div>
+                        <div className="font-medium text-slate-900">{p.category}</div>
+                        <p className="mt-2 text-xs leading-relaxed text-slate-700">{p.promptForClinician}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No prompts yet—add note content to populate the matrix.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className={cardR}>
+              <CardContent className={pad}>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className={h2}>NDIS functional capacity domains</h2>
+                  <Badge variant="outline">Draft mapping</Badge>
+                </div>
+                <p className="text-xs text-slate-600">{ndisDomains.summary}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Six-domain rollup from detected markers for report drafting. NDIS access is not inferred or guaranteed
+                  from this view.
+                </p>
+                <div className={cn("mt-4 space-y-2 overflow-auto pr-1", scrollMax)}>
+                  {ndisDomains.domains &&
+                    Object.entries(ndisDomains.domains).map(([key, d]: [string, any]) => (
+                      <div key={key} className="flex items-start justify-between gap-2 rounded-xl border bg-white p-3 text-sm">
+                        <div>
+                          <div className="font-medium text-slate-900">{d.label}</div>
+                          <div className="mt-1 line-clamp-3 text-xs text-slate-600">
+                            {workspaceView === "clinician" && key === "selfCare"
+                              ? buildClinicianSelfCareStatement(d)
+                              : d.statement}
+                          </div>
+                        </div>
+                        <Badge variant={d.markerCount > 0 ? "secondary" : "outline"}>{d.severity}</Badge>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <Tabs defaultValue="a1">
-            <TabsList className={cn("grid w-full grid-cols-5 rounded-xl", compact && "h-8 text-[10px]")}>
-              <TabsTrigger value="a1">A1</TabsTrigger>
-              <TabsTrigger value="a2">A2</TabsTrigger>
-              <TabsTrigger value="a3">A3</TabsTrigger>
-              <TabsTrigger value="b">B Criteria</TabsTrigger>
-              <TabsTrigger value="formulation">Formulation</TabsTrigger>
-            </TabsList>
-            <TabsContent
-              value="a1"
-              className={cn("mt-4 rounded-xl bg-white p-4 leading-7", compact ? "text-xs leading-relaxed" : "text-sm")}
-            >
-              {draft.A1}
-            </TabsContent>
-            <TabsContent
-              value="a2"
-              className={cn("mt-4 rounded-xl bg-white p-4 leading-7", compact ? "text-xs leading-relaxed" : "text-sm")}
-            >
-              {draft.A2}
-            </TabsContent>
-            <TabsContent
-              value="a3"
-              className={cn("mt-4 rounded-xl bg-white p-4 leading-7", compact ? "text-xs leading-relaxed" : "text-sm")}
-            >
-              {draft.A3}
-            </TabsContent>
-            <TabsContent
-              value="b"
-              className={cn(
-                "mt-4 whitespace-pre-line rounded-xl bg-white p-4 leading-7",
-                compact ? "text-xs leading-relaxed" : "text-sm"
-              )}
-            >
-              {draft.B}
-            </TabsContent>
-            <TabsContent
-              value="formulation"
-              className={cn("mt-4 rounded-xl bg-white p-4 leading-7", compact ? "text-xs leading-relaxed" : "text-sm")}
-            >
-              {draft.formulation}
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+
+          <Card className={cardR}>
+            <CardContent className={pad}>
+              <div className="mb-4 flex items-center gap-2">
+                <FileText className={icon} />
+                <h2 className={h2}>Live draft report sections</h2>
+              </div>
+              <Tabs defaultValue="a1">
+                <TabsList className="grid w-full grid-cols-5 rounded-xl">
+                  <TabsTrigger value="a1">A1</TabsTrigger>
+                  <TabsTrigger value="a2">A2</TabsTrigger>
+                  <TabsTrigger value="a3">A3</TabsTrigger>
+                  <TabsTrigger value="b">B Criteria</TabsTrigger>
+                  <TabsTrigger value="formulation">Formulation</TabsTrigger>
+                </TabsList>
+                <TabsContent value="a1" className="mt-4 rounded-xl bg-white p-4 text-sm leading-7">
+                  {draft.A1}
+                </TabsContent>
+                <TabsContent value="a2" className="mt-4 rounded-xl bg-white p-4 text-sm leading-7">
+                  {draft.A2}
+                </TabsContent>
+                <TabsContent value="a3" className="mt-4 rounded-xl bg-white p-4 text-sm leading-7">
+                  {draft.A3}
+                </TabsContent>
+                <TabsContent value="b" className="mt-4 whitespace-pre-line rounded-xl bg-white p-4 text-sm leading-7">
+                  {draft.B}
+                </TabsContent>
+                <TabsContent value="formulation" className="mt-4 rounded-xl bg-white p-4 text-sm leading-7">
+                  {draft.formulation}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

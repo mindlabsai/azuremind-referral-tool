@@ -76,7 +76,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && (pathname === "/login" || pathname.startsWith("/login/"))) {
+  // Recovery / change-password must stay reachable while a session exists.
+  const allowAuthedLoginPath =
+    pathname === "/login/update-password" ||
+    pathname.startsWith("/login/update-password/");
+
+  if (user && (pathname === "/login" || pathname.startsWith("/login/")) && !allowAuthedLoginPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";

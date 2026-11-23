@@ -144,7 +144,7 @@ export function TexlexReportSidebarNav() {
 
   return (
     <nav className="hidden w-56 shrink-0 lg:block" aria-label="Report sections">
-      <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto">
+      <div className="sticky top-16 max-h-[calc(100vh-5rem)] overflow-y-auto">
         <Link
           href="/asd-engine"
           className="mb-2 block px-0 py-1.5 text-[18px] text-[var(--text-2)] transition-colors hover:text-[var(--text-1)]"

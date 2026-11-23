@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { TexlexSendPanel } from "./TexlexSendPanel";
-import type { LetterKind, LetterMergeFields, RecipientBuckets } from "@/lib/texlex-comms/letters";
+import type { LetterKind, LetterMergeFields, RecipientBuckets, SendAudience } from "@/lib/texlex-comms/letters";
 
 type PdfAttachment = { filename: string; contentBase64: string };
 
@@ -17,6 +17,8 @@ type Props = {
   reportAttachLabel?: string;
   onScrollToFinalize?: () => void;
   clientLabel?: string;
+  initialLetterKind?: LetterKind;
+  initialAudience?: SendAudience;
 };
 
 export function TexlexSendDrawer({
@@ -30,6 +32,8 @@ export function TexlexSendDrawer({
   reportAttachLabel,
   onScrollToFinalize,
   clientLabel,
+  initialLetterKind,
+  initialAudience,
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -57,10 +61,10 @@ export function TexlexSendDrawer({
         aria-label="Close send report"
         onClick={onClose}
       />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[460px] flex-col border-l border-[#D5E0E0] bg-white shadow-[0_22px_56px_rgba(7,94,99,0.16)] animate-in slide-in-from-right duration-200">
+      <aside className="texlex-paper absolute inset-y-0 right-0 flex w-full max-w-[460px] flex-col border-l border-[#D5E0E0] bg-white text-[#111111] shadow-[0_22px_56px_rgba(7,94,99,0.16)] [--background:#ffffff] [--foreground:#111111] [--muted-foreground:#3d4a4a] animate-in slide-in-from-right duration-200">
         <div className="flex items-start gap-3 border-b border-[#D5E0E0] px-5 py-4">
           <div className="min-w-0 flex-1">
-            <h2 className="text-[22px] font-extrabold tracking-tight text-[#075E63]">Send report</h2>
+            <h2 className="text-[26px] font-extrabold tracking-tight text-[#075E63]">Send report</h2>
             <p className="mt-1 text-[15px] text-[#5A6B6C]">
               {name} · builds PDF · Azure Mind preview
             </p>
@@ -87,6 +91,8 @@ export function TexlexSendDrawer({
               onScrollToFinalize?.();
             }}
             embedded
+            initialLetterKind={initialLetterKind}
+            initialAudience={initialAudience}
           />
         </div>
       </aside>

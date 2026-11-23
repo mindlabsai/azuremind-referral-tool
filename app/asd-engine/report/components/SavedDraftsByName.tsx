@@ -73,16 +73,16 @@ export function SavedDraftsByName({
 
   return (
     <div className="mt-2 space-y-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/30">
-      <p className="text-xs font-medium text-foreground">
+      <p className="text-[15px] font-medium text-[#1c1917]">
         {searching && hits.length === 0
           ? "Looking for saved reports…"
           : "Saved reports matching this name"}
       </p>
       {hits.map((hit) => (
         <div key={hit.id} className="flex items-center justify-between gap-2">
-          <p className="min-w-0 truncate text-sm text-foreground">
+          <p className="min-w-0 truncate text-[16px] text-[#1c1917]">
             {hit.clientName || "Unnamed"}
-            <span className="ml-1 text-xs text-muted-foreground">
+            <span className="ml-1 text-[14px] text-[#5c564f]">
               {hit.source === "local" ? "this browser" : "cloud"} · last saved{" "}
               {formatDraftSavedAgo(hit.lastSaved)}
             </span>

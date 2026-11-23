@@ -289,7 +289,7 @@ export function ClinikoHeyTex({
             patientId: match.patient_id,
             patientName: match.patient_name,
             appointmentStartsAt: match.starts_at,
-            importFiles: importFilesEnabled,
+            importFiles: source === "halaxy" ? false : importFilesEnabled,
           });
           if (cancelledRef.current) return;
           finish(`Loaded ${label} for ${clock}.`);
@@ -307,7 +307,7 @@ export function ClinikoHeyTex({
             return;
           }
           const label = `${best.first_name} ${best.last_name}`.trim();
-          const shouldImport = command.importFiles || importFilesEnabled;
+          const shouldImport = source === "halaxy" ? false : command.importFiles || importFilesEnabled;
           note(
             shouldImport
               ? `Loading ${label} and Cliniko files…`

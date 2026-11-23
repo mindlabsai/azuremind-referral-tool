@@ -280,7 +280,7 @@ export function ClinikoMyCalendar({
 
   return (
     <div
-      className={cn("rounded-lg border border-border/80 bg-muted/20 px-3 py-3", className)}
+      className={cn("px-0 py-1", className)}
       data-testid="cliniko-my-calendar"
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -489,7 +489,7 @@ export function ClinikoMyCalendar({
                     setLoadingPatientId(patientId);
                     void Promise.resolve(
                       onSelectPatientId(patientId, appointment.patient_name, {
-                        importFiles: importFilesEnabled,
+                        importFiles: source === "halaxy" ? false : importFilesEnabled,
                         appointmentStartsAt: appointment.starts_at,
                       })
                     ).finally(() => setLoadingPatientId(null));

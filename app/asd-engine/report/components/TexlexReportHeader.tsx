@@ -2,16 +2,23 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { ReportFindBar } from "@/components/ReportFindBar";
 import { SignOutButton } from "@/components/SignOutButton";
+import { TexlexWorkspaceLinks } from "@/components/TexlexWorkspaceLinks";
 import { cn } from "@/lib/utils";
 
-const BTN_GHOST =
-  "inline-flex items-center justify-center rounded-lg border border-[#B7E1DE] bg-white px-4 py-2.5 text-[15px] font-semibold text-[#075E63] transition-colors hover:bg-[#E8F6F5] disabled:cursor-not-allowed disabled:opacity-50";
+const ACTION =
+  "inline-flex items-center justify-center border-0 bg-transparent px-0 py-1 text-[17px] font-medium text-[#c5d4e4] transition-colors hover:text-[#f4f8fc] disabled:cursor-not-allowed disabled:opacity-40";
 
-const BTN_PRIMARY =
-  "inline-flex items-center justify-center rounded-lg border-0 bg-[#0E9F98] px-5 py-2.5 text-[16px] font-bold text-white transition-colors hover:bg-[#075E63] disabled:cursor-not-allowed disabled:opacity-50";
+const ACTION_EMPHASIS =
+  "inline-flex items-center justify-center border-0 bg-transparent px-0 py-1 text-[17px] font-semibold text-[#9fc3f2] transition-colors hover:text-[#eaf1f8] disabled:cursor-not-allowed disabled:opacity-40";
 
 export type TexlexPdfBusyMode = "only" | "save" | "preview" | null;
+
+export type TexlexHeaderRestoreNotice = {
+  message: string;
+  onDiscard: () => void;
+};
 
 type TexlexReportHeaderProps = {
   clientName: string;
@@ -43,6 +50,8 @@ type TexlexReportHeaderProps = {
   engineHomeHref?: string;
   /** Practice file the final PDF is saved to. */
   recordLabel?: string;
+  /** Inline draft-restored notice (keeps Discard with the message). */
+  restoreNotice?: TexlexHeaderRestoreNotice | null;
 };
 
 function TexlexHeaderOverflowMenu({
@@ -58,6 +67,7 @@ function TexlexHeaderOverflowMenu({
   onFinalizeReview,
   engineHomeHref,
   recordLabel,
+  restoreNotice,
 }: {
   saveFailed: boolean;
   pdfDownloading: boolean;
@@ -71,6 +81,7 @@ function TexlexHeaderOverflowMenu({
   onFinalizeReview?: () => void;
   engineHomeHref: string;
   recordLabel: string;
+  restoreNotice?: TexlexHeaderRestoreNotice | null;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -94,7 +105,7 @@ function TexlexHeaderOverflowMenu({
   }, [open]);
 
   const itemClass =
-    "flex w-full px-4 py-3 text-left text-[15px] text-[#122022] hover:bg-[#E8F6F5] disabled:cursor-not-allowed disabled:opacity-50";
+    "flex w-full px-4 py-3.5 text-left text-[17px] text-[#eaf1f8] hover:bg-[#13263a] disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div ref={rootRef} className="relative">
@@ -103,7 +114,7 @@ function TexlexHeaderOverflowMenu({
         aria-label="More actions"
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex h-10 min-w-10 items-center justify-center rounded-lg border border-[#D5E0E0] bg-white px-3 text-lg leading-none text-[#5A6B6C] transition-colors hover:bg-[#F3F5F5] hover:text-[#075E63]"
+        className="inline-flex h-10 min-w-10 items-center justify-center border-0 bg-transparent px-1 text-[26px] leading-none tracking-[0.08em] text-[#849aaf] transition-colors hover:text-[#eaf1f8]"
         onClick={() => setOpen((v) => !v)}
       >
         ···
@@ -111,7 +122,7 @@ function TexlexHeaderOverflowMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-2 min-w-[14rem] rounded-lg border border-[#D5E0E0] bg-white py-1 shadow-lg"
+          className="absolute right-0 z-50 mt-2 min-w-[15rem] overflow-hidden rounded-xl border border-[#2c455f] bg-[#0a1828] py-1 shadow-[0_24px_60px_rgba(1,6,15,0.5)]"
         >
           <button
             type="button"
@@ -131,8 +142,8 @@ function TexlexHeaderOverflowMenu({
             className={itemClass}
             disabled={pdfDownloading}
             onClick={() => {
-              setOpen(false);
               onDownloadOnly();
+              setOpen(false);
             }}
           >
             {pdfBusyMode === "only" ? "Preparing…" : "Download draft"}
@@ -149,8 +160,8 @@ function TexlexHeaderOverflowMenu({
                   : "Clear review blockers first"
               }
               onClick={() => {
-                setOpen(false);
                 onFinalPdf();
+                setOpen(false);
               }}
             >
               {pdfBusyMode === "save"
@@ -174,7 +185,20 @@ function TexlexHeaderOverflowMenu({
               Jump to Review
             </button>
           ) : null}
-          <div className="my-1 border-t border-[#D5E0E0]" />
+          <div className="my-1 border-t border-[#23384d]" />
+          {restoreNotice ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={cn(itemClass, "text-[#f0b4b4]")}
+              onClick={() => {
+                setOpen(false);
+                restoreNotice.onDiscard();
+              }}
+            >
+              Discard restored draft
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
@@ -202,7 +226,7 @@ function TexlexHeaderOverflowMenu({
             <button
               type="button"
               role="menuitem"
-              className={cn(itemClass, "text-destructive")}
+              className={cn(itemClass, "text-[#f0b4b4]")}
               onClick={() => {
                 setOpen(false);
                 onSaveDraft();
@@ -258,106 +282,136 @@ export function TexlexReportHeader({
   statusExtras,
   engineHomeHref = "/asd-engine",
   recordLabel = "Cliniko",
+  restoreNotice = null,
 }: TexlexReportHeaderProps) {
   const displayName = clientName.trim() || "New patient";
   const flowLabel = workflowStatusText(workflowStatus, statusLabel);
+  const pathway = assessmentLabel.replace(/ assessment$/i, "");
 
   return (
-    <header className="sticky top-0 z-10 border-b border-[#D5E0E0] bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90">
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-5 py-3.5">
-        {onToggleToday ? (
-          <button
-            type="button"
-            className={cn(BTN_GHOST, todayOpen && "bg-[#E8F6F5]")}
-            onClick={onToggleToday}
-          >
-            Today
-          </button>
-        ) : null}
-
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[20px] font-extrabold tracking-tight text-[#075E63] sm:text-[22px]">
-            {displayName}{" "}
-            <span className="font-medium text-[#5A6B6C]">· {assessmentLabel.replace(/ assessment$/i, "")}</span>
+    <header className="relative z-10 border-b border-[#2c455f]/80 bg-[#0c1a2b]/95 backdrop-blur-md">
+      <div className="mx-auto flex max-w-[1760px] flex-col gap-3 px-6 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <TexlexWorkspaceLinks density="header" />
+          <p className="text-[13px] text-[#6f859b]">
+            Drafts autosave — leave and return anytime
           </p>
-          <p
-            className={cn(
-              "mt-0.5 text-[15px] font-semibold",
-              saveFailed
-                ? "text-destructive"
-                : workflowStatus === "ready" || flowLabel.toLowerCase().includes("ready")
-                  ? "text-[#0F766E] underline decoration-[#B7E1DE] underline-offset-4"
-                  : editing
-                    ? "text-[#122022]"
-                    : "text-[#5A6B6C]"
-            )}
-          >
-            {saveFailed ? "Save failed" : flowLabel}
-          </p>
-          {statusExtras ? (
-            <div className="mt-1 flex flex-wrap gap-2 text-[13px] text-[#5A6B6C]">{statusExtras}</div>
-          ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {onGenerateAll ? (
+        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="truncate text-[28px] font-semibold leading-none tracking-[-0.03em] text-[#f4f8fc] sm:text-[32px]">
+                {displayName}
+              </h1>
+              <span className="text-[15px] font-semibold uppercase tracking-[0.14em] text-[#9fc3f2]">
+                {pathway}
+              </span>
+            </div>
+
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] leading-snug">
+              <span
+                className={cn(
+                  "font-medium",
+                  saveFailed ? "text-[#f0b4b4]" : editing ? "text-[#eaf1f8]" : "text-[#9eb2c6]"
+                )}
+              >
+                {saveFailed ? "Save failed" : flowLabel}
+              </span>
+
+              {statusExtras ? (
+                <>
+                  <span className="text-[#3d5874]" aria-hidden>
+                    ·
+                  </span>
+                  <span className="text-[#9eb2c6]">{statusExtras}</span>
+                </>
+              ) : null}
+
+              {restoreNotice ? (
+                <>
+                  <span className="text-[#3d5874]" aria-hidden>
+                    ·
+                  </span>
+                  <span className="text-[#9eb2c6]" aria-live="polite">
+                    {restoreNotice.message}
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-6 gap-y-2">
+            {onToggleToday ? (
+              <button
+                type="button"
+                className={cn(ACTION, todayOpen && "text-[#f4f8fc]")}
+                onClick={onToggleToday}
+              >
+                {todayOpen ? "Hide calendar" : "Show calendar"}
+              </button>
+            ) : null}
+            {onGenerateAll ? (
+              <button
+                type="button"
+                className={ACTION}
+                disabled={pdfDownloading || generateAllBusy}
+                onClick={onGenerateAll}
+              >
+                {generateAllBusy ? "Generating…" : "Generate all"}
+              </button>
+            ) : null}
             <button
               type="button"
-              className={BTN_GHOST}
-              disabled={pdfDownloading || generateAllBusy}
-              onClick={onGenerateAll}
+              className={ACTION}
+              disabled={pdfDownloading}
+              onClick={onSaveDraft}
             >
-              {generateAllBusy ? "Generating…" : "Generate all"}
+              Save
             </button>
-          ) : null}
-          <button
-            type="button"
-            className={BTN_GHOST}
-            disabled={pdfDownloading}
-            onClick={onSaveDraft}
-          >
-            Save
-          </button>
-          {onOpenSend ? (
-            <button
-              type="button"
-              className={BTN_PRIMARY}
-              disabled={pdfDownloading || !sendUnlocked}
-              title={
-                sendUnlocked
-                  ? "Preview and send — PDF builds with the send"
-                  : "Clear Review blockers first"
-              }
-              onClick={onOpenSend}
-            >
-              Send report
-            </button>
-          ) : null}
-          <TexlexHeaderOverflowMenu
-            saveFailed={saveFailed}
-            pdfDownloading={pdfDownloading}
-            onNewReport={onNewReport}
-            onSaveDraft={onSaveDraft}
-            onPreviewPdf={onPreviewPdf}
-            onDownloadOnly={onDownloadOnly}
-            onFinalPdf={
-              onFinalPdfDownload
-                ? () => {
-                    if (!finalPdfUnlocked) {
-                      onFinalizeReview?.();
-                      return;
+            {onOpenSend ? (
+              <button
+                type="button"
+                className={ACTION_EMPHASIS}
+                disabled={pdfDownloading || !sendUnlocked}
+                title={
+                  sendUnlocked
+                    ? "Preview and send — PDF builds with the send"
+                    : "Clear Review blockers first"
+                }
+                onClick={onOpenSend}
+              >
+                Send report
+              </button>
+            ) : null}
+            <TexlexHeaderOverflowMenu
+              saveFailed={saveFailed}
+              pdfDownloading={pdfDownloading}
+              onNewReport={onNewReport}
+              onSaveDraft={onSaveDraft}
+              onPreviewPdf={onPreviewPdf}
+              onDownloadOnly={onDownloadOnly}
+              onFinalPdf={
+                onFinalPdfDownload
+                  ? () => {
+                      if (!finalPdfUnlocked) {
+                        onFinalizeReview?.();
+                        return;
+                      }
+                      onFinalPdfDownload();
                     }
-                    onFinalPdfDownload();
-                  }
-                : () => onDownloadAndSave()
-            }
-            finalPdfUnlocked={finalPdfUnlocked}
-            pdfBusyMode={pdfBusyMode}
-            onFinalizeReview={onFinalizeReview}
-            engineHomeHref={engineHomeHref}
-            recordLabel={recordLabel}
-          />
-          <SignOutButton className="inline-flex items-center justify-center rounded-lg border border-[#D5E0E0] bg-white px-3 py-2.5 text-[14px] font-semibold text-[#5A6B6C] transition-colors hover:bg-[#F3F5F5] hover:text-[#075E63]" />
+                  : () => onDownloadAndSave()
+              }
+              finalPdfUnlocked={finalPdfUnlocked}
+              pdfBusyMode={pdfBusyMode}
+              onFinalizeReview={onFinalizeReview}
+              engineHomeHref={engineHomeHref}
+              recordLabel={recordLabel}
+              restoreNotice={restoreNotice}
+            />
+            <SignOutButton className={ACTION} />
+            <ReportFindBar className="texlex-header-find" />
+          </div>
         </div>
       </div>
     </header>

@@ -43,6 +43,15 @@ export function ClinicalToolsNav() {
     return null;
   }
 
+  // Report desks / other-reports use compact in-page workspace links instead of the tall global bar.
+  if (
+    pathname.startsWith("/asd-engine/report") ||
+    pathname.startsWith("/adhd-engine/report") ||
+    pathname.startsWith("/reports")
+  ) {
+    return null;
+  }
+
   return (
     <nav aria-label="Texlex" className="texlex-global-nav">
       <span className="texlex-global-mark">Texlex</span>

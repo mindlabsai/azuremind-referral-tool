@@ -72,6 +72,9 @@ export function CollateralDocumentsUpload({
   clinikoPatientId = null,
   engine = null,
   practiceSource = "cliniko",
+  clientName = "",
+  dateOfBirth = "",
+  onLinkPatient,
 }: {
   collateralDocs: CollateralDoc[];
   setCollateralDocs: Dispatch<SetStateAction<CollateralDoc[]>>;
@@ -81,6 +84,9 @@ export function CollateralDocumentsUpload({
   clinikoPatientId?: string | null;
   engine?: "asd" | "adhd" | null;
   practiceSource?: PracticeSource;
+  clientName?: string;
+  dateOfBirth?: string;
+  onLinkPatient?: (patientId: string) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -320,6 +326,9 @@ export function CollateralDocumentsUpload({
         touch={touch}
         engine={engine}
         source={practiceSource}
+        clientName={clientName}
+        dateOfBirth={dateOfBirth}
+        onLinkPatient={onLinkPatient}
       />
 
       <input

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Loader2, X } from "lucide-react";
+import { Download, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type TexlexPdfPreviewPaneProps = {
@@ -10,6 +10,7 @@ type TexlexPdfPreviewPaneProps = {
   blobUrl: string | null;
   error: string | null;
   title: string;
+  downloadFilename?: string;
   onClose: () => void;
 };
 
@@ -19,6 +20,7 @@ export function TexlexPdfPreviewPane({
   blobUrl,
   error,
   title,
+  downloadFilename = "Texlex-ASD-Report.pdf",
   onClose,
 }: TexlexPdfPreviewPaneProps) {
   useEffect(() => {
@@ -42,9 +44,19 @@ export function TexlexPdfPreviewPane({
           <p className="truncate text-sm font-medium text-foreground">{title}</p>
           <p className="text-xs text-muted-foreground">In-app preview — not saved to Cliniko</p>
         </div>
-        <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={onClose} aria-label="Close preview">
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {blobUrl && !busy && !error ? (
+            <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 px-2.5" asChild>
+              <a href={blobUrl} download={downloadFilename} aria-label="Download PDF">
+                <Download className="h-3.5 w-3.5" />
+                Download
+              </a>
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={onClose} aria-label="Close preview">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 bg-muted/30">
         {busy ? (

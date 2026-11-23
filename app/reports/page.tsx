@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { TexlexScribe } from "@/app/asd-engine/report/components/TexlexScribe";
+import { TexlexWorkspaceLinks } from "@/components/TexlexWorkspaceLinks";
 
 type ReportKind = "sld" | "general" | "forensic" | "paediatric" | "psychiatry";
 
@@ -157,6 +158,10 @@ export default function OtherReportsPage() {
   return (
     <div className="report-desk texlex-surface min-h-screen bg-[#102033] px-8 pb-16 pt-8 text-[#f4f8fc]">
       <div className="mx-auto w-full max-w-[760px] text-left">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-[#2c455f]/70 pb-4">
+          <TexlexWorkspaceLinks density="bar" />
+          <p className="text-[13px] text-[#6f859b]">Drafts stay in this browser</p>
+        </div>
         <h1 className="report-title">New report</h1>
         <p className="report-subtitle">{SUBTITLE[kind]}</p>
 

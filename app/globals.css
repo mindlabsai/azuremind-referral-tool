@@ -48,6 +48,27 @@ body:has(.referral-desk) {
   font-family: var(--font-geist-sans), Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Report engines: keep global nav compact so it does not cover form fields */
+body:has(.texlex-report) .texlex-global-nav {
+  min-height: 52px;
+  padding: 0 16px;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+body:has(.texlex-report) .texlex-global-mark {
+  margin-right: 12px;
+  font-size: 18px;
+  letter-spacing: 0.1em;
+}
+
+body:has(.texlex-report) .texlex-global-link {
+  padding: 14px 12px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
 .texlex-global-mark {
   margin-right: 22px;
   flex-shrink: 0;
@@ -908,6 +929,66 @@ a {
   color: #7e95ab;
 }
 
+.report-desk .report-details-wrap {
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
+.report-desk .report-details {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.report-desk .report-details td {
+  width: 50%;
+  padding: 14px 18px 16px;
+  vertical-align: top;
+  border: 1px solid #24384c;
+}
+
+.report-desk .report-details .report-client input,
+.report-desk .report-details select {
+  width: 100%;
+}
+
+.report-desk .report-details select {
+  display: block;
+  margin-top: 4px;
+  padding: 8px 0;
+  border: none;
+  border-bottom: 1px solid #34495c;
+  background: transparent;
+  color: #f4f8fc;
+  font: inherit;
+  font-size: 20px;
+  outline: none;
+}
+
+.report-desk .report-details .report-client + .report-client,
+.report-desk .report-details .report-sub {
+  margin-top: 12px;
+}
+
+.report-desk .report-practice {
+  margin-top: 18px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.report-desk .report-practice [class*="text-xs"] {
+  font-size: 13px !important;
+}
+
+.report-desk .report-practice [class*="text-sm"] {
+  font-size: 15px !important;
+}
+
+.report-desk .report-practice [data-slot="button"] {
+  font-size: 14px !important;
+}
+
 .report-desk .report-rail {
   display: flex;
   flex-wrap: nowrap;
@@ -1021,6 +1102,12 @@ a {
   font-size: 25px !important;
 }
 
+/* Clear the compact sticky global nav when jumping to report sections / find hits */
+.texlex-report section[id],
+.texlex-report [data-report-field] {
+  scroll-margin-top: 64px;
+}
+
 .texlex-report textarea,
 .texlex-report input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .texlex-report select {
@@ -1040,26 +1127,167 @@ a {
   box-shadow: none !important;
 }
 
-.texlex-report aside [data-slot="card"],
-.texlex-report aside table {
+/* Shared navy desk (ASD + ADHD): fields and Assist side panel */
+.texlex-report.texlex-desk [data-slot="card"] {
+  background-color: transparent !important;
+  color: #eaf1f8 !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  gap: 0 !important;
+}
+
+.texlex-report.texlex-desk [data-slot="card-content"] {
+  padding: 0 !important;
+}
+
+.texlex-report.texlex-desk main [class*="bg-white"],
+.texlex-report.texlex-desk main [class*="bg-slate-50"],
+.texlex-report.texlex-desk main [class*="bg-slate-100"],
+.texlex-report.texlex-desk main [class*="bg-muted"],
+.texlex-report.texlex-desk main [class*="bg-card"] {
+  background-color: #12263a !important;
+  color: #eaf1f8 !important;
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk main table {
+  background-color: transparent !important;
+  color: #eaf1f8 !important;
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk main table td,
+.texlex-report.texlex-desk main table th {
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk textarea {
+  background-color: #152a40 !important;
+  color: #eaf1f8 !important;
+  border: 1px solid #2c455f !important;
+  border-radius: 10px;
+  box-shadow: none !important;
+}
+
+.texlex-report.texlex-desk input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.texlex-report.texlex-desk select {
+  background-color: #0f1f30 !important;
+  color: #f4f8fc !important;
+  border: 1px solid #2c455f !important;
+  border-radius: 8px;
+  -webkit-text-fill-color: #f4f8fc;
+  caret-color: #f4f8fc;
+}
+
+.texlex-report.texlex-desk input:-webkit-autofill,
+.texlex-report.texlex-desk input:-webkit-autofill:hover,
+.texlex-report.texlex-desk input:-webkit-autofill:focus,
+.texlex-report.texlex-desk textarea:-webkit-autofill,
+.texlex-report.texlex-desk select:-webkit-autofill {
+  -webkit-text-fill-color: #f4f8fc !important;
+  caret-color: #f4f8fc;
+  box-shadow: 0 0 0 1000px #0f1f30 inset !important;
+  transition: background-color 99999s ease-out;
+}
+
+.texlex-report.texlex-desk textarea::placeholder,
+.texlex-report.texlex-desk input::placeholder {
+  color: #7e95ab !important;
+}
+
+.texlex-report.texlex-desk .texlex-raw-notes {
+  background: #152a40 !important;
+  border-left-color: #9fc3f2 !important;
+  color: #eaf1f8 !important;
+}
+
+.texlex-report.texlex-desk .texlex-raw-notes textarea {
+  background: transparent !important;
+  color: #eaf1f8 !important;
+  border-color: transparent !important;
+}
+
+.texlex-report.texlex-desk aside {
+  color: #eaf1f8;
+}
+
+.texlex-report.texlex-desk aside [data-slot="card"],
+.texlex-report.texlex-desk aside table {
+  background-color: #152a40 !important;
+  color: #eaf1f8 !important;
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk aside [class*="bg-white"],
+.texlex-report.texlex-desk aside [class*="bg-slate-50"],
+.texlex-report.texlex-desk aside [class*="bg-slate-100"],
+.texlex-report.texlex-desk aside [class*="bg-slate-50/60"],
+.texlex-report.texlex-desk aside [class*="bg-slate-50/90"] {
+  background-color: #12263a !important;
+  color: #eaf1f8 !important;
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk aside [class*="text-slate-950"],
+.texlex-report.texlex-desk aside [class*="text-slate-900"],
+.texlex-report.texlex-desk aside [class*="text-slate-800"] {
+  color: #f4f8fc !important;
+}
+
+.texlex-report.texlex-desk aside [class*="text-slate-700"],
+.texlex-report.texlex-desk aside [class*="text-slate-600"],
+.texlex-report.texlex-desk aside [class*="text-slate-500"],
+.texlex-report.texlex-desk aside [class*="text-slate-400"] {
+  color: #9eb2c6 !important;
+}
+
+.texlex-report.texlex-desk aside [class*="border-slate"],
+.texlex-report.texlex-desk aside [class*="border-dashed"] {
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk aside [data-slot="tabs-list"],
+.texlex-report.texlex-desk aside [data-slot="tabs-trigger"] {
+  background-color: #0c1a2b !important;
+  color: #c5d4e4 !important;
+  border-color: #2c455f !important;
+}
+
+.texlex-report.texlex-desk aside [data-slot="tabs-trigger"][data-state="active"] {
+  background-color: #16324c !important;
+  color: #f4f8fc !important;
+}
+
+.texlex-report.texlex-desk aside [data-slot="badge"] {
+  background: #16324c !important;
+  color: #eaf1f8 !important;
+  border-color: #2c455f !important;
+}
+
+/* Legacy non-desk aside paper (engine landing pages) */
+.texlex-report:not(.texlex-desk) aside [data-slot="card"],
+.texlex-report:not(.texlex-desk) aside table {
   background-color: #fafcfc !important;
   color: #1a2433 !important;
   border-color: #d8d5cc !important;
 }
 
-.texlex-report aside [class*="text-slate-950"],
-.texlex-report aside [class*="text-slate-900"],
-.texlex-report aside [class*="text-slate-800"],
-.texlex-report aside [class*="text-slate-700"],
-.texlex-report aside [class*="text-slate-600"],
-.texlex-report aside [class*="text-slate-500"],
-.texlex-report aside [class*="text-slate-400"] {
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-950"],
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-900"],
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-800"],
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-700"],
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-600"],
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-500"],
+.texlex-report:not(.texlex-desk) aside [class*="text-slate-400"] {
   color: #1a2433 !important;
 }
 
-.texlex-report aside [class*="bg-slate-50"],
-.texlex-report aside [class*="bg-slate-100"],
-.texlex-report aside [class*="bg-white"] {
+.texlex-report:not(.texlex-desk) aside [class*="bg-slate-50"],
+.texlex-report:not(.texlex-desk) aside [class*="bg-slate-100"],
+.texlex-report:not(.texlex-desk) aside [class*="bg-white"] {
   background-color: #eef3f6 !important;
   color: #1a2433 !important;
 }
@@ -1086,6 +1314,231 @@ a {
   background: #f4f7fb !important;
   color: #1a2433 !important;
   border-color: #9aafc2 !important;
+}
+
+.report-desk .report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.report-find-toggle,
+.report-find-row button {
+  border: 0;
+  background: transparent;
+  color: #c5d4e4;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.report-find-toggle:hover,
+.report-find-row button:hover {
+  color: #f4f8fc;
+}
+
+.report-find-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 18px;
+  margin-top: 10px;
+}
+
+/* Keep Search in the header action row; expand as a panel, not a grey strip */
+.texlex-header-find {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.texlex-header-find .report-find-row {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 60;
+  margin-top: 0;
+  min-width: min(720px, 92vw);
+  border: 1px solid #2c455f;
+  border-radius: 14px;
+  background: #0c1a2b;
+  padding: 14px 16px;
+  box-shadow: 0 24px 60px rgba(1, 6, 15, 0.45);
+}
+
+.report-find-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #9eb2c6;
+  font-size: 13px;
+}
+
+.report-find-row input {
+  width: 220px;
+  border: 0;
+  border-bottom: 1px solid #2c455f;
+  background: transparent;
+  color: #f4f8fc;
+  font: inherit;
+  font-size: 18px;
+  padding: 4px 0;
+  outline: none;
+}
+
+.report-find-count {
+  font-size: 15px;
+  color: #9eb2c6;
+}
+
+.report-find-hit {
+  outline: 2px solid #9fc3f2;
+  outline-offset: 2px;
+}
+
+.report-desk .report-sources {
+  margin-top: 8px;
+}
+
+.report-desk .report-notes {
+  min-height: 140px;
+}
+
+.report-desk .report-uploads {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .report-desk .report-uploads,
+  .report-desk .report-row {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+}
+
+.report-desk .report-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f4f8fc;
+}
+
+.report-desk .report-upload span,
+.report-desk .report-file-note {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: #9eb2c6;
+}
+
+.report-desk .report-upload input {
+  font: inherit;
+  font-size: 15px;
+  color: #d5e2ee;
+}
+
+.report-desk .report-files {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-desk .report-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #24384c;
+  font-size: 16px;
+}
+
+.report-desk .report-files button,
+.report-desk .report-generate {
+  border: 1px solid #8fcebb;
+  background: transparent;
+  color: #d7ebe4;
+  font: inherit;
+  font-size: 16px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.report-desk .report-generate:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.report-desk .report-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-desk .report-section-head .report-kicker,
+.report-desk .report-section-head h2 {
+  margin: 0;
+}
+
+.report-desk .report-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #24384c;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.report-desk .report-row > span {
+  min-width: 0;
+}
+
+.report-desk .report-choice {
+  margin-left: 6px;
+  border: 1px solid #5c7388;
+  background: transparent;
+  color: #d5e2ee;
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.report-desk .report-choice[aria-pressed="true"] {
+  border-color: #8fcebb;
+  background: #0f766e;
+  color: #f4f8fc;
+}
+
+.report-desk .report-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+
+.report-desk .report-diva h3 {
+  margin: 16px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #849aaf;
+}
+
+.report-desk .report-severity {
+  margin-top: 12px;
+}
+
+.report-desk .report-error {
+  color: #f0c7c7;
 }
 
 .report-desk [data-testid="texlex-scribe"] {
