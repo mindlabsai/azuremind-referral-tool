@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAdminAllowedPath, isAdminStaffEmail } from "@/lib/auth/staff-accounts";
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/login" || pathname.startsWith("/login/")) return true;
@@ -84,6 +85,20 @@ export async function updateSession(request: NextRequest) {
   if (user && (pathname === "/login" || pathname.startsWith("/login/")) && !allowAuthedLoginPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  // Admin desk: Referral + Inbox only (no ASD / ADHD / Reports / Workspace).
+  if (user && isAdminStaffEmail(user.email) && !isAdminAllowedPath(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Admin accounts can only use Referral and Inbox." },
+        { status: 403 }
+      );
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/referral-inbox";
     url.search = "";
     return NextResponse.redirect(url);
   }

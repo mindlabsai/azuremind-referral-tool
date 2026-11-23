@@ -1,39 +1,66 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { isAdminStaffEmail } from "@/lib/auth/staff-accounts";
 
 const LINKS = [
-  { href: "/", label: "Referral", match: (path: string) => path === "/" },
+  { href: "/", label: "Referral", match: (path: string) => path === "/", admin: true },
   {
     href: "/referral-inbox",
     label: "Inbox",
     match: (path: string) => path.startsWith("/referral-inbox"),
+    admin: true,
   },
   {
     href: "/workspace",
     label: "Workspace",
     match: (path: string) => path.startsWith("/workspace"),
+    admin: false,
   },
   {
     href: "/asd-engine/report",
     label: "ASD",
     match: (path: string) => path.startsWith("/asd-engine"),
+    admin: false,
   },
   {
     href: "/adhd-engine/report",
     label: "ADHD",
     match: (path: string) => path.startsWith("/adhd-engine"),
+    admin: false,
   },
   {
     href: "/reports",
     label: "Reports",
     match: (path: string) => path.startsWith("/reports"),
+    admin: false,
   },
 ] as const;
 
 export function ClinicalToolsNav() {
   const pathname = usePathname() ?? "/";
+  const [adminOnly, setAdminOnly] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!cancelled) setAdminOnly(isAdminStaffEmail(user?.email));
+      } catch {
+        if (!cancelled) setAdminOnly(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (
     pathname.startsWith("/login") ||
@@ -52,10 +79,12 @@ export function ClinicalToolsNav() {
     return null;
   }
 
+  const links = adminOnly ? LINKS.filter((link) => link.admin) : LINKS;
+
   return (
     <nav aria-label="Texlex" className="texlex-global-nav">
       <span className="texlex-global-mark">Texlex</span>
-      {LINKS.map((link) => {
+      {links.map((link) => {
         const active = link.match(pathname);
         return (
           <Link

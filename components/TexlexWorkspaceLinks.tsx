@@ -1,35 +1,43 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { isAdminStaffEmail } from "@/lib/auth/staff-accounts";
 import { cn } from "@/lib/utils";
 
-const LINKS = [
-  { href: "/", label: "Referral", match: (path: string) => path === "/" },
+const ALL_LINKS = [
+  { href: "/", label: "Referral", match: (path: string) => path === "/", admin: true },
   {
     href: "/referral-inbox",
     label: "Inbox",
     match: (path: string) => path.startsWith("/referral-inbox"),
+    admin: true,
   },
   {
     href: "/workspace",
     label: "Workspace",
     match: (path: string) => path.startsWith("/workspace"),
+    admin: false,
   },
   {
     href: "/asd-engine/report",
     label: "ASD",
     match: (path: string) => path.startsWith("/asd-engine"),
+    admin: false,
   },
   {
     href: "/adhd-engine/report",
     label: "ADHD",
     match: (path: string) => path.startsWith("/adhd-engine"),
+    admin: false,
   },
   {
     href: "/reports",
     label: "Reports",
     match: (path: string) => path.startsWith("/reports"),
+    admin: false,
   },
 ] as const;
 
@@ -42,6 +50,27 @@ export function TexlexWorkspaceLinks({
   density?: "header" | "bar";
 }) {
   const pathname = usePathname() ?? "/";
+  const [adminOnly, setAdminOnly] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!cancelled) setAdminOnly(isAdminStaffEmail(user?.email));
+      } catch {
+        if (!cancelled) setAdminOnly(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const links = adminOnly ? ALL_LINKS.filter((link) => link.admin) : ALL_LINKS;
 
   return (
     <nav
@@ -52,7 +81,7 @@ export function TexlexWorkspaceLinks({
         className
       )}
     >
-      {LINKS.map((link) => {
+      {links.map((link) => {
         const active = link.match(pathname);
         return (
           <Link
