@@ -46,6 +46,9 @@ type Props = {
   onScrollToFinalize?: () => void;
   /** Compact layout for the Send report drawer (no outer section chrome). */
   embedded?: boolean;
+  /** Prefill when opened from a specific letter / audience shortcut. */
+  initialLetterKind?: LetterKind;
+  initialAudience?: SendAudience;
 };
 
 export function TexlexSendPanel({
@@ -57,20 +60,22 @@ export function TexlexSendPanel({
   reportAttachLabel = "Attach final ASD report PDF",
   onScrollToFinalize,
   embedded = false,
+  initialLetterKind = "parent-cover",
+  initialAudience = "parents-and-clinician",
 }: Props) {
-  const [audience, setAudience] = useState<SendAudience>("parents-and-clinician");
-  const initialRecipients = resolveAudienceRecipients("parents-and-clinician", recipientBuckets);
+  const [audience, setAudience] = useState<SendAudience>(initialAudience);
+  const initialRecipients = resolveAudienceRecipients(initialAudience, recipientBuckets);
   const [toInput, setToInput] = useState(() => initialRecipients.to.join(", "));
   const [ccInput, setCcInput] = useState(() => initialRecipients.cc.join(", "));
-  const [letterKind, setLetterKind] = useState<LetterKind>("parent-cover");
+  const [letterKind, setLetterKind] = useState<LetterKind>(initialLetterKind);
   const [extraDoctors, setExtraDoctors] = useState<ReferralDoctor[]>([]);
   const [referralDoctorId, setReferralDoctorId] = useState("chaandini-subramaniam");
   const [addingDoctor, setAddingDoctor] = useState(false);
   const [newDoctorName, setNewDoctorName] = useState("");
   const [newDoctorRole, setNewDoctorRole] = useState("");
   const [newDoctorClinic, setNewDoctorClinic] = useState("");
-  const [subject, setSubject] = useState(() => buildLetterSubject("parent-cover", mergeFields));
-  const [letterBody, setLetterBody] = useState(() => buildLetterBody("parent-cover", mergeFields));
+  const [subject, setSubject] = useState(() => buildLetterSubject(initialLetterKind, mergeFields));
+  const [letterBody, setLetterBody] = useState(() => buildLetterBody(initialLetterKind, mergeFields));
   const [attachReport, setAttachReport] = useState(true);
   const [attachLetterPdf, setAttachLetterPdf] = useState(true);
   const [sending, setSending] = useState(false);
